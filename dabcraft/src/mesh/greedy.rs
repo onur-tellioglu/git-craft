@@ -1,4 +1,3 @@
-#![cfg_attr(not(test), allow(dead_code))]
 // Binary greedy mesher (dabcraft spec §5, M2 Tasks 5–6).
 // Per-corner AO with merge-safe 9-bit neighborhood keys and diagonal flip.
 

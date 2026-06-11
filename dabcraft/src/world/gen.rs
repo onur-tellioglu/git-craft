@@ -1,6 +1,3 @@
-// gen.rs is complete but its consumer (the job system) is Task 10.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::IVec3;
 
@@ -39,38 +36,6 @@ pub struct StructureWrite {
     pub only_air: bool,
 }
 
-/// Wrapper that makes FastNoiseLite behave as Clone + Send + Sync.
-///
-/// FastNoiseLite contains only i32, f32, and Copy enums — no heap allocations,
-/// no Drop impl. The library simply forgot to derive Clone/Send/Sync. We
-/// implement them manually; the clone uses ptr::read for a byte-level copy
-/// which is correct for this all-plain-data type.
-struct NoiseSampler(FastNoiseLite);
-
-// SAFETY: FastNoiseLite is all plain data (i32, f32, Copy enums). No Drop,
-// no heap pointers, no interior mutability. Send and Sync are safe.
-unsafe impl Send for NoiseSampler {}
-unsafe impl Sync for NoiseSampler {}
-
-impl Clone for NoiseSampler {
-    fn clone(&self) -> Self {
-        // SAFETY: FastNoiseLite has no Drop impl and no heap pointers.
-        // ptr::read produces a valid duplicate of the plain-data struct.
-        let copied = unsafe { std::ptr::read(&self.0) };
-        NoiseSampler(copied)
-    }
-}
-
-impl NoiseSampler {
-    fn get_noise_2d(&self, x: f32, y: f32) -> f32 {
-        self.0.get_noise_2d(x, y)
-    }
-
-    fn get_noise_3d(&self, x: f32, y: f32, z: f32) -> f32 {
-        self.0.get_noise_3d(x, y, z)
-    }
-}
-
 /// Apply one structure write to a column's section stack (world y).
 pub fn apply_write(sections: &mut [Section], write: StructureWrite) {
     if !(0..WORLD_HEIGHT).contains(&write.pos.y) {
@@ -80,7 +45,6 @@ pub fn apply_write(sections: &mut [Section], write: StructureWrite) {
 }
 
 /// Apply a write to the section that owns its y (caller picked it).
-#[allow(dead_code)] // consumed by Task 10 (ChunkMap)
 pub fn apply_write_to_section(section: &mut Section, write: StructureWrite) {
     // rem_euclid silently wraps an out-of-world y into a valid slot — the
     // caller must have ranged-checked pos.y when picking the section.
@@ -93,22 +57,29 @@ pub fn apply_write_to_section(section: &mut Section, write: StructureWrite) {
     section.set(lx, ly, lz, write.block);
 }
 
-/// Deterministic worldgen (spec §4). WorldGen is Clone + Send + Sync; rayon
-/// jobs receive a cloned copy (all noise state is plain data, clone is cheap).
-#[derive(Clone)]
+/// Deterministic worldgen (spec §4). All noise state is plain data and
+/// auto-Send/Sync; rayon jobs receive a clone. FastNoiseLite does not derive
+/// Clone, so Clone rebuilds from the seed — identical by determinism.
 pub struct WorldGen {
-    continental: NoiseSampler,
-    erosion: NoiseSampler,
-    peaks: NoiseSampler,
-    temperature: NoiseSampler,
-    humidity: NoiseSampler,
-    cave_a: NoiseSampler,
-    cave_b: NoiseSampler,
-    cheese: NoiseSampler,
+    continental: FastNoiseLite,
+    erosion: FastNoiseLite,
+    peaks: FastNoiseLite,
+    temperature: FastNoiseLite,
+    humidity: FastNoiseLite,
+    cave_a: FastNoiseLite,
+    cave_b: FastNoiseLite,
+    cheese: FastNoiseLite,
     pub seed: i32,
 }
 
-fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves: i32) -> NoiseSampler {
+impl Clone for WorldGen {
+    fn clone(&self) -> Self {
+        Self::new(self.seed)
+    }
+}
+
+#[allow(dead_code)] // consumed by Task 13 (streaming loop calls WorldGen::new)
+fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves: i32) -> FastNoiseLite {
     let mut n = FastNoiseLite::with_seed(seed.wrapping_add(salt));
     n.set_noise_type(Some(NoiseType::OpenSimplex2));
     n.set_frequency(Some(freq));
@@ -116,10 +87,11 @@ fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves:
         n.set_fractal_type(Some(f));
         n.set_fractal_octaves(Some(octaves));
     }
-    NoiseSampler(n)
+    n
 }
 
 impl WorldGen {
+    #[allow(dead_code)] // consumed by Task 13 (streaming loop)
     pub fn new(seed: i32) -> Self {
         Self {
             continental: noise(seed, 1, 0.0011, Some(FractalType::FBm), 4),
@@ -149,6 +121,7 @@ impl WorldGen {
         (base + mountains).clamp(4.0, 230.0) as i32
     }
 
+    #[allow(dead_code)] // consumed by Task 13 (F3 HUD biome display)
     pub fn biome(&self, x: i32, z: i32) -> Biome {
         self.biome_for(self.height(x, z), x, z)
     }
