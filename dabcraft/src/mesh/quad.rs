@@ -23,10 +23,14 @@ pub struct PackedQuad {
 }
 
 impl PackedQuad {
+    // Validation is debug-only by design: pack() sits in the meshing hot path,
+    // and all callers are in-crate meshers whose outputs are unit-tested.
+    // Out-of-range inputs in release builds silently corrupt neighboring fields.
     pub fn pack(q: Quad) -> Self {
         debug_assert!(q.x < 34 && q.y < 34 && q.z < 34 && q.face < 6);
         debug_assert!((1..=32).contains(&q.w) && (1..=32).contains(&q.h));
         debug_assert!(q.skylight < 16 && q.blocklight < 16 && q.texture < 1024);
+        debug_assert!(q.ao.iter().all(|&a| a < 4));
         let data0 = q.x | (q.y << 6) | (q.z << 12) | (q.face << 18) | ((q.w - 1) << 21);
         let ao = q.ao[0] | (q.ao[1] << 2) | (q.ao[2] << 4) | (q.ao[3] << 6);
         let data1 = (q.h - 1) | (ao << 5) | (q.skylight << 13) | (q.blocklight << 17) | (q.texture << 21);
@@ -76,5 +80,31 @@ mod tests {
     #[test]
     fn packed_quad_is_8_bytes() {
         assert_eq!(std::mem::size_of::<PackedQuad>(), 8);
+    }
+
+    // Absolute bit-position probes: roundtrip tests cannot detect a field
+    // offset transposed identically in pack() and unpack(); these can.
+    // They are also the authoritative reference for the WGSL unpack mirror.
+    #[test]
+    fn data0_field_bit_positions() {
+        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0 };
+        assert_eq!(PackedQuad::pack(base).data0, 0);
+        assert_eq!(PackedQuad::pack(Quad { x: 1, ..base }).data0, 1 << 0);
+        assert_eq!(PackedQuad::pack(Quad { y: 1, ..base }).data0, 1 << 6);
+        assert_eq!(PackedQuad::pack(Quad { z: 1, ..base }).data0, 1 << 12);
+        assert_eq!(PackedQuad::pack(Quad { face: 1, ..base }).data0, 1 << 18);
+        assert_eq!(PackedQuad::pack(Quad { w: 2, ..base }).data0, 1 << 21);
+    }
+
+    #[test]
+    fn data1_field_bit_positions() {
+        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0 };
+        assert_eq!(PackedQuad::pack(base).data1, 0);
+        assert_eq!(PackedQuad::pack(Quad { h: 2, ..base }).data1, 1 << 0);
+        assert_eq!(PackedQuad::pack(Quad { ao: [1, 0, 0, 0], ..base }).data1, 1 << 5);
+        assert_eq!(PackedQuad::pack(Quad { ao: [0, 0, 0, 1], ..base }).data1, 1 << 11);
+        assert_eq!(PackedQuad::pack(Quad { skylight: 1, ..base }).data1, 1 << 13);
+        assert_eq!(PackedQuad::pack(Quad { blocklight: 1, ..base }).data1, 1 << 17);
+        assert_eq!(PackedQuad::pack(Quad { texture: 1, ..base }).data1, 1 << 21);
     }
 }
