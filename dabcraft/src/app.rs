@@ -61,11 +61,9 @@ impl App {
         // Hot-reload: poll shader file; swap pipeline only if naga validation passes.
         if let (Some(watcher), Some(terrain), Some(gpu)) =
             (self.shader_watcher.as_mut(), self.terrain.as_mut(), self.gpu.as_ref())
-        {
-            if let Some(source) = watcher.poll() {
+            && let Some(source) = watcher.poll() {
                 terrain.swap_shader(&gpu.device, &source);
             }
-        }
 
         let now = std::time::Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.1);
@@ -293,11 +291,10 @@ impl ApplicationHandler for App {
         }
 
         // Feed egui next; if it consumes the event, don't propagate to game input.
-        if let (Some(egui), Some(window)) = (&mut self.egui, &self.window) {
-            if egui.on_window_event(window, &event) {
+        if let (Some(egui), Some(window)) = (&mut self.egui, &self.window)
+            && egui.on_window_event(window, &event) {
                 return;
             }
-        }
 
         match event {
             WindowEvent::KeyboardInput { event, .. } => {

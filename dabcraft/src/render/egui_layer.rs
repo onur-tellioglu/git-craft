@@ -38,6 +38,9 @@ impl EguiLayer {
         let _ = self.state.take_egui_input(window);
     }
 
+    // The argument list is wgpu frame plumbing (device/queue/encoder/target);
+    // bundling it into a context struct would add a type for one call site.
+    #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
