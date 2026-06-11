@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), allow(dead_code))]
-// Binary greedy mesher (dabcraft spec §5, M2 Task 5).
-// AO is Task 6; until then ao=[3;4], flip=0.
+// Binary greedy mesher (dabcraft spec §5, M2 Tasks 5–6).
+// Per-corner AO with merge-safe 9-bit neighborhood keys and diagonal flip.
 
 use std::collections::HashMap;
 
@@ -12,9 +12,17 @@ const SIZE: usize = 32;
 /// face for (axis, direction): FACE_OF[axis][0]=+dir, [1]=-dir.
 const FACE_OF: [[u32; 2]; 3] = [[2, 3], [0, 1], [4, 5]];
 
+/// Integer mirrors of the shader's FACE tables (cross(U,V) = outward normal).
+const FACE_N: [[i32; 3]; 6] =
+    [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+const FACE_U: [[i32; 3]; 6] =
+    [[0, 1, 0], [0, 0, 1], [0, 0, 1], [1, 0, 0], [1, 0, 0], [0, 1, 0]];
+const FACE_V: [[i32; 3]; 6] =
+    [[0, 0, 1], [0, 1, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]];
+
 /// Binary greedy mesher (spec §5). Reusable: `mesh` clears prior state.
-/// M2: ao=[3;4], flip=0, skylight=15, blocklight=0 (AO lands in Task 6;
-/// flood-fill light in M4).
+/// M2: per-corner AO (Task 6), flip bit, skylight=15, blocklight=0
+/// (flood-fill light deferred to M4).
 pub struct Mesher {
     /// Solidity columns. Bit c of axis_cols[axis][i][j] = solid at padded
     /// coord c along the axis. axis 0: bits=Y,i=z,j=x; 1: bits=X,i=y,j=z;
@@ -26,7 +34,49 @@ pub struct Mesher {
 }
 
 fn plane_key(face: u32, slice: u32, block: u16, ao_key: u32) -> u64 {
+    debug_assert!(ao_key < 512, "ao_key {ao_key} exceeds 9 bits; would corrupt slice field");
     block as u64 | (ao_key as u64) << 16 | (slice as u64) << 25 | (face as u64) << 31
+}
+
+/// 9-bit solidity pattern of the out-layer 3×3 neighborhood of a face,
+/// in the face's U/V axes. Bit (du+1)*3+(dv+1); (px,py,pz) are the padded
+/// coords of the solid cell owning the face.
+fn ao_neighborhood(padded: &PaddedSection, px: usize, py: usize, pz: usize, face: usize) -> u32 {
+    let n = FACE_N[face];
+    let (u, v) = (FACE_U[face], FACE_V[face]);
+    let base = [px as i32 + n[0], py as i32 + n[1], pz as i32 + n[2]];
+    let mut key = 0u32;
+    for du in -1..=1i32 {
+        for dv in -1..=1i32 {
+            let q = [
+                base[0] + du * u[0] + dv * v[0],
+                base[1] + du * u[1] + dv * v[1],
+                base[2] + du * u[2] + dv * v[2],
+            ];
+            // The normal step keeps exactly one coordinate at the apron rim;
+            // U/V steps move the other two, which started in 1..=32. All
+            // three therefore stay inside 0..34.
+            if padded.get(q[0] as usize, q[1] as usize, q[2] as usize).is_solid() {
+                key |= 1 << ((du + 1) * 3 + (dv + 1));
+            }
+        }
+    }
+    key
+}
+
+/// Corner rule (spec §5): side1 && side2 → 0, else 3-(side1+side2+corner).
+/// Corner order (0,0) (w,0) (w,h) (0,h) in face U/V space.
+fn corner_ao(ao_key: u32) -> [u32; 4] {
+    let bit = |i: u32| (ao_key >> i) & 1;
+    let rule = |s1: u32, s2: u32, c: u32| {
+        if s1 == 1 && s2 == 1 { 0 } else { 3 - (s1 + s2 + c) }
+    };
+    [
+        rule(bit(1), bit(3), bit(0)),
+        rule(bit(7), bit(3), bit(6)),
+        rule(bit(7), bit(5), bit(8)),
+        rule(bit(1), bit(5), bit(2)),
+    ]
 }
 
 impl Mesher {
@@ -84,7 +134,7 @@ impl Mesher {
                                 _ => (j, i, (c + 1) as usize),
                             };
                             let block = padded.get(x, y, z);
-                            let ao_key = 0u32; // Task 6 replaces this
+                            let ao_key = ao_neighborhood(padded, x, y, z, face as usize);
                             let key = plane_key(face, c, block.0, ao_key);
                             self.planes.entry(key).or_insert([0u32; SIZE])[i - 1] |= 1 << (j - 1);
                         }
@@ -176,11 +226,6 @@ fn emit(
         texture: block as u32,
         flip,
     }));
-}
-
-/// Task 6 gives this real content; until then every corner is fully lit.
-fn corner_ao(_ao_key: u32) -> [u32; 4] {
-    [3, 3, 3, 3]
 }
 
 #[cfg(test)]
@@ -303,6 +348,106 @@ mod tests {
     }
 
     #[test]
+    fn isolated_block_has_full_ao() {
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        for q in mesh(&p) {
+            assert_eq!(q.ao, [3, 3, 3, 3], "face {}", q.face);
+            assert_eq!(q.flip, 0);
+        }
+    }
+
+    #[test]
+    fn wall_darkens_adjacent_top_corners() {
+        // Ground at interior (5,5,5); wall at interior (6,6,5) — +X and one up.
+        // Ground's top face (+Y): U=Z, V=X; the wall sits at (du=0, dv=+1)
+        // → side bit 5 → darkens corners 2=(w,h) and 3=(0,h) by one each.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE); // ground, padded coords
+        p.set(7, 7, 6, STONE); // wall above-right (padded)
+        let quads = mesh(&p);
+        let top = quads.iter().find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5)).unwrap();
+        assert_eq!(top.ao, [3, 3, 2, 2]);
+    }
+
+    #[test]
+    fn diagonal_only_neighbor_gives_corner_ao_two() {
+        // Only a diagonal block above the top face's out-layer: corner bit
+        // only → ao 2 at that corner. Block at padded (7,7,7) is offset
+        // (+1 X, +1 Z) from the out-layer center (6,7,6): du=+1 (U=Z),
+        // dv=+1 (V=X) → bit 8 → corner 2=(w,h) only.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(7, 7, 7, STONE);
+        let quads = mesh(&p);
+        let top = quads
+            .iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao, [3, 3, 2, 3]);
+    }
+
+    #[test]
+    fn fully_cornered_cell_gets_ao_zero() {
+        // Two perpendicular walls above the ground block: side1 && side2 → 0.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE); // ground
+        p.set(7, 7, 6, STONE); // +V wall (x+1 at out-layer height)
+        p.set(6, 7, 7, STONE); // +U wall (z+1 at out-layer height)
+        let top = mesh(&p)
+            .into_iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao[2], 0, "corner (w,h) boxed in by both walls");
+    }
+
+    #[test]
+    fn ao_boundary_splits_merge() {
+        // 2-block strip along z; a wall darkens only one cell's neighborhood
+        // → the top face must NOT merge into a single quad.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(6, 6, 7, STONE);
+        p.set(7, 7, 6, STONE); // wall darkening only the first cell
+        let quads = mesh(&p);
+        // Filter to the ground level: the helper wall emits its own top face.
+        let tops: Vec<_> = quads.iter().filter(|q| q.face == 2 && q.y == 5).collect();
+        assert_eq!(tops.len(), 2, "AO difference must split the merge");
+    }
+
+    #[test]
+    fn anisotropic_ao_sets_flip_bit() {
+        // Darken corners 1=(w,0) and 3=(0,h) via two opposite diagonal
+        // blocks → ao [3,2,3,2] → ao0+ao2=6 > ao1+ao3=4 → flip.
+        // Top face U=Z, V=X. Corner 1 ← (du=+1, dv=−1) = out-layer +z,−x:
+        // padded (5,7,7). Corner 3 ← (du=−1, dv=+1) = −z,+x: padded (7,7,5).
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(5, 7, 7, STONE);
+        p.set(7, 7, 5, STONE);
+        let top = mesh(&p)
+            .into_iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao, [3, 2, 3, 2]);
+        assert_eq!(top.flip, 1, "3+3 > 2+2 must flip the diagonal");
+    }
+
+    #[test]
+    fn slab_interior_still_merges_fully() {
+        // AO keys are uniform across a flat slab (edge cells see the all-air
+        // apron identically), so the whole top still merges to one quad.
+        let mut p = PaddedSection::air();
+        for x in 1..=32 {
+            for z in 1..=32 {
+                p.set(x, 1, z, GRASS);
+            }
+        }
+        let quads = mesh(&p);
+        assert_eq!(quads.iter().filter(|q| q.face == 2).count(), 1);
+    }
+
+    #[test]
     fn x_face_wh_orientation_is_not_transposed() {
         // A slab 1 deep in X, 3 tall in Y, 2 wide in Z. Pins w/h independently
         // on the X faces: a rw/rb transposition in emit() keeps the area (all
@@ -318,5 +463,46 @@ mod tests {
         assert_eq!((pos_x.w, pos_x.h), (3, 2), "+X face: w spans Y(U), h spans Z(V)");
         let neg_x = quads.iter().find(|q| q.face == 1).unwrap();
         assert_eq!((neg_x.w, neg_x.h), (2, 3), "-X face: w spans Z(U), h spans Y(V)");
+    }
+
+    #[test]
+    fn neg_u_side_darkens_corners_0_and_3() {
+        // Top face (+Y): U=Z, V=X. Wall at out-layer du=-1 (z-1) → bit 1 →
+        // side1 of corners 0=(0,0) and 3=(0,h).
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(6, 7, 5, STONE); // x unchanged, z-1 above the out-layer
+        let top = mesh(&p)
+            .into_iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao, [2, 3, 3, 2], "bit 1: corners 0 and 3 darkened");
+    }
+
+    #[test]
+    fn neg_v_side_darkens_corners_0_and_1() {
+        // Top face (+Y): V=X. Wall at out-layer dv=-1 (x-1) → bit 3 →
+        // side2 of corners 0=(0,0) and 1=(w,0).
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(5, 7, 6, STONE); // x-1, z unchanged
+        let top = mesh(&p)
+            .into_iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao, [2, 2, 3, 3], "bit 3: corners 0 and 1 darkened");
+    }
+
+    #[test]
+    fn neg_u_neg_v_diagonal_darkens_corner_0_only() {
+        // Out-layer (du=-1, dv=-1) → bit 0, the corner bit of corner 0.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(5, 7, 5, STONE); // x-1 and z-1
+        let top = mesh(&p)
+            .into_iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
+        assert_eq!(top.ao, [2, 3, 3, 3], "bit 0: only corner 0 darkened");
     }
 }
