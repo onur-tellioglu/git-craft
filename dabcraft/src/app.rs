@@ -22,6 +22,7 @@ pub struct App {
     camera: Camera,
     last_frame: std::time::Instant,
     terrain: Option<TerrainRenderer>,
+    shader_watcher: Option<crate::render::hot_reload::ShaderWatcher>,
 }
 
 impl App {
@@ -35,6 +36,7 @@ impl App {
             camera: Camera::new(glam::Vec3::new(16.0, 40.0, 60.0)),
             last_frame: std::time::Instant::now(),
             terrain: None,
+            shader_watcher: None,
         }
     }
 
@@ -43,6 +45,16 @@ impl App {
         if self.gpu.is_none() || self.depth_view.is_none() {
             return;
         }
+
+        // Hot-reload: poll shader file; swap pipeline only if naga validation passes.
+        if let (Some(watcher), Some(terrain), Some(gpu)) =
+            (self.shader_watcher.as_mut(), self.terrain.as_mut(), self.gpu.as_ref())
+        {
+            if let Some(source) = watcher.poll() {
+                terrain.swap_shader(&gpu.device, &source);
+            }
+        }
+
         let now = std::time::Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.1);
         self.last_frame = now;
@@ -144,6 +156,7 @@ impl ApplicationHandler for App {
         let mut terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
         terrain.upload_quads(&gpu.device, &crate::mesh::naive::mesh_naive(&build_test_section()));
         self.terrain = Some(terrain);
+        self.shader_watcher = Some(crate::render::hot_reload::ShaderWatcher::new(shader_path));
 
         self.gpu = Some(gpu);
         if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
