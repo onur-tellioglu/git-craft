@@ -911,6 +911,13 @@ Run again → PASS.
 
 - [ ] **Step 2: Write terrain.wgsl**
 
+> **CORRECTION (post-implementation):** The FACE_U/FACE_V tables below have
+> inverted winding on faces 0 (+X), 2 (+Y) and 5 (−Z) — cross(U,V) points
+> inward, so these faces would vanish under backface culling. The shipped
+> `dabcraft/assets/shaders/terrain.wgsl` is the authoritative reference: its
+> tables satisfy the invariant cross(U,V) = outward normal on all six faces.
+> Do NOT copy the tables from this plan.
+
 The unpack constants here MUST mirror `PackedQuad::pack` bit-for-bit. M1 has no textures yet: the `texture` field carries a block id, colored from a palette; real texture arrays arrive in M6.
 
 ```wgsl
