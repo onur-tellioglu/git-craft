@@ -1,6 +1,3 @@
-// Greedy mesher (next task) consumes this; remove then.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::world::block::{BlockId, AIR};
 use crate::world::section::{Section, SECTION_SIZE};
 
@@ -29,6 +26,7 @@ impl PaddedSection {
     }
 
     /// Test scaffolding: build arbitrary voxel scenes without a Section.
+    #[allow(dead_code)] // test-only helper; no binary consumer until Task 13 integration tests
     pub fn set(&mut self, x: usize, y: usize, z: usize, block: BlockId) {
         self.blocks[Self::index(x, y, z)] = block;
     }
