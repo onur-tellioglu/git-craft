@@ -8,6 +8,7 @@ pub struct GpuTimer {
     resolve_buffer: wgpu::Buffer,
     read_buffer: wgpu::Buffer,
     map_done: Arc<AtomicBool>,
+    map_ok: Arc<AtomicBool>,
     pending: bool,
     pub last_ms: f32,
 }
@@ -39,6 +40,7 @@ impl GpuTimer {
             resolve_buffer,
             read_buffer,
             map_done: Arc::new(AtomicBool::new(false)),
+            map_ok: Arc::new(AtomicBool::new(false)),
             pending: false,
             last_ms: 0.0,
         }
@@ -71,23 +73,30 @@ impl GpuTimer {
         }
         if !self.pending {
             let done = self.map_done.clone();
+            let ok = self.map_ok.clone();
             self.read_buffer.map_async(wgpu::MapMode::Read, .., move |result| {
-                if result.is_ok() {
-                    done.store(true, Ordering::Release);
-                }
+                // Signal completion even on failure, or `pending` locks forever
+                // and the timer silently stops measuring.
+                ok.store(result.is_ok(), Ordering::Release);
+                done.store(true, Ordering::Release);
             });
             self.pending = true;
             return;
         }
         let _ = device.poll(wgpu::PollType::Poll);
         if self.map_done.swap(false, Ordering::AcqRel) {
-            {
-                let data = self.read_buffer.get_mapped_range(..);
-                let ts: &[u64] = bytemuck::cast_slice(&data);
-                let ns = ts[1].wrapping_sub(ts[0]) as f32 * queue.get_timestamp_period();
-                self.last_ms = ns / 1_000_000.0;
+            if self.map_ok.load(Ordering::Acquire) {
+                {
+                    let data = self.read_buffer.get_mapped_range(..);
+                    let ts: &[u64] = bytemuck::cast_slice(&data);
+                    let ns = ts[1].wrapping_sub(ts[0]) as f32 * queue.get_timestamp_period();
+                    self.last_ms = ns / 1_000_000.0;
+                }
+                self.read_buffer.unmap();
+            } else {
+                // Failed map leaves the buffer unmapped; just retry next frame.
+                log::warn!("timestamp readback map failed; retrying");
             }
-            self.read_buffer.unmap();
             self.pending = false;
         }
     }
