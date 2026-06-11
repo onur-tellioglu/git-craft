@@ -23,10 +23,8 @@ impl App {
     }
 
     fn render(&mut self) {
-        let depth_view = match self.depth_view.as_ref() {
-            Some(v) => v as *const wgpu::TextureView,
-            None => return,
-        };
+        // Disjoint field borrows: depth_view immutably, gpu mutably.
+        let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
         let Some(frame) = gpu.acquire() else { return };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -34,11 +32,6 @@ impl App {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
         {
-            // SAFETY: depth_view is behind self.depth_view (Option<TextureView>) which lives
-            // as long as self. We hold an exclusive borrow on self via &mut self, so no
-            // aliasing is possible. The raw pointer is used only to satisfy the borrow checker
-            // when self.gpu is also borrowed mutably.
-            let depth_view_ref = unsafe { &*depth_view };
             let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
