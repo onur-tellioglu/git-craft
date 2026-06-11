@@ -48,6 +48,8 @@ impl PackedQuad {
         Self { data0, data1 }
     }
 
+    // Inverse of pack(); exercised by tests and meshing diagnostics only.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn unpack(self) -> Quad {
         let bits = |v: u32, off: u32, n: u32| (v >> off) & ((1 << n) - 1);
         let ao_bits = bits(self.data1, 5, 8);
