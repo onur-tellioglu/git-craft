@@ -1131,6 +1131,8 @@ git commit -m "feat: binary greedy mesher with bitmask face culling and plane sw
 
 ### Task 6: Per-corner ambient occlusion in the greedy mesher
 
+> **CORRECTION (found during implementation):** four test snippets below are flawed as written — helper blocks placed above the ground emit their own +Y faces, so (a) `ao_boundary_splits_merge` must count tops with `q.y == 5` only, and (b) `diagonal_only_neighbor_gives_corner_ao_two`, `fully_cornered_cell_gets_ao_zero`, and `anisotropic_ao_sets_flip_bit` must select the ground quad with `find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))` instead of a bare `find(|q| q.face == 2)` (quad order is HashMap-nondeterministic). The shipped tests in `greedy.rs` are authoritative. The AO geometry tables are correct as written.
+
 Real AO (spec §5): the classic 0–3 corner rule computed from the padded buffer, with merge correctness guaranteed by folding the face's 9-bit out-layer neighborhood pattern into the plane key — cells merge only when their entire AO-relevant neighborhood matches, so any cell's corner AO is valid for the whole merged quad. The diagonal flip from Task 3 activates here.
 
 **Files:**
