@@ -22,6 +22,16 @@ pub struct PackedQuad {
     pub data1: u32,
 }
 
+/// Two CCW triangles per quad: (0,1,2) and (0,2,3), vertices 4i..4i+3.
+pub fn build_quad_indices(quad_count: u32) -> Vec<u32> {
+    let mut indices = Vec::with_capacity(quad_count as usize * 6);
+    for i in 0..quad_count {
+        let b = i * 4;
+        indices.extend_from_slice(&[b, b + 1, b + 2, b, b + 2, b + 3]);
+    }
+    indices
+}
+
 impl PackedQuad {
     // Validation is debug-only by design: pack() sits in the meshing hot path,
     // and all callers are in-crate meshers whose outputs are unit-tested.
@@ -94,6 +104,11 @@ mod tests {
         assert_eq!(PackedQuad::pack(Quad { z: 1, ..base }).data0, 1 << 12);
         assert_eq!(PackedQuad::pack(Quad { face: 1, ..base }).data0, 1 << 18);
         assert_eq!(PackedQuad::pack(Quad { w: 2, ..base }).data0, 1 << 21);
+    }
+
+    #[test]
+    fn quad_indices_reference_four_vertices_per_quad() {
+        assert_eq!(build_quad_indices(2), vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
     }
 
     #[test]
