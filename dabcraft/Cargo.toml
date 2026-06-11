@@ -15,6 +15,9 @@ egui-wgpu = "0.34"
 egui-winit = "0.34"
 log = "0.4"
 env_logger = "0.11"
+rayon = "1.12"
+crossbeam-channel = "0.5"
+fastnoise-lite = "1.1"
 
 [profile.dev]
 opt-level = 1            # debug builds are unusably slow for voxel work at opt-level 0
