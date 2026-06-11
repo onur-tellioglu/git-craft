@@ -16,6 +16,8 @@ pub struct TerrainRenderer {
     camera_layout: wgpu::BindGroupLayout,
     quads_layout: wgpu::BindGroupLayout,
     quads_bind_group: Option<wgpu::BindGroup>,
+    // Kept alive explicitly: the bind group referencing it must never outlive it.
+    quads_buffer: Option<wgpu::Buffer>,
     index_buffer: Option<wgpu::Buffer>,
     index_count: u32,
     surface_format: wgpu::TextureFormat,
@@ -71,6 +73,7 @@ impl TerrainRenderer {
             camera_layout,
             quads_layout,
             quads_bind_group: None,
+            quads_buffer: None,
             index_buffer: None,
             index_count: 0,
             surface_format,
@@ -139,6 +142,7 @@ impl TerrainRenderer {
     pub fn upload_quads(&mut self, device: &wgpu::Device, quads: &[PackedQuad]) {
         if quads.is_empty() {
             self.quads_bind_group = None;
+            self.quads_buffer = None;
             self.index_buffer = None;
             self.index_count = 0;
             return;
@@ -153,6 +157,7 @@ impl TerrainRenderer {
             layout: &self.quads_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
         }));
+        self.quads_buffer = Some(buffer);
         let indices = build_quad_indices(quads.len() as u32);
         self.index_buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("quad indices"),
