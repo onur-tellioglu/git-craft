@@ -78,14 +78,16 @@ impl App {
         self.camera.apply_mouse_delta(dx, dy);
         self.camera.fly(&self.input, dt);
 
-        // Disjoint field borrows: terrain + depth_view immutably, gpu mutably.
-        let terrain = self.terrain.as_ref();
+        // Disjoint field borrows: terrain mutably for prepare, gpu mutably.
         let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
 
-        if let Some(terrain) = terrain {
+        if let Some(terrain) = self.terrain.as_mut() {
             let aspect = gpu.config.width as f32 / gpu.config.height as f32;
-            terrain.write_camera(&gpu.queue, self.camera.view_proj(aspect));
+            let view_proj = self.camera.view_proj(aspect);
+            terrain.write_camera(&gpu.queue, view_proj);
+            let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
+            terrain.prepare(&gpu.queue, &frustum);
         }
 
         let Some(frame) = gpu.acquire() else { return };
@@ -121,7 +123,8 @@ impl App {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            if let Some(terrain) = terrain {
+            // Reborrow immutably for draw (prepare has already finished above).
+            if let Some(terrain) = self.terrain.as_ref() {
                 terrain.draw(&mut rpass);
             }
         }
@@ -238,7 +241,7 @@ impl ApplicationHandler for App {
         let mut terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
         let quads = crate::mesh::naive::mesh_naive(&build_test_section());
         self.quad_count = quads.len() as u32;
-        terrain.upload_quads(&gpu.device, &quads);
+        terrain.upload_section(&gpu.queue, crate::world::chunks::SectionPos { x: 0, y: 0, z: 0 }, &quads);
         self.terrain = Some(terrain);
 
         // Initialize egui and GPU timer.

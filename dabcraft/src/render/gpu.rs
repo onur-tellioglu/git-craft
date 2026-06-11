@@ -26,6 +26,14 @@ impl Gpu {
             required_features |= wgpu::Features::TIMESTAMP_QUERY;
         }
 
+        // Indirect draws with non-zero first_instance require this feature.
+        // Every Apple Silicon Metal device exposes it.
+        assert!(
+            adapter.features().contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
+            "dabcraft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
+        );
+        required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
+
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features,

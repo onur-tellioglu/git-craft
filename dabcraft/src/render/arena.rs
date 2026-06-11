@@ -1,7 +1,3 @@
-// Not yet consumed by the terrain renderer (Task 13); suppress dead-code
-// warnings in non-test builds until then.
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// First-fit slab allocator over an abstract range of slots; the terrain
 /// renderer maps slots to quads in one big storage buffer. Free list is
 /// offset-sorted (offset, len) with full coalescing on free.
