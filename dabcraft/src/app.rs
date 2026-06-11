@@ -10,6 +10,7 @@ use crate::game::camera::Camera;
 use crate::game::input::InputState;
 use crate::render::depth;
 use crate::render::gpu::Gpu;
+use crate::render::terrain::TerrainRenderer;
 
 pub struct App {
     // Taken by value when the GPU context is created on first resume.
@@ -20,6 +21,7 @@ pub struct App {
     input: InputState,
     camera: Camera,
     last_frame: std::time::Instant,
+    terrain: Option<TerrainRenderer>,
 }
 
 impl App {
@@ -32,6 +34,7 @@ impl App {
             input: InputState::default(),
             camera: Camera::new(glam::Vec3::new(16.0, 40.0, 60.0)),
             last_frame: std::time::Instant::now(),
+            terrain: None,
         }
     }
 
@@ -47,16 +50,23 @@ impl App {
         self.camera.apply_mouse_delta(dx, dy);
         self.camera.fly(&self.input, dt);
 
-        // Disjoint field borrows: depth_view immutably, gpu mutably.
+        // Disjoint field borrows: terrain + depth_view immutably, gpu mutably.
+        let terrain = self.terrain.as_ref();
         let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
+
+        if let Some(terrain) = terrain {
+            let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+            terrain.write_camera(&gpu.queue, self.camera.view_proj(aspect));
+        }
+
         let Some(frame) = gpu.acquire() else { return };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
         {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
@@ -79,10 +89,39 @@ impl App {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if let Some(terrain) = terrain {
+                terrain.draw(&mut rpass);
+            }
         }
         gpu.queue.submit(Some(encoder.finish()));
         frame.present();
     }
+}
+
+fn build_test_section() -> crate::world::section::Section {
+    use crate::world::block::{DIRT, GRASS, STONE};
+    let mut s = crate::world::section::Section::empty();
+    for x in 0..32 {
+        for z in 0..32 {
+            for y in 0..3 {
+                s.set(x, y, z, STONE);
+            }
+            s.set(x, 3, z, DIRT);
+            s.set(x, 4, z, GRASS);
+        }
+    }
+    // landmarks: a pillar and a floating cube to judge depth and faces
+    for y in 5..12 {
+        s.set(8, y, 8, STONE);
+    }
+    for x in 20..24 {
+        for y in 8..12 {
+            for z in 20..24 {
+                s.set(x, y, z, DIRT);
+            }
+        }
+    }
+    s
 }
 
 impl ApplicationHandler for App {
@@ -99,6 +138,13 @@ impl ApplicationHandler for App {
         let gpu = Gpu::new(&instance, window.clone());
         let size = window.inner_size();
         self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
+
+        let shader_path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/terrain.wgsl");
+        let shader_source = std::fs::read_to_string(shader_path).expect("terrain.wgsl missing");
+        let mut terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
+        terrain.upload_quads(&gpu.device, &crate::mesh::naive::mesh_naive(&build_test_section()));
+        self.terrain = Some(terrain);
+
         self.gpu = Some(gpu);
         if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
             // Locked is unsupported on some platforms (e.g. X11); Confined is the fallback.
