@@ -36,6 +36,10 @@ impl App {
     }
 
     fn render(&mut self) {
+        // Guards first: input must not be consumed while the GPU is still initializing.
+        if self.gpu.is_none() || self.depth_view.is_none() {
+            return;
+        }
         let now = std::time::Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.1);
         self.last_frame = now;
@@ -96,7 +100,10 @@ impl ApplicationHandler for App {
         let size = window.inner_size();
         self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
         self.gpu = Some(gpu);
-        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+        if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
+            // Locked is unsupported on some platforms (e.g. X11); Confined is the fallback.
+            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
+        }
         window.set_cursor_visible(false);
         self.window = Some(window);
     }
@@ -112,6 +119,10 @@ impl ApplicationHandler for App {
                     self.input.set_key(code, event.state.is_pressed());
                 }
             }
+            WindowEvent::Focused(_) => {
+                // Drop held keys and stale mouse deltas on any focus transition.
+                self.input.clear();
+            }
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.resize(size.width, size.height);
@@ -125,8 +136,7 @@ impl ApplicationHandler for App {
 
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
         if let DeviceEvent::MouseMotion { delta } = event {
-            self.input.mouse_delta.0 += delta.0;
-            self.input.mouse_delta.1 += delta.1;
+            self.input.accumulate_mouse(delta.0, delta.1);
         }
     }
 
