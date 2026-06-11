@@ -1,5 +1,7 @@
 mod app;
 mod game;
+#[allow(dead_code)]
+mod mesh;
 mod render;
 
 use winit::event_loop::{ControlFlow, EventLoop};
