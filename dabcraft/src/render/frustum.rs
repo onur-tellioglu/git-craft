@@ -1,6 +1,3 @@
-// terrain renderer (Task 13) consumes this
-#![cfg_attr(not(test), allow(dead_code))]
-
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 
 /// View frustum as 6 inward-facing planes (xyz = normal, w = distance):

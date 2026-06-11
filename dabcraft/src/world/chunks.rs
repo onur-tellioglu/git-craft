@@ -1,4 +1,6 @@
-// ChunkMap, ColumnPos, SectionPos, and helpers. Binary consumer: Tasks 13/14.
+// ChunkMap, ColumnPos, SectionPos, and helpers.
+// SectionPos is consumed by terrain.rs (Task 13); ChunkMap/ColumnPos/helpers
+// are consumed by Task 14 (streaming).
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::collections::HashMap;
