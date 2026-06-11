@@ -1,3 +1,4 @@
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -14,6 +15,29 @@ use crate::render::gpu::Gpu;
 use crate::render::terrain::TerrainRenderer;
 use crate::render::timestamps::GpuTimer;
 
+/// Sections are drawn within this column radius: 12 × 32 = 384 blocks (spec §1).
+const RENDER_RADIUS: i32 = 12;
+/// Columns are generated one ring wider: meshing needs a full 3×3 neighborhood.
+const LOAD_RADIUS: i32 = RENDER_RADIUS + 1;
+/// Hysteresis: unload only beyond LOAD_RADIUS + 2 so walking along a column
+/// border doesn't thrash gen/unload.
+const UNLOAD_RADIUS: i32 = LOAD_RADIUS + 2;
+/// In-flight job caps: keep the rayon queue short so newly-near work isn't
+/// stuck behind a distant backlog (priority = submission order, spec §3).
+const MAX_GEN_IN_FLIGHT: usize = 12;
+const MAX_MESH_IN_FLIGHT: usize = 24;
+/// GPU upload budget per frame (sections), to avoid frame spikes (spec §3).
+const MAX_UPLOADS_PER_FRAME: usize = 24;
+const SEED: i32 = 1337;
+
+#[derive(Default)]
+struct FrameStats {
+    columns_ready: usize,
+    visible_sections: u32,
+    resident_sections: u32,
+    drawn_quads: u32,
+}
+
 pub struct App {
     // Taken by value when the GPU context is created on first resume.
     instance: Option<wgpu::Instance>,
@@ -29,8 +53,16 @@ pub struct App {
     timer: Option<GpuTimer>,
     hud_visible: bool,
     fps_smoothed: f32,
-    quad_count: u32,
     occluded: bool,
+    world: crate::world::chunks::ChunkMap,
+    worldgen: crate::world::r#gen::WorldGen,
+    jobs: crate::world::jobs::Jobs,
+    upload_queue: VecDeque<(crate::world::chunks::SectionPos, Vec<crate::mesh::quad::PackedQuad>)>,
+    /// Latest mesh-job version per section. Two jobs for one section can
+    /// finish out of order; only a result matching the current version may
+    /// be uploaded, or a stale snapshot would overwrite the fresh mesh.
+    mesh_versions: HashMap<crate::world::chunks::SectionPos, u64>,
+    stats: FrameStats,
 }
 
 impl App {
@@ -41,7 +73,7 @@ impl App {
             gpu: None,
             depth_view: None,
             input: InputState::default(),
-            camera: Camera::new(glam::Vec3::new(16.0, 40.0, 60.0)),
+            camera: Camera::new(glam::Vec3::new(16.0, 140.0, 16.0)),
             last_frame: std::time::Instant::now(),
             terrain: None,
             shader_watcher: None,
@@ -49,9 +81,145 @@ impl App {
             timer: None,
             hud_visible: true,
             fps_smoothed: 0.0,
-            quad_count: 0,
             occluded: false,
+            world: crate::world::chunks::ChunkMap::default(),
+            worldgen: crate::world::r#gen::WorldGen::new(SEED),
+            jobs: crate::world::jobs::Jobs::new(),
+            upload_queue: VecDeque::new(),
+            mesh_versions: HashMap::new(),
+            stats: FrameStats::default(),
         }
+    }
+
+    /// One streaming step (spec §3, §4): drain finished jobs, unload far
+    /// columns, request generation/meshing nearest-first under in-flight
+    /// caps, upload finished meshes under a per-frame budget.
+    /// ORDERING CONTRACT: drain BEFORE unload — a generation result dropped
+    /// for distance leaves a Generating zombie slot that the unload pass in
+    /// the same frame removes (drop condition radius == unload radius).
+    fn update_world(&mut self) {
+        use crate::world::chunks::{columns_in_radius, ColumnPos, SectionPos};
+        use crate::world::jobs::JobResult;
+        let Some(gpu) = self.gpu.as_ref() else { return };
+
+        let center = ColumnPos {
+            x: (self.camera.position.x as i32).div_euclid(32),
+            z: (self.camera.position.z as i32).div_euclid(32),
+        };
+
+        // 1. Drain finished jobs.
+        for result in self.jobs.drain() {
+            match result {
+                JobResult::Generated { pos, data, writes } => {
+                    let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
+                    if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
+                        // Player moved on; drop the data but keep its writes
+                        // (the unload pass below removes the zombie slot).
+                        self.world.queue_writes(writes);
+                        continue;
+                    }
+                    self.world.insert_generated(pos, data, writes);
+                }
+                JobResult::Meshed { pos, version, quads } => {
+                    let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
+                    if version == current && self.world.ready(pos.column()).is_some() {
+                        self.upload_queue.push_back((pos, quads));
+                    }
+                    // version < current: a newer job is in flight (or already
+                    // landed) for this section — stale snapshot, drop it.
+                }
+            }
+        }
+
+        // 2. Unload far columns and free their GPU meshes + version entries.
+        if let Some(terrain) = self.terrain.as_mut() {
+            for pos in self.world.unload_outside(center, UNLOAD_RADIUS) {
+                for y in 0..8 {
+                    let section = SectionPos { x: pos.x, y, z: pos.z };
+                    terrain.remove_section(section);
+                    self.mesh_versions.remove(&section);
+                }
+            }
+        }
+
+        // 3. Request generation, nearest first.
+        if self.jobs.gen_in_flight < MAX_GEN_IN_FLIGHT {
+            for col in columns_in_radius(center, LOAD_RADIUS) {
+                if self.jobs.gen_in_flight >= MAX_GEN_IN_FLIGHT {
+                    break;
+                }
+                if !self.world.contains(col) {
+                    self.world.mark_generating(col);
+                    self.jobs.spawn_gen(self.worldgen.clone(), col);
+                }
+            }
+        }
+
+        // 4. Request meshing for dirty sections whose 3×3 columns are ready.
+        if self.jobs.mesh_in_flight < MAX_MESH_IN_FLIGHT {
+            'cols: for col in columns_in_radius(center, RENDER_RADIUS) {
+                if self.world.ready(col).is_none() || !self.world.neighbors_ready(col) {
+                    continue;
+                }
+                let dirty: Vec<usize> = self
+                    .world
+                    .ready(col)
+                    .map(|c| (0..8).filter(|&y| c.dirty[y]).collect())
+                    .unwrap_or_default();
+                for sy in dirty {
+                    if self.jobs.mesh_in_flight >= MAX_MESH_IN_FLIGHT {
+                        break 'cols;
+                    }
+                    let pos = SectionPos { x: col.x, y: sy as i32, z: col.z };
+                    let hood = self.build_neighborhood(pos);
+                    if let Some(c) = self.world.ready_mut(col) {
+                        c.dirty[sy] = false;
+                    }
+                    let version = self.mesh_versions.entry(pos).or_insert(0);
+                    *version += 1;
+                    self.jobs.spawn_mesh(pos, *version, hood);
+                }
+            }
+        }
+
+        // 5. Budgeted GPU uploads.
+        if let Some(terrain) = self.terrain.as_mut() {
+            for _ in 0..MAX_UPLOADS_PER_FRAME {
+                let Some((pos, quads)) = self.upload_queue.pop_front() else { break };
+                if self.world.ready(pos.column()).is_none() {
+                    continue; // unloaded while queued
+                }
+                terrain.upload_section(&gpu.queue, pos, &quads);
+            }
+        }
+
+        self.stats.columns_ready = self.world.ready_count();
+    }
+
+    /// Capture the 3×3×3 Arc<Section> neighborhood around a section.
+    fn build_neighborhood(
+        &self,
+        pos: crate::world::chunks::SectionPos,
+    ) -> crate::mesh::neighborhood::MeshNeighborhood {
+        use crate::mesh::neighborhood::MeshNeighborhood;
+        use crate::world::chunks::ColumnPos;
+        let mut hood = MeshNeighborhood::empty();
+        for dy in -1..=1 {
+            let sy = pos.y + dy;
+            if !(0..8).contains(&sy) {
+                continue; // above/below the world: stays None → air
+            }
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let col = ColumnPos { x: pos.x + dx, z: pos.z + dz };
+                    if let Some(c) = self.world.ready(col) {
+                        hood.sections[MeshNeighborhood::index(dx, dy, dz)] =
+                            Some(c.sections[sy as usize].clone());
+                    }
+                }
+            }
+        }
+        hood
     }
 
     fn render(&mut self) {
@@ -78,6 +246,9 @@ impl App {
         self.camera.apply_mouse_delta(dx, dy);
         self.camera.fly(&self.input, dt);
 
+        // World streaming: gen/mesh/upload jobs.
+        self.update_world();
+
         // Disjoint field borrows: terrain mutably for prepare, gpu mutably.
         let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
@@ -87,7 +258,10 @@ impl App {
             let view_proj = self.camera.view_proj(aspect);
             terrain.write_camera(&gpu.queue, view_proj);
             let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
-            terrain.prepare(&gpu.queue, &frustum);
+            let stats = terrain.prepare(&gpu.queue, &frustum);
+            self.stats.visible_sections = stats.visible_sections;
+            self.stats.resident_sections = stats.resident_sections;
+            self.stats.drawn_quads = stats.drawn_quads;
         }
 
         let Some(frame) = gpu.acquire() else { return };
@@ -134,12 +308,23 @@ impl App {
             timer.resolve(&mut encoder);
         }
 
+        // Capture all values before the egui closure to avoid borrowing self.
+        let fps = self.fps_smoothed;
+        let gpu_ms = self.timer.as_ref().map(|t| t.last_ms).unwrap_or(0.0);
+        let cam = self.camera.position;
+        let cols = self.stats.columns_ready;
+        let visible = self.stats.visible_sections;
+        let resident = self.stats.resident_sections;
+        let quads = self.stats.drawn_quads;
+        let gen_q = self.jobs.gen_in_flight;
+        let mesh_q = self.jobs.mesh_in_flight;
+        let uploads = self.upload_queue.len();
+        let (arena_used, arena_cap) =
+            self.terrain.as_ref().map(|t| t.arena_usage()).unwrap_or((0, 1));
+
         // Draw egui HUD overlay.
         let egui_cmds = if self.hud_visible {
             if let Some(egui) = &mut self.egui {
-                let fps = self.fps_smoothed;
-                let gpu_ms = self.timer.as_ref().map(|t| t.last_ms).unwrap_or(0.0);
-                let quads = self.quad_count;
                 let window = self.window.as_ref().unwrap().clone();
                 let config = &gpu.config;
                 let cmds = egui.draw(
@@ -154,9 +339,18 @@ impl App {
                             .resizable(false)
                             .collapsible(false)
                             .show(ctx, |ui| {
-                                ui.label(format!("FPS:    {:.1}", fps));
-                                ui.label(format!("GPU ms: {:.2}", gpu_ms));
-                                ui.label(format!("Quads:  {}", quads));
+                                ui.label(format!("FPS:      {fps:.1}"));
+                                ui.label(format!("GPU ms:   {gpu_ms:.2}"));
+                                ui.label(format!("Pos:      {:.0} {:.0} {:.0}", cam.x, cam.y, cam.z));
+                                ui.label(format!("Columns:  {cols}"));
+                                ui.label(format!("Sections: {visible}/{resident} drawn/resident"));
+                                ui.label(format!("Quads:    {quads}"));
+                                ui.label(format!("Jobs:     gen {gen_q}  mesh {mesh_q}  upload {uploads}"));
+                                ui.label(format!(
+                                    "Arena:    {:.1}/{:.0} MiB",
+                                    arena_used as f32 * 8.0 / (1 << 20) as f32,
+                                    arena_cap as f32 * 8.0 / (1 << 20) as f32
+                                ));
                             });
                     },
                 );
@@ -192,32 +386,6 @@ impl App {
     }
 }
 
-fn build_test_section() -> crate::world::section::Section {
-    use crate::world::block::{DIRT, GRASS, STONE};
-    let mut s = crate::world::section::Section::empty();
-    for x in 0..32 {
-        for z in 0..32 {
-            for y in 0..3 {
-                s.set(x, y, z, STONE);
-            }
-            s.set(x, 3, z, DIRT);
-            s.set(x, 4, z, GRASS);
-        }
-    }
-    // landmarks: a pillar and a floating cube to judge depth and faces
-    for y in 5..12 {
-        s.set(8, y, 8, STONE);
-    }
-    for x in 20..24 {
-        for y in 8..12 {
-            for z in 20..24 {
-                s.set(x, y, z, DIRT);
-            }
-        }
-    }
-    s
-}
-
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gpu.is_some() {
@@ -238,10 +406,7 @@ impl ApplicationHandler for App {
         // save landing in between is detected as a change instead of missed.
         self.shader_watcher = Some(crate::render::hot_reload::ShaderWatcher::new(shader_path));
         let shader_source = std::fs::read_to_string(shader_path).expect("terrain.wgsl missing");
-        let mut terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
-        let quads = crate::mesh::naive::mesh_naive(&build_test_section());
-        self.quad_count = quads.len() as u32;
-        terrain.upload_section(&gpu.queue, crate::world::chunks::SectionPos { x: 0, y: 0, z: 0 }, &quads);
+        let terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
         self.terrain = Some(terrain);
 
         // Initialize egui and GPU timer.

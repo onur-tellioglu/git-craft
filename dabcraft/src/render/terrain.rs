@@ -36,7 +36,6 @@ struct SectionEntry {
     len: u32,    // in quads
 }
 
-#[allow(dead_code)] // consumed by Task 14 (HUD stats)
 pub struct DrawStats {
     pub resident_sections: u32,
     pub visible_sections: u32,
@@ -277,7 +276,6 @@ impl TerrainRenderer {
         self.entries.insert(pos, SectionEntry { slot, offset, len: quads.len() as u32 });
     }
 
-    #[allow(dead_code)] // consumed by Task 14 (streaming)
     pub fn remove_section(&mut self, pos: SectionPos) {
         if let Some(e) = self.entries.remove(&pos) {
             self.arena.free(e.offset, e.len);
@@ -313,7 +311,6 @@ impl TerrainRenderer {
         }
     }
 
-    #[allow(dead_code)] // consumed by Task 14 (streaming)
     pub fn arena_usage(&self) -> (u32, u32) {
         (self.arena.used(), self.arena.capacity())
     }

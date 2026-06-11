@@ -1,7 +1,4 @@
 // ChunkMap, ColumnPos, SectionPos, and helpers.
-// SectionPos is consumed by terrain.rs (Task 13); ChunkMap/ColumnPos/helpers
-// are consumed by Task 14 (streaming).
-#![cfg_attr(not(test), allow(dead_code))]
 
 use std::collections::HashMap;
 use std::sync::Arc;
