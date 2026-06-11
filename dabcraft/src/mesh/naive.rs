@@ -32,6 +32,7 @@ pub fn mesh_naive(section: &Section) -> Vec<PackedQuad> {
                         skylight: 15,      // real flood-fill light arrives in M4
                         blocklight: 0,
                         texture: block.0 as u32,
+                        flip: 0,
                     }));
                 }
             }

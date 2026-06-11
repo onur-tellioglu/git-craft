@@ -49,7 +49,12 @@ struct VsOut {
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     let quad = quads[vi / 4u];
-    let corner = vi % 4u;
+    let flip = extractBits(quad.y, 31u, 1u);
+    // AO diagonal flip: rotating the corner mapping by one turns the fixed
+    // index pattern (0,1,2)(0,2,3) into triangles (1,2,3)(1,3,0) — the same
+    // rectangle cut along the other diagonal. Positions and AO follow the
+    // rotated corner, so geometry is identical and only the cut changes.
+    let corner = (vi + flip) % 4u;
 
     let x = f32(extractBits(quad.x, 0u, 6u));
     let y = f32(extractBits(quad.x, 6u, 6u));
