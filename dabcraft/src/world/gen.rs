@@ -78,7 +78,6 @@ impl Clone for WorldGen {
     }
 }
 
-#[allow(dead_code)] // consumed by Task 13 (streaming loop calls WorldGen::new)
 fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves: i32) -> FastNoiseLite {
     let mut n = FastNoiseLite::with_seed(seed.wrapping_add(salt));
     n.set_noise_type(Some(NoiseType::OpenSimplex2));
@@ -91,7 +90,6 @@ fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves:
 }
 
 impl WorldGen {
-    #[allow(dead_code)] // consumed by Task 13 (streaming loop)
     pub fn new(seed: i32) -> Self {
         Self {
             continental: noise(seed, 1, 0.0011, Some(FractalType::FBm), 4),
@@ -121,7 +119,7 @@ impl WorldGen {
         (base + mountains).clamp(4.0, 230.0) as i32
     }
 
-    #[allow(dead_code)] // consumed by Task 13 (F3 HUD biome display)
+    #[allow(dead_code)] // reserved for M4 F3 HUD biome display
     pub fn biome(&self, x: i32, z: i32) -> Biome {
         self.biome_for(self.height(x, z), x, z)
     }

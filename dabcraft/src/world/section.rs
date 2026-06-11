@@ -107,19 +107,9 @@ impl Section {
         self.data = vec![0u64; new_data_len];
     }
 
-    /// Out-of-bounds counts as air. Kept for the M1 naive mesher; the greedy
-    /// mesher reads neighbors through PaddedSection instead.
-    pub fn get_or_air(&self, x: i32, y: i32, z: i32) -> BlockId {
-        let r = 0..SECTION_SIZE as i32;
-        if r.contains(&x) && r.contains(&y) && r.contains(&z) {
-            self.get(x as usize, y as usize, z as usize)
-        } else {
-            AIR
-        }
-    }
-
     /// Some(block) when every voxel holds the same block.
-    #[allow(dead_code)] // consumed by Task 12 (culling / early-out)
+    /// Reserved for M4 cave culling / mesher fast path.
+    #[allow(dead_code)]
     pub fn uniform_block(&self) -> Option<BlockId> {
         if self.bits == 0 {
             return Some(self.palette[0]);
@@ -159,12 +149,12 @@ impl Section {
         *self = rebuilt;
     }
 
-    #[allow(dead_code)] // consumed by Task 13 (mesh budget / F3 HUD diagnostics)
+    #[cfg(test)]
     pub fn palette_len(&self) -> usize {
         self.palette.len()
     }
 
-    #[allow(dead_code)] // consumed by Task 13 (mesh budget / F3 HUD diagnostics)
+    #[cfg(test)]
     pub fn voxel_data_bytes(&self) -> usize {
         self.data.len() * 8
     }
@@ -193,15 +183,6 @@ mod tests {
         s.set(31, 0, 17, STONE);
         assert_eq!(s.get(31, 0, 17), STONE);
         assert_eq!(s.get(0, 0, 0), AIR);
-    }
-
-    #[test]
-    fn out_of_bounds_is_air() {
-        let mut s = Section::empty();
-        s.set(0, 0, 0, STONE);
-        assert_eq!(s.get_or_air(-1, 0, 0), AIR);
-        assert_eq!(s.get_or_air(0, 32, 0), AIR);
-        assert_eq!(s.get_or_air(0, 0, 0), STONE);
     }
 
     #[test]

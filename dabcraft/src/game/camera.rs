@@ -31,6 +31,8 @@ impl Camera {
     }
 
     pub const FLY_SPEED: f32 = 20.0; // blocks per second
+    pub const FAR_PLANE: f32 = 800.0;
+    pub const SPRINT_MULTIPLIER: f32 = 8.0;
 
     pub fn fly(&mut self, input: &crate::game::input::InputState, dt: f32) {
         use winit::keyboard::KeyCode as K;
@@ -44,12 +46,13 @@ impl Camera {
         if input.is_down(K::Space) { dir += Vec3::Y; }
         if input.is_down(K::ShiftLeft) { dir -= Vec3::Y; }
         if dir != Vec3::ZERO {
-            self.position += dir.normalize() * Self::FLY_SPEED * dt;
+            let speed = Self::FLY_SPEED * if input.is_down(K::ControlLeft) { Self::SPRINT_MULTIPLIER } else { 1.0 };
+            self.position += dir.normalize() * speed * dt;
         }
     }
 
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        let proj = Mat4::perspective_rh(self.fov_y, aspect, 0.1, 1000.0);
+        let proj = Mat4::perspective_rh(self.fov_y, aspect, 0.1, Self::FAR_PLANE);
         let view = Mat4::look_to_rh(self.position, self.forward(), Vec3::Y);
         proj * view
     }
@@ -123,5 +126,25 @@ mod tests {
         let ndc = clip / clip.w;
         assert!(ndc.x.abs() < 1e-5 && ndc.y.abs() < 1e-5, "centered point stays centered");
         assert!(ndc.z > 0.0 && ndc.z < 1.0, "wgpu depth range is 0..1, got {}", ndc.z);
+    }
+
+    #[test]
+    fn far_plane_covers_render_distance_diagonal() {
+        // 384 blocks horizontally + 256 world height: corner diagonal
+        // sqrt(384² + 384² + 256²) ≈ 601. Far must comfortably exceed it.
+        assert!(Camera::FAR_PLANE >= 700.0);
+    }
+
+    #[test]
+    fn sprint_multiplies_speed() {
+        let mut cam = Camera::new(Vec3::ZERO);
+        let mut input = crate::game::input::InputState::default();
+        input.set_key(winit::keyboard::KeyCode::KeyW, true);
+        cam.fly(&input, 1.0);
+        let normal = cam.position.length();
+        let mut cam2 = Camera::new(Vec3::ZERO);
+        input.set_key(winit::keyboard::KeyCode::ControlLeft, true);
+        cam2.fly(&input, 1.0);
+        assert!((cam2.position.length() - normal * Camera::SPRINT_MULTIPLIER).abs() < 1e-3);
     }
 }

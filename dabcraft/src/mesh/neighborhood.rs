@@ -1,5 +1,4 @@
-// MeshNeighborhood: 3×3×3 Arc-captured sections for off-thread meshing. Binary consumer: Tasks 13/14.
-#![cfg_attr(not(test), allow(dead_code))]
+// MeshNeighborhood: 3×3×3 Arc-captured sections for off-thread meshing.
 
 use std::sync::Arc;
 

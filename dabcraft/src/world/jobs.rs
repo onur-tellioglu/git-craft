@@ -1,5 +1,4 @@
-// Job system: rayon gen/mesh tasks + crossbeam result channel. Binary consumer: Tasks 13/14.
-#![cfg_attr(not(test), allow(dead_code))]
+// Job system: rayon gen/mesh tasks + crossbeam result channel.
 
 use crossbeam_channel::{Receiver, Sender};
 
@@ -12,7 +11,10 @@ use crate::world::r#gen::{ColumnData, StructureWrite, WorldGen};
 #[derive(Debug)]
 pub enum JobResult {
     Generated { pos: ColumnPos, data: ColumnData, writes: Vec<StructureWrite> },
-    Meshed { pos: SectionPos, quads: Vec<PackedQuad> },
+    /// `version` echoes the caller's per-section counter at spawn time so
+    /// out-of-order completions of two in-flight jobs for the same section
+    /// can be detected — only the latest version may be uploaded.
+    Meshed { pos: SectionPos, version: u64, quads: Vec<PackedQuad> },
 }
 
 /// Fire-and-forget rayon jobs with a crossbeam result channel (spec §3).
@@ -42,13 +44,13 @@ impl Jobs {
         });
     }
 
-    pub fn spawn_mesh(&mut self, pos: SectionPos, hood: MeshNeighborhood) {
+    pub fn spawn_mesh(&mut self, pos: SectionPos, version: u64, hood: MeshNeighborhood) {
         self.mesh_in_flight += 1;
         let tx = self.tx.clone();
         rayon::spawn(move || {
             let padded = hood.build_padded();
             let quads = Mesher::new().mesh(&padded);
-            let _ = tx.send(JobResult::Meshed { pos, quads });
+            let _ = tx.send(JobResult::Meshed { pos, version, quads });
         });
     }
 

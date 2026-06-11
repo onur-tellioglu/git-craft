@@ -26,7 +26,7 @@ impl PaddedSection {
     }
 
     /// Test scaffolding: build arbitrary voxel scenes without a Section.
-    #[allow(dead_code)] // test-only helper; no binary consumer until Task 13 integration tests
+    #[allow(dead_code)] // test scaffolding
     pub fn set(&mut self, x: usize, y: usize, z: usize, block: BlockId) {
         self.blocks[Self::index(x, y, z)] = block;
     }
