@@ -3,9 +3,12 @@ use std::time::{Duration, Instant, SystemTime};
 
 pub fn validate_wgsl(source: &str) -> Result<(), String> {
     let module = naga::front::wgsl::parse_str(source).map_err(|e| e.to_string())?;
+    // Baseline capabilities only: a shader that needs optional capabilities
+    // would pass an all() check here yet still fail wgpu's own (stricter)
+    // validation at pipeline creation, defeating this pre-swap gate.
     naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::all(),
+        naga::valid::Capabilities::default(),
     )
     .validate(&module)
     .map_err(|e| e.to_string())?;
@@ -37,8 +40,11 @@ impl ShaderWatcher {
         if Some(mtime) == self.last_mtime {
             return None;
         }
-        self.last_mtime = Some(mtime);
+        // Read before committing the mtime: editors that atomically rename or
+        // truncate-then-write can make this read fail or see partial content;
+        // leaving last_mtime untouched lets the next poll retry that save.
         let source = std::fs::read_to_string(&self.path).ok()?;
+        self.last_mtime = Some(mtime);
         match validate_wgsl(&source) {
             Ok(()) => {
                 log::info!("shader reloaded: {}", self.path.display());

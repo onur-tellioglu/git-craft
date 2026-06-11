@@ -152,11 +152,13 @@ impl ApplicationHandler for App {
         self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
 
         let shader_path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/terrain.wgsl");
+        // Watcher first: its baseline mtime must predate the source read, so a
+        // save landing in between is detected as a change instead of missed.
+        self.shader_watcher = Some(crate::render::hot_reload::ShaderWatcher::new(shader_path));
         let shader_source = std::fs::read_to_string(shader_path).expect("terrain.wgsl missing");
         let mut terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
         terrain.upload_quads(&gpu.device, &crate::mesh::naive::mesh_naive(&build_test_section()));
         self.terrain = Some(terrain);
-        self.shader_watcher = Some(crate::render::hot_reload::ShaderWatcher::new(shader_path));
 
         self.gpu = Some(gpu);
         if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
