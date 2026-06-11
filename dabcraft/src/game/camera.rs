@@ -30,6 +30,24 @@ impl Camera {
             .clamp(-Self::PITCH_LIMIT, Self::PITCH_LIMIT);
     }
 
+    pub const FLY_SPEED: f32 = 20.0; // blocks per second
+
+    pub fn fly(&mut self, input: &crate::game::input::InputState, dt: f32) {
+        use winit::keyboard::KeyCode as K;
+        let forward = Vec3::new(self.yaw.sin(), 0.0, -self.yaw.cos());
+        let right = Vec3::new(self.yaw.cos(), 0.0, self.yaw.sin());
+        let mut dir = Vec3::ZERO;
+        if input.is_down(K::KeyW) { dir += forward; }
+        if input.is_down(K::KeyS) { dir -= forward; }
+        if input.is_down(K::KeyD) { dir += right; }
+        if input.is_down(K::KeyA) { dir -= right; }
+        if input.is_down(K::Space) { dir += Vec3::Y; }
+        if input.is_down(K::ShiftLeft) { dir -= Vec3::Y; }
+        if dir != Vec3::ZERO {
+            self.position += dir.normalize() * Self::FLY_SPEED * dt;
+        }
+    }
+
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
         let proj = Mat4::perspective_rh(self.fov_y, aspect, 0.1, 1000.0);
         let view = Mat4::look_to_rh(self.position, self.forward(), Vec3::Y);
@@ -66,6 +84,35 @@ mod tests {
         assert!(cam.pitch <= Camera::PITCH_LIMIT);
         cam.apply_mouse_delta(0.0, 10_000.0);
         assert!(cam.pitch >= -Camera::PITCH_LIMIT);
+    }
+
+    #[test]
+    fn fly_moves_horizontally_along_yaw_even_when_pitched() {
+        let mut cam = Camera::new(Vec3::ZERO);
+        cam.pitch = 1.0; // looking up
+        let mut input = crate::game::input::InputState::default();
+        input.set_key(winit::keyboard::KeyCode::KeyW, true);
+        cam.fly(&input, 1.0);
+        approx(cam.position, Vec3::new(0.0, 0.0, -Camera::FLY_SPEED)); // no vertical drift
+    }
+
+    #[test]
+    fn space_and_shift_move_vertically() {
+        let mut cam = Camera::new(Vec3::ZERO);
+        let mut input = crate::game::input::InputState::default();
+        input.set_key(winit::keyboard::KeyCode::Space, true);
+        cam.fly(&input, 0.5);
+        approx(cam.position, Vec3::new(0.0, Camera::FLY_SPEED * 0.5, 0.0));
+    }
+
+    #[test]
+    fn opposing_keys_cancel() {
+        let mut cam = Camera::new(Vec3::ZERO);
+        let mut input = crate::game::input::InputState::default();
+        input.set_key(winit::keyboard::KeyCode::KeyW, true);
+        input.set_key(winit::keyboard::KeyCode::KeyS, true);
+        cam.fly(&input, 1.0);
+        approx(cam.position, Vec3::ZERO);
     }
 
     #[test]

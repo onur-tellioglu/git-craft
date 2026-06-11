@@ -6,6 +6,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use crate::game::camera::Camera;
+use crate::game::input::InputState;
 use crate::render::depth;
 use crate::render::gpu::Gpu;
 
@@ -15,14 +17,32 @@ pub struct App {
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
     depth_view: Option<wgpu::TextureView>,
+    input: InputState,
+    camera: Camera,
+    last_frame: std::time::Instant,
 }
 
 impl App {
     pub fn new(instance: wgpu::Instance) -> Self {
-        Self { instance: Some(instance), window: None, gpu: None, depth_view: None }
+        Self {
+            instance: Some(instance),
+            window: None,
+            gpu: None,
+            depth_view: None,
+            input: InputState::default(),
+            camera: Camera::new(glam::Vec3::new(16.0, 40.0, 60.0)),
+            last_frame: std::time::Instant::now(),
+        }
     }
 
     fn render(&mut self) {
+        let now = std::time::Instant::now();
+        let dt = (now - self.last_frame).as_secs_f32().min(0.1);
+        self.last_frame = now;
+        let (dx, dy) = self.input.take_mouse_delta();
+        self.camera.apply_mouse_delta(dx, dy);
+        self.camera.fly(&self.input, dt);
+
         // Disjoint field borrows: depth_view immutably, gpu mutably.
         let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
@@ -76,6 +96,8 @@ impl ApplicationHandler for App {
         let size = window.inner_size();
         self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
         self.gpu = Some(gpu);
+        let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Locked);
+        window.set_cursor_visible(false);
         self.window = Some(window);
     }
 
@@ -83,11 +105,11 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.physical_key == PhysicalKey::Code(KeyCode::Escape)
-                    && event.state.is_pressed()
-                    && !event.repeat
-                {
-                    event_loop.exit();
+                if let PhysicalKey::Code(code) = event.physical_key {
+                    if code == KeyCode::Escape && event.state.is_pressed() && !event.repeat {
+                        event_loop.exit();
+                    }
+                    self.input.set_key(code, event.state.is_pressed());
                 }
             }
             WindowEvent::Resized(size) => {
@@ -101,7 +123,12 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, _event: DeviceEvent) {}
+    fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.input.mouse_delta.0 += delta.0;
+            self.input.mouse_delta.1 += delta.1;
+        }
+    }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
         if let Some(w) = &self.window {
