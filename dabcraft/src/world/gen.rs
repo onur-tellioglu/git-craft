@@ -63,6 +63,10 @@ impl NoiseSampler {
     fn get_noise_2d(&self, x: f32, y: f32) -> f32 {
         self.0.get_noise_2d(x, y)
     }
+
+    fn get_noise_3d(&self, x: f32, y: f32, z: f32) -> f32 {
+        self.0.get_noise_3d(x, y, z)
+    }
 }
 
 /// Deterministic worldgen (spec §4). WorldGen is Clone + Send + Sync; rayon
@@ -195,9 +199,24 @@ impl WorldGen {
         (ColumnData { sections }, writes)
     }
 
-    /// Task 8 implements carving; until then terrain is solid.
-    fn is_cave(&self, _x: i32, _y: i32, _z: i32, _surface: i32) -> bool {
-        false
+    /// Spaghetti tunnels: carve where two independent 3D noises are both
+    /// near zero (their zero-surfaces intersect along winding 1D curves —
+    /// inflated to tunnel radius by the threshold). Cheese rooms: rare
+    /// low-frequency blobs. Attenuation: never within 8 blocks of the
+    /// surface or below y=6, so the surface skin and world floor stay
+    /// intact (spec §4 "attenuated near the surface").
+    fn is_cave(&self, x: i32, y: i32, z: i32, surface: i32) -> bool {
+        if y < 6 || y > surface - 8 {
+            return false;
+        }
+        let (xf, zf) = (x as f32, z as f32);
+        let yf = y as f32 * 1.7; // vertical squash → mostly-horizontal tunnels
+        let a = self.cave_a.get_noise_3d(xf, yf, zf);
+        let b = self.cave_b.get_noise_3d(xf, yf, zf);
+        if a * a + b * b < 0.009 {
+            return true;
+        }
+        self.cheese.get_noise_3d(xf, y as f32 * 2.0, zf) > 0.72
     }
 }
 
@@ -264,6 +283,62 @@ mod tests {
             }
         }
         assert!(found, "no ocean found in 128×128 columns — heightmap tuning is broken");
+    }
+
+    #[test]
+    fn caves_exist_underground() {
+        // Scan a deep slab of several columns for carved air. Bounds wide
+        // enough that being outside them means the thresholds are broken.
+        let wgen = WorldGen::new(1337);
+        let mut carved = 0u32;
+        let mut total = 0u32;
+        for cx in 0..8 {
+            let (col, _) = wgen.generate_column(cx, 0);
+            for x in 0..32 {
+                for z in 0..32 {
+                    let h = wgen.height(cx * 32 + x as i32, z as i32);
+                    for y in 8..(h - 8).max(8) {
+                        total += 1;
+                        if col.sections[(y / 32) as usize].get(x, (y % 32) as usize, z) == AIR {
+                            carved += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(total > 0);
+        let pct = carved as f32 / total as f32;
+        assert!(pct > 0.005, "deep stone is {:.3}% carved — caves missing", pct * 100.0);
+        assert!(pct < 0.35, "deep stone is {:.1}% carved — world is swiss cheese", pct * 100.0);
+    }
+
+    #[test]
+    fn no_carving_near_surface_or_bedrock() {
+        let wgen = WorldGen::new(1337);
+        for cx in 0..4 {
+            let (col, _) = wgen.generate_column(cx, 3);
+            for x in 0..32 {
+                for z in 0..32 {
+                    let h = wgen.height(cx * 32 + x as i32, 3 * 32 + z as i32);
+                    for y in 0..6.min(h) {
+                        assert_ne!(
+                            col.sections[0].get(x, y as usize, z),
+                            AIR,
+                            "carved below y=6 at ({x},{y},{z})"
+                        );
+                    }
+                    // Subsurface fill covers h-3..=h and carving stops 8 below
+                    // the surface, so the surface skin is always intact:
+                    for y in (h - 7).max(0)..=h {
+                        assert_ne!(
+                            col.sections[(y / 32) as usize].get(x, (y % 32) as usize, z),
+                            AIR,
+                            "surface breach at ({x},{y},{z}), h={h}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
