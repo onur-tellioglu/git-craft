@@ -7,14 +7,15 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 pub struct App {
+    // Taken by value when the GPU context is created on first resume (Task 3).
     #[allow(dead_code)]
-    instance: wgpu::Instance,
+    instance: Option<wgpu::Instance>,
     window: Option<Arc<Window>>,
 }
 
 impl App {
     pub fn new(instance: wgpu::Instance) -> Self {
-        Self { instance, window: None }
+        Self { instance: Some(instance), window: None }
     }
 }
 
@@ -35,7 +36,10 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
-                if event.physical_key == PhysicalKey::Code(KeyCode::Escape) && event.state.is_pressed() {
+                if event.physical_key == PhysicalKey::Code(KeyCode::Escape)
+                    && event.state.is_pressed()
+                    && !event.repeat
+                {
                     event_loop.exit();
                 }
             }
