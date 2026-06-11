@@ -13,6 +13,7 @@ pub struct Quad {
     pub skylight: u32, // 0..=15
     pub blocklight: u32,
     pub texture: u32,  // 0..=1023, texture array layer
+    pub flip: u32,     // 0|1: triangulate along the (w,0)-(0,h) diagonal (AO fix)
 }
 
 #[repr(C)]
@@ -42,9 +43,11 @@ impl PackedQuad {
         debug_assert!((1..=32).contains(&q.w) && (1..=32).contains(&q.h));
         debug_assert!(q.skylight < 16 && q.blocklight < 16 && q.texture < 1024);
         debug_assert!(q.ao.iter().all(|&a| a < 4));
+        debug_assert!(q.flip < 2);
         let data0 = q.x | (q.y << 6) | (q.z << 12) | (q.face << 18) | ((q.w - 1) << 21);
         let ao = q.ao[0] | (q.ao[1] << 2) | (q.ao[2] << 4) | (q.ao[3] << 6);
-        let data1 = (q.h - 1) | (ao << 5) | (q.skylight << 13) | (q.blocklight << 17) | (q.texture << 21);
+        let data1 = (q.h - 1) | (ao << 5) | (q.skylight << 13) | (q.blocklight << 17)
+            | (q.texture << 21) | (q.flip << 31);
         Self { data0, data1 }
     }
 
@@ -64,6 +67,7 @@ impl PackedQuad {
             skylight: bits(self.data1, 13, 4),
             blocklight: bits(self.data1, 17, 4),
             texture: bits(self.data1, 21, 10),
+            flip: bits(self.data1, 31, 1),
         }
     }
 }
@@ -80,14 +84,14 @@ mod tests {
     fn packs_and_unpacks_all_fields() {
         roundtrip(Quad {
             x: 12, y: 33, z: 7, face: 4, w: 32, h: 1,
-            ao: [0, 1, 2, 3], skylight: 15, blocklight: 9, texture: 1000,
+            ao: [0, 1, 2, 3], skylight: 15, blocklight: 9, texture: 1000, flip: 0,
         });
     }
 
     #[test]
     fn packs_field_extremes() {
-        roundtrip(Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0 });
-        roundtrip(Quad { x: 33, y: 33, z: 33, face: 5, w: 32, h: 32, ao: [3; 4], skylight: 15, blocklight: 15, texture: 1023 });
+        roundtrip(Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 });
+        roundtrip(Quad { x: 33, y: 33, z: 33, face: 5, w: 32, h: 32, ao: [3; 4], skylight: 15, blocklight: 15, texture: 1023, flip: 0 });
     }
 
     #[test]
@@ -100,7 +104,7 @@ mod tests {
     // They are also the authoritative reference for the WGSL unpack mirror.
     #[test]
     fn data0_field_bit_positions() {
-        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0 };
+        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 };
         assert_eq!(PackedQuad::pack(base).data0, 0);
         assert_eq!(PackedQuad::pack(Quad { x: 1, ..base }).data0, 1 << 0);
         assert_eq!(PackedQuad::pack(Quad { y: 1, ..base }).data0, 1 << 6);
@@ -116,7 +120,7 @@ mod tests {
 
     #[test]
     fn data1_field_bit_positions() {
-        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0 };
+        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 };
         assert_eq!(PackedQuad::pack(base).data1, 0);
         assert_eq!(PackedQuad::pack(Quad { h: 2, ..base }).data1, 1 << 0);
         assert_eq!(PackedQuad::pack(Quad { ao: [1, 0, 0, 0], ..base }).data1, 1 << 5);
@@ -124,5 +128,14 @@ mod tests {
         assert_eq!(PackedQuad::pack(Quad { skylight: 1, ..base }).data1, 1 << 13);
         assert_eq!(PackedQuad::pack(Quad { blocklight: 1, ..base }).data1, 1 << 17);
         assert_eq!(PackedQuad::pack(Quad { texture: 1, ..base }).data1, 1 << 21);
+        assert_eq!(PackedQuad::pack(Quad { flip: 1, ..base }).data1, 1 << 31);
+    }
+
+    #[test]
+    fn flip_bit_roundtrips() {
+        roundtrip(Quad {
+            x: 3, y: 4, z: 5, face: 2, w: 2, h: 2,
+            ao: [1, 2, 3, 0], skylight: 15, blocklight: 0, texture: 1, flip: 1,
+        });
     }
 }
