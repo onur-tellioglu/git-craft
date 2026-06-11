@@ -2,10 +2,12 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
+use glam::IVec3;
 
 use crate::world::block::{
-    BlockId, DIRT, GRASS, SAND, SNOW_GRASS, STONE, WATER,
+    BlockId, AIR, DIRT, GRASS, SAND, SNOW_GRASS, STONE, WATER,
 };
+use crate::world::decor::{cactus_plant, hash_pos, oak_tree, spruce_tree};
 use crate::world::section::Section;
 
 pub const SEA_LEVEL: i32 = 64;
@@ -67,6 +69,28 @@ impl NoiseSampler {
     fn get_noise_3d(&self, x: f32, y: f32, z: f32) -> f32 {
         self.0.get_noise_3d(x, y, z)
     }
+}
+
+/// Apply one structure write to a column's section stack (world y).
+pub fn apply_write(sections: &mut [Section], write: StructureWrite) {
+    if !(0..WORLD_HEIGHT).contains(&write.pos.y) {
+        return;
+    }
+    apply_write_to_section(&mut sections[(write.pos.y / 32) as usize], write);
+}
+
+/// Apply a write to the section that owns its y (caller picked it).
+#[allow(dead_code)] // consumed by Task 10 (ChunkMap)
+pub fn apply_write_to_section(section: &mut Section, write: StructureWrite) {
+    // rem_euclid silently wraps an out-of-world y into a valid slot — the
+    // caller must have ranged-checked pos.y when picking the section.
+    debug_assert!((0..WORLD_HEIGHT).contains(&write.pos.y), "write y {} out of world", write.pos.y);
+    let (lx, lz) = (write.pos.x.rem_euclid(32) as usize, write.pos.z.rem_euclid(32) as usize);
+    let ly = write.pos.y.rem_euclid(32) as usize;
+    if write.only_air && section.get(lx, ly, lz) != AIR {
+        return;
+    }
+    section.set(lx, ly, lz, write.block);
 }
 
 /// Deterministic worldgen (spec §4). WorldGen is Clone + Send + Sync; rayon
@@ -168,11 +192,23 @@ impl WorldGen {
     /// that fell OUTSIDE it (trees crossing the border — Task 9; empty now).
     pub fn generate_column(&self, cx: i32, cz: i32) -> (ColumnData, Vec<StructureWrite>) {
         let mut sections: Vec<Section> = (0..COLUMN_SECTIONS).map(|_| Section::empty()).collect();
+        // Heights/biomes sampled once, shared by the terrain and decoration
+        // passes — the 2D noise stack is the column's dominant CPU cost.
+        let mut heights = [0i32; 32 * 32];
+        let mut biomes = [Biome::Plains; 32 * 32];
         for lx in 0..32usize {
             for lz in 0..32usize {
                 let (wx, wz) = (cx * 32 + lx as i32, cz * 32 + lz as i32);
                 let h = self.height(wx, wz);
-                let biome = self.biome_for(h, wx, wz);
+                heights[lx * 32 + lz] = h;
+                biomes[lx * 32 + lz] = self.biome_for(h, wx, wz);
+            }
+        }
+        for lx in 0..32usize {
+            for lz in 0..32usize {
+                let (wx, wz) = (cx * 32 + lx as i32, cz * 32 + lz as i32);
+                let h = heights[lx * 32 + lz];
+                let biome = biomes[lx * 32 + lz];
                 for y in 0..=h {
                     let block = if y == h {
                         Self::surface_block(biome, h)
@@ -192,11 +228,48 @@ impl WorldGen {
                 }
             }
         }
-        let writes = Vec::new(); // Task 9 fills this via decoration
+        // Decoration: deterministic per world (x,z); writes inside this
+        // column apply now, the rest go back to the caller's pending queue.
+        let mut outside = Vec::new();
+        for lx in 0..32usize {
+            for lz in 0..32usize {
+                let (wx, wz) = (cx * 32 + lx as i32, cz * 32 + lz as i32);
+                let h = heights[lx * 32 + lz];
+                let biome = biomes[lx * 32 + lz];
+                if h <= SEA_LEVEL {
+                    continue; // no structures on beaches or underwater
+                }
+                let surface = sections[(h / 32) as usize].get(lx, (h % 32) as usize, lz);
+                if surface != Self::surface_block(biome, h) {
+                    continue; // surface must be intact (paranoia guard)
+                }
+                let roll = hash_pos(self.seed, wx, wz, 0xDEC0) % 1000;
+                let trunk = |salt: u64, base: i32, spread: u64| base + (hash_pos(self.seed, wx, wz, salt) % spread) as i32;
+                let structure = match biome {
+                    Biome::Forest if roll < 60 => Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3))),
+                    Biome::Plains if roll < 4 => Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3))),
+                    Biome::SnowyMountains if roll < 25 && h < 140 => {
+                        Some(spruce_tree(IVec3::new(wx, h, wz), trunk(3, 5, 3)))
+                    }
+                    Biome::Desert if roll < 12 => Some(cactus_plant(IVec3::new(wx, h, wz), trunk(4, 1, 3))),
+                    _ => None,
+                };
+                let Some(structure) = structure else { continue };
+                for write in structure {
+                    let in_x = (cx * 32..(cx + 1) * 32).contains(&write.pos.x);
+                    let in_z = (cz * 32..(cz + 1) * 32).contains(&write.pos.z);
+                    if in_x && in_z {
+                        apply_write(&mut sections, write);
+                    } else {
+                        outside.push(write);
+                    }
+                }
+            }
+        }
         for s in &mut sections {
             s.compact();
         }
-        (ColumnData { sections }, writes)
+        (ColumnData { sections }, outside)
     }
 
     /// Spaghetti tunnels: carve where two independent 3D noises are both
