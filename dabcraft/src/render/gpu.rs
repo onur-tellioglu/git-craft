@@ -70,7 +70,13 @@ impl Gpu {
     pub fn acquire(&mut self) -> Option<wgpu::SurfaceTexture> {
         match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => Some(frame),
-            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => Some(frame),
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                // Usable but stale (e.g. mid-resize). Skip one frame and
+                // reconfigure so the driver can't stay suboptimal forever.
+                drop(frame);
+                self.surface.configure(&self.device, &self.config);
+                None
+            }
             wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 None
