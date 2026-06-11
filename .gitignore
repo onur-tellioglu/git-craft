@@ -12,3 +12,4 @@ target/
 
 # dabcraft runtime data
 saves/
+.task-log/
