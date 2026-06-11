@@ -30,6 +30,7 @@ pub struct App {
     hud_visible: bool,
     fps_smoothed: f32,
     quad_count: u32,
+    occluded: bool,
 }
 
 impl App {
@@ -49,6 +50,7 @@ impl App {
             hud_visible: true,
             fps_smoothed: 0.0,
             quad_count: 0,
+            occluded: false,
         }
     }
 
@@ -168,7 +170,8 @@ impl App {
             None
         };
 
-        // Submit: egui user command buffers first, then the main encoder.
+        // Submit order matters: egui's user_cmds carry staging uploads that
+        // must execute before main_cmd, whose egui render pass samples them.
         let main_cmd = encoder.finish();
         let mut all_cmds: Vec<wgpu::CommandBuffer> = Vec::new();
         if let Some(mut cmds) = egui_cmds {
@@ -306,6 +309,11 @@ impl ApplicationHandler for App {
                 // Drop held keys and stale mouse deltas on any focus transition.
                 self.input.clear();
             }
+            WindowEvent::Occluded(occluded) => {
+                // macOS doesn't block get_current_texture for hidden windows;
+                // stop requesting redraws to avoid spinning the CPU (spec §2).
+                self.occluded = occluded;
+            }
             _ => {}
         }
     }
@@ -317,6 +325,9 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        if self.occluded {
+            return;
+        }
         if let Some(w) = &self.window {
             w.request_redraw();
         }
