@@ -1,8 +1,3 @@
-// The M2 registry lands before its worldgen consumers (gen.rs/decor.rs);
-// until those exist, the new constants are only reachable from tests, which
-// trips dead_code in a binary crate. Remove this once worldgen imports them.
-#![cfg_attr(not(test), allow(dead_code))]
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u16);
 
@@ -14,10 +9,15 @@ pub const SAND: BlockId = BlockId(4);
 pub const SNOW_GRASS: BlockId = BlockId(5);
 // M2 renders water as an opaque solid; it moves to the transparent pass in M5.
 pub const WATER: BlockId = BlockId(6);
+#[allow(dead_code)] // consumed by Task 9 (tree decoration)
 pub const OAK_LOG: BlockId = BlockId(7);
+#[allow(dead_code)] // consumed by Task 9 (tree decoration)
 pub const OAK_LEAVES: BlockId = BlockId(8);
+#[allow(dead_code)] // consumed by Task 9 (tree decoration)
 pub const SPRUCE_LOG: BlockId = BlockId(9);
+#[allow(dead_code)] // consumed by Task 9 (tree decoration)
 pub const SPRUCE_LEAVES: BlockId = BlockId(10);
+#[allow(dead_code)] // consumed by Task 9 (tree decoration)
 pub const CACTUS: BlockId = BlockId(11);
 
 impl BlockId {

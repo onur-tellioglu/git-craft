@@ -1,8 +1,3 @@
-// New methods (uniform_block, voxel_data_bytes, palette_len, compact,
-// unpack_into) have no non-test callers yet; later M2 tasks (padded buffer,
-// worldgen) consume these. Remove once they do.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::world::block::{BlockId, AIR};
 
 pub const SECTION_SIZE: usize = 32;
@@ -114,6 +109,7 @@ impl Section {
 
     /// Out-of-bounds counts as air. Kept for the M1 naive mesher; the greedy
     /// mesher reads neighbors through PaddedSection instead.
+    #[allow(dead_code)] // consumed by Task 10 (greedy mesher / padded buffer)
     pub fn get_or_air(&self, x: i32, y: i32, z: i32) -> BlockId {
         let r = 0..SECTION_SIZE as i32;
         if r.contains(&x) && r.contains(&y) && r.contains(&z) {
@@ -124,6 +120,7 @@ impl Section {
     }
 
     /// Some(block) when every voxel holds the same block.
+    #[allow(dead_code)] // consumed by Task 10 (padded buffer / culling)
     pub fn uniform_block(&self) -> Option<BlockId> {
         if self.bits == 0 {
             return Some(self.palette[0]);
@@ -134,6 +131,7 @@ impl Section {
 
     /// Bulk-decode all 32768 voxels into `out` (index = (y*32+z)*32+x).
     /// Hot path for padded-buffer fill.
+    #[allow(dead_code)] // consumed by Task 10 (padded buffer hot path)
     pub fn unpack_into(&self, out: &mut [BlockId]) {
         assert_eq!(out.len(), VOLUME);
         if self.bits == 0 {
@@ -163,10 +161,12 @@ impl Section {
         *self = rebuilt;
     }
 
+    #[allow(dead_code)] // consumed by Task 10 (mesh budget / diagnostics)
     pub fn palette_len(&self) -> usize {
         self.palette.len()
     }
 
+    #[allow(dead_code)] // consumed by Task 10 (mesh budget / diagnostics)
     pub fn voxel_data_bytes(&self) -> usize {
         self.data.len() * 8
     }
