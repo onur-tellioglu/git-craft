@@ -7,20 +7,23 @@ struct CameraUniform {
 
 // Per-face: origin offset (added to voxel pos), U axis, V axis.
 // Face order matches Rust: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
+// Invariant: cross(U, V) == outward face normal, so quads wind CCW seen from
+// outside and survive backface culling. Quad w spans U, h spans V; AO corner
+// order (0,0) (w,0) (w,h) (0,h) is defined in these same U/V axes.
 const FACE_ORIGIN = array<vec3<f32>, 6>(
     vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
     vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 0.0),
     vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 0.0),
 );
 const FACE_U = array<vec3<f32>, 6>(
-    vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0),
-    vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0),
-    vec3(1.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0),
+    vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0),
+    vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
 );
 const FACE_V = array<vec3<f32>, 6>(
-    vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0),
-    vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 1.0),
-    vec3(0.0, 1.0, 0.0), vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 0.0, 1.0), vec3(0.0, 1.0, 0.0),
+    vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0),
 );
 // Minecraft-style face shading: +X, -X, +Y(top), -Y(bottom), +Z, -Z.
 const FACE_SHADE = array<f32, 6>(0.8, 0.8, 1.0, 0.5, 0.6, 0.6);

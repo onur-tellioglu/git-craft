@@ -24,6 +24,7 @@ pub struct PackedQuad {
 
 /// Two CCW triangles per quad: (0,1,2) and (0,2,3), vertices 4i..4i+3.
 pub fn build_quad_indices(quad_count: u32) -> Vec<u32> {
+    debug_assert!(quad_count <= u32::MAX / 4, "quad_count overflows vertex indices");
     let mut indices = Vec::with_capacity(quad_count as usize * 6);
     for i in 0..quad_count {
         let b = i * 4;
