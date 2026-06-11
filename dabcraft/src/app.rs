@@ -162,6 +162,11 @@ impl App {
                 None
             }
         } else {
+            // HUD hidden: still drain egui's buffered input so re-enabling it
+            // doesn't replay a backlog of stale events in one frame.
+            if let (Some(egui), Some(window)) = (&mut self.egui, &self.window) {
+                egui.drain_input(window);
+            }
             None
         };
 
@@ -249,7 +254,45 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
-        // Feed egui first; if it consumes the event, don't propagate further.
+        // System-critical events are handled before (and regardless of) the
+        // egui filter: a focused widget must never swallow exit, HUD toggle,
+        // resize, or the redraw that drives the frame loop.
+        match &event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit();
+                return;
+            }
+            WindowEvent::RedrawRequested => {
+                self.render();
+                return;
+            }
+            WindowEvent::Resized(size) => {
+                if let Some(gpu) = self.gpu.as_mut() {
+                    gpu.resize(size.width, size.height);
+                    self.depth_view =
+                        Some(depth::create_depth_view(&gpu.device, size.width, size.height));
+                }
+                return;
+            }
+            WindowEvent::KeyboardInput { event: key, .. }
+                if key.state.is_pressed() && !key.repeat =>
+            {
+                match key.physical_key {
+                    PhysicalKey::Code(KeyCode::Escape) => {
+                        event_loop.exit();
+                        return;
+                    }
+                    PhysicalKey::Code(KeyCode::F3) => {
+                        self.hud_visible = !self.hud_visible;
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+
+        // Feed egui next; if it consumes the event, don't propagate to game input.
         if let (Some(egui), Some(window)) = (&mut self.egui, &self.window) {
             if egui.on_window_event(window, &event) {
                 return;
@@ -257,16 +300,8 @@ impl ApplicationHandler for App {
         }
 
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if code == KeyCode::Escape && event.state.is_pressed() && !event.repeat {
-                        event_loop.exit();
-                    }
-                    // F3 toggles the debug HUD.
-                    if code == KeyCode::F3 && event.state.is_pressed() && !event.repeat {
-                        self.hud_visible = !self.hud_visible;
-                    }
                     self.input.set_key(code, event.state.is_pressed());
                 }
             }
@@ -274,13 +309,6 @@ impl ApplicationHandler for App {
                 // Drop held keys and stale mouse deltas on any focus transition.
                 self.input.clear();
             }
-            WindowEvent::Resized(size) => {
-                if let Some(gpu) = self.gpu.as_mut() {
-                    gpu.resize(size.width, size.height);
-                    self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
-                }
-            }
-            WindowEvent::RedrawRequested => self.render(),
             _ => {}
         }
     }

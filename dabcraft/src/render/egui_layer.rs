@@ -31,6 +31,13 @@ impl EguiLayer {
         self.state.on_window_event(window, event).consumed
     }
 
+    /// Discard accumulated input. Must be called every frame the HUD is not
+    /// drawn — on_window_event buffers events until take_egui_input drains
+    /// them, and a long-hidden HUD would otherwise replay the whole backlog.
+    pub fn drain_input(&mut self, window: &Window) {
+        let _ = self.state.take_egui_input(window);
+    }
+
     pub fn draw(
         &mut self,
         device: &wgpu::Device,
@@ -74,6 +81,9 @@ impl EguiLayer {
                     occlusion_query_set: None,
                     multiview_mask: None,
                 })
+                // Required: egui_wgpu::Renderer::render takes &mut RenderPass<'static>
+                // (invariant), so the pass lifetime must be erased. Do not touch
+                // `encoder` while `rpass` is alive.
                 .forget_lifetime();
             self.renderer.render(&mut rpass, &paint_jobs, &screen);
         }
