@@ -1,4 +1,6 @@
 mod app;
+#[allow(dead_code)]
+mod game;
 mod render;
 
 use winit::event_loop::{ControlFlow, EventLoop};
