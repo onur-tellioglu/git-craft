@@ -1,4 +1,5 @@
 pub mod camera;
+pub mod daycycle;
 pub mod hotbar;
 pub mod input;
 pub mod physics;
