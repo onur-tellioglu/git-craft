@@ -84,6 +84,7 @@ pub struct App {
     place_timer: f32,
     cursor_grabbed: bool,
     day: crate::game::daycycle::DayCycle,
+    atmosphere: crate::render::atmosphere::Atmosphere,
     world: crate::world::chunks::ChunkMap,
     worldgen: crate::world::r#gen::WorldGen,
     jobs: crate::world::jobs::Jobs,
@@ -127,6 +128,7 @@ impl App {
             place_timer: 0.0,
             cursor_grabbed: false,
             day: crate::game::daycycle::DayCycle::new(),
+            atmosphere: crate::render::atmosphere::Atmosphere::default(),
             world: crate::world::chunks::ChunkMap::default(),
             worldgen: crate::world::r#gen::WorldGen::new(SEED),
             jobs: crate::world::jobs::Jobs::new(),
@@ -489,8 +491,12 @@ impl App {
             None
         };
 
-        let light_dir = self.day.sun_dir(); // Task 6 replaces with sun-or-moon
-        let light_color = glam::Vec3::splat(2.2) * self.day.day_factor(); // placeholder until Task 6
+        let altitude_km = (self.camera.position.y / 1000.0).max(1e-4); // 1 block = 1 m
+        let (light_dir, light_color, light_is_sun) = crate::render::atmosphere::dominant_light(
+            &self.atmosphere,
+            self.day.sun_dir(),
+            altitude_km,
+        );
 
         if let Some(terrain) = self.terrain.as_mut() {
             terrain.write_frame(
@@ -501,7 +507,7 @@ impl App {
                     sky_color: self.day.sky_color(),
                     day_factor: self.day.day_factor(),
                     light_dir,
-                    light_is_sun: true,
+                    light_is_sun,
                     light_color,
                     viewport: (gpu.config.width, gpu.config.height),
                 },
