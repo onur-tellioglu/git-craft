@@ -1,5 +1,327 @@
 use glam::Vec3;
 
+/// GPU-side uniform mirroring the WGSL `AtmUniform` struct in sky_luts.wgsl.
+/// Layout: mat4 (64 B) + 3 × vec4 (48 B) = 112 B.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct AtmUniform {
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// xyz world camera pos (meters), w altitude in km.
+    pub camera: [f32; 4],
+    /// xyz toward the sun (world space).
+    pub sun: [f32; 4],
+    /// rgb top-of-atmosphere sun radiance.
+    pub sun_radiance: [f32; 4],
+}
+
+const LUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+fn lut_texture(device: &wgpu::Device, label: &str, w: u32, h: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: LUT_FORMAT,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+fn sampled_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
+}
+
+fn storage_entry(binding: u32, dim: wgpu::TextureViewDimension) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::StorageTexture {
+            access: wgpu::StorageTextureAccess::WriteOnly,
+            format: LUT_FORMAT,
+            view_dimension: dim,
+        },
+        count: None,
+    }
+}
+
+/// One (group0, group1, pipeline) triple per LUT entry point.
+struct LutPass {
+    pipeline: wgpu::ComputePipeline,
+    in_group: wgpu::BindGroup,
+    out_group: wgpu::BindGroup,
+    workgroups: (u32, u32, u32),
+}
+
+pub struct SkyLuts {
+    uniform: wgpu::Buffer,
+    pub skyview_view: wgpu::TextureView,
+    transmittance_view: wgpu::TextureView,
+    multiscatter_view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    passes: Vec<LutPass>, // [transmittance, multiscatter, skyview]
+    statics_done: bool,
+}
+
+impl SkyLuts {
+    pub fn new(device: &wgpu::Device, shader_source: &str) -> Self {
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("atm uniform"),
+            size: std::mem::size_of::<AtmUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let transmittance_view = lut_texture(device, "transmittance lut", 256, 64);
+        let multiscatter_view = lut_texture(device, "multiscatter lut", 32, 32);
+        let skyview_view = lut_texture(device, "skyview lut", 192, 108);
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("lut"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+        let mut luts = Self {
+            uniform,
+            skyview_view,
+            transmittance_view,
+            multiscatter_view,
+            sampler,
+            passes: Vec::new(),
+            statics_done: false,
+        };
+        luts.build_passes(device, shader_source);
+        luts
+    }
+
+    fn build_passes(&mut self, device: &wgpu::Device, shader_source: &str) {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sky luts"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+
+        // group 0 resources (inline per pipeline spec — wgpu::BindGroupEntry may not be Clone)
+        // transmittance: uniform only
+        let in_layout_tr = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_transmittance in"),
+            entries: &[uniform_entry(0)],
+        });
+        let out_layout_tr = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_transmittance out"),
+            entries: &[storage_entry(0, wgpu::TextureViewDimension::D2)],
+        });
+        let in_group_tr = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_transmittance in"),
+            layout: &in_layout_tr,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.uniform.as_entire_binding(),
+            }],
+        });
+        let out_group_tr = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_transmittance out"),
+            layout: &out_layout_tr,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
+            }],
+        });
+        let layout_tr = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cs_transmittance"),
+            bind_group_layouts: &[Some(&in_layout_tr), Some(&out_layout_tr)],
+            immediate_size: 0,
+        });
+        let pipeline_tr = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("cs_transmittance"),
+            layout: Some(&layout_tr),
+            module: &shader,
+            entry_point: Some("cs_transmittance"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        // multiscatter: uniform(0), transmittance sampled(1), sampler(3)
+        let in_layout_ms = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_multiscatter in"),
+            entries: &[uniform_entry(0), sampled_entry(1), sampler_entry(3)],
+        });
+        let out_layout_ms = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_multiscatter out"),
+            entries: &[storage_entry(1, wgpu::TextureViewDimension::D2)],
+        });
+        let in_group_ms = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_multiscatter in"),
+            layout: &in_layout_ms,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let out_group_ms = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_multiscatter out"),
+            layout: &out_layout_ms,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&self.multiscatter_view),
+            }],
+        });
+        let layout_ms = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cs_multiscatter"),
+            bind_group_layouts: &[Some(&in_layout_ms), Some(&out_layout_ms)],
+            immediate_size: 0,
+        });
+        let pipeline_ms = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("cs_multiscatter"),
+            layout: Some(&layout_ms),
+            module: &shader,
+            entry_point: Some("cs_multiscatter"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        // skyview: uniform(0), transmittance sampled(1), multiscatter sampled(2), sampler(3)
+        let in_layout_sv = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_skyview in"),
+            entries: &[uniform_entry(0), sampled_entry(1), sampled_entry(2), sampler_entry(3)],
+        });
+        let out_layout_sv = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_skyview out"),
+            entries: &[storage_entry(2, wgpu::TextureViewDimension::D2)],
+        });
+        let in_group_sv = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_skyview in"),
+            layout: &in_layout_sv,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.multiscatter_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let out_group_sv = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_skyview out"),
+            layout: &out_layout_sv,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&self.skyview_view),
+            }],
+        });
+        let layout_sv = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cs_skyview"),
+            bind_group_layouts: &[Some(&in_layout_sv), Some(&out_layout_sv)],
+            immediate_size: 0,
+        });
+        let pipeline_sv = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("cs_skyview"),
+            layout: Some(&layout_sv),
+            module: &shader,
+            entry_point: Some("cs_skyview"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        self.passes = vec![
+            LutPass {
+                pipeline: pipeline_tr,
+                in_group: in_group_tr,
+                out_group: out_group_tr,
+                workgroups: (256 / 8, 64 / 8, 1),
+            },
+            LutPass {
+                pipeline: pipeline_ms,
+                in_group: in_group_ms,
+                out_group: out_group_ms,
+                workgroups: (32 / 8, 32 / 8, 1),
+            },
+            LutPass {
+                pipeline: pipeline_sv,
+                in_group: in_group_sv,
+                out_group: out_group_sv,
+                workgroups: (192 / 8, 108_u32.div_ceil(8), 1),
+            },
+        ];
+    }
+
+    pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
+        self.build_passes(device, shader_source);
+        self.statics_done = false; // recompute static LUTs with the new code
+    }
+
+    pub fn prepare(&self, queue: &wgpu::Queue, u: &AtmUniform) {
+        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(u));
+    }
+
+    pub fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
+    ) {
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sky luts"),
+            timestamp_writes,
+        });
+        let from = if self.statics_done { 2 } else { 0 };
+        for pass in &self.passes[from..] {
+            cpass.set_pipeline(&pass.pipeline);
+            cpass.set_bind_group(0, &pass.in_group, &[]);
+            cpass.set_bind_group(1, &pass.out_group, &[]);
+            cpass.dispatch_workgroups(pass.workgroups.0, pass.workgroups.1, pass.workgroups.2);
+        }
+        self.statics_done = true;
+    }
+}
+
 /// Earth-like atmosphere (Hillaire 2020 parameterization).
 /// Distances in km, coefficients per km. The WGSL in sky_luts.wgsl mirrors
 /// these constants — change BOTH or the sky stops matching the sun color.
@@ -182,5 +504,14 @@ mod tests {
             assert!(lum(c - prev).abs() < 0.25, "luminance jump at t={t}: {prev} -> {c}");
             prev = c;
         }
+    }
+
+    #[test]
+    fn atm_uniform_layout_matches_wgsl() {
+        // mat4 (64) + camera vec4 + sun vec4 + radiance vec4.
+        assert_eq!(std::mem::size_of::<AtmUniform>(), 112);
+        assert_eq!(std::mem::offset_of!(AtmUniform, camera), 64);
+        assert_eq!(std::mem::offset_of!(AtmUniform, sun), 80);
+        assert_eq!(std::mem::offset_of!(AtmUniform, sun_radiance), 96);
     }
 }
