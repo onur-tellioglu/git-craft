@@ -20,8 +20,12 @@ const MAX_QUADS_PER_SECTION: u32 = 1 << 17;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
+struct FrameUniform {
     view_proj: [[f32; 4]; 4],
+    /// rgb = sky color (linear), w = day factor 0..1.
+    sky: [f32; 4],
+    /// xyz = world-space sun direction (normalized, pointing AT the sun).
+    sun: [f32; 4],
 }
 
 #[repr(C)]
@@ -111,7 +115,7 @@ impl TerrainRenderer {
 
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera"),
-            size: std::mem::size_of::<CameraUniform>() as u64,
+            size: std::mem::size_of::<FrameUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -239,8 +243,19 @@ impl TerrainRenderer {
         );
     }
 
-    pub fn write_camera(&self, queue: &wgpu::Queue, view_proj: glam::Mat4) {
-        let uniform = CameraUniform { view_proj: view_proj.to_cols_array_2d() };
+    pub fn write_frame(
+        &self,
+        queue: &wgpu::Queue,
+        view_proj: glam::Mat4,
+        sky_color: glam::Vec3,
+        day_factor: f32,
+        sun_dir: glam::Vec3,
+    ) {
+        let uniform = FrameUniform {
+            view_proj: view_proj.to_cols_array_2d(),
+            sky: [sky_color.x, sky_color.y, sky_color.z, day_factor],
+            sun: [sun_dir.x, sun_dir.y, sun_dir.z, 0.0],
+        };
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
 
@@ -332,6 +347,15 @@ impl TerrainRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_uniform_layout_matches_wgsl() {
+        // mat4x4 (64) + vec4 sky (16) + vec4 sun (16). WGSL struct layout
+        // would silently misread on drift.
+        assert_eq!(std::mem::size_of::<FrameUniform>(), 96);
+        assert_eq!(std::mem::offset_of!(FrameUniform, sky), 64);
+        assert_eq!(std::mem::offset_of!(FrameUniform, sun), 80);
+    }
 
     #[test]
     fn draw_args_encode_arena_offset_and_slot() {
