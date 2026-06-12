@@ -20,7 +20,14 @@ pub enum JobResult {
     /// `version` echoes the caller's per-section counter at spawn time so
     /// out-of-order completions of two in-flight jobs for the same section
     /// can be detected — only the latest version may be uploaded.
-    Meshed { pos: SectionPos, version: u64, quads: Vec<PackedQuad> },
+    Meshed {
+        pos: SectionPos,
+        version: u64,
+        quads: Vec<PackedQuad>,
+        /// Cave-culling mask; consumed by the BFS traversal in Task 11.
+        #[allow(dead_code)]
+        visibility: u16,
+    },
 }
 
 /// Fire-and-forget rayon jobs with a crossbeam result channel (spec §3).
@@ -57,7 +64,8 @@ impl Jobs {
         rayon::spawn(move || {
             let padded = hood.build_padded();
             let quads = Mesher::new().mesh(&padded);
-            let _ = tx.send(JobResult::Meshed { pos, version, quads });
+            let visibility = crate::render::visibility::face_connectivity(&padded);
+            let _ = tx.send(JobResult::Meshed { pos, version, quads, visibility });
         });
     }
 

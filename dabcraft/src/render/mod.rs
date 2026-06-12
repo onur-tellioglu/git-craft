@@ -8,3 +8,4 @@ pub mod hot_reload;
 pub mod outline;
 pub mod terrain;
 pub mod timestamps;
+pub mod visibility;
