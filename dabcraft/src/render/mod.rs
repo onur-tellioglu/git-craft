@@ -6,6 +6,8 @@ pub mod game_ui;
 pub mod gpu;
 pub mod hot_reload;
 pub mod outline;
+pub mod post;
+pub mod targets;
 pub mod terrain;
 pub mod timestamps;
 pub mod visibility;

@@ -1,6 +1,31 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
+/// Watches several named shader files; `poll()` returns every (name, source)
+/// that changed and validated since the last call. Each inner watcher keeps
+/// its own 500 ms poll throttle.
+#[derive(Default)]
+pub struct ShaderSet {
+    watchers: Vec<(&'static str, ShaderWatcher)>,
+}
+
+impl ShaderSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn watch(&mut self, name: &'static str, path: impl Into<PathBuf>) {
+        self.watchers.push((name, ShaderWatcher::new(path)));
+    }
+
+    pub fn poll(&mut self) -> Vec<(&'static str, String)> {
+        self.watchers
+            .iter_mut()
+            .filter_map(|(name, w)| w.poll().map(|src| (*name, src)))
+            .collect()
+    }
+}
+
 pub fn validate_wgsl(source: &str) -> Result<(), String> {
     let module = naga::front::wgsl::parse_str(source).map_err(|e| e.to_string())?;
     // Baseline capabilities only: a shader that needs optional capabilities
@@ -78,8 +103,20 @@ mod tests {
     }
 
     #[test]
-    fn shipped_terrain_shader_is_valid() {
-        let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/terrain.wgsl")).unwrap();
-        assert!(validate_wgsl(&src).is_ok());
+    fn all_shipped_shaders_are_valid() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "wgsl") {
+                let src = std::fs::read_to_string(&path).unwrap();
+                if let Err(e) = validate_wgsl(&src) {
+                    panic!("{} failed validation:\n{e}", path.display());
+                }
+                checked += 1;
+            }
+        }
+        // terrain + outline + post at minimum; grows every rung.
+        assert!(checked >= 3, "expected >= 3 shaders, found {checked}");
     }
 }
