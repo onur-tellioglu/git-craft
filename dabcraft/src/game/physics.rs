@@ -4,14 +4,12 @@ use glam::{IVec3, Vec3};
 /// float equality at boundaries never re-collides on the next frame.
 const SKIN: f32 = 1e-4;
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Aabb {
     pub min: Vec3,
     pub max: Vec3,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl Aabb {
     /// Box from a feet-center position (player convention: position is the
     /// AABB bottom-center).
@@ -29,6 +27,7 @@ impl Aabb {
 
     /// Does this box overlap the unit voxel at `cell`? (Strict inequality:
     /// exact face contact is not overlap.)
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn intersects_cell(&self, cell: IVec3) -> bool {
         let lo = cell.as_vec3();
         let hi = lo + Vec3::ONE;
@@ -94,7 +93,6 @@ fn sweep_axis(b: Aabb, axis: usize, delta: f32, is_solid: &impl Fn(IVec3) -> boo
 /// Move `aabb` by `delta` with axis-separated swept collision, Y first
 /// (grounding must resolve before horizontal sliding), then X, then Z.
 /// Returns the moved box and per-axis hit flags `[x, y, z]`.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn move_aabb(
     aabb: Aabb,
     delta: Vec3,
