@@ -313,6 +313,8 @@ impl App {
                     if let Some(c) = self.world.ready(col) {
                         hood.sections[MeshNeighborhood::index(dx, dy, dz)] =
                             Some(c.sections[sy as usize].clone());
+                        hood.light[MeshNeighborhood::index(dx, dy, dz)] =
+                            Some(c.light[sy as usize].clone());
                     }
                 }
             }
