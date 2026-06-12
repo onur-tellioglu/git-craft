@@ -42,6 +42,7 @@ struct FrameStats {
     visible_sections: u32,
     resident_sections: u32,
     drawn_quads: u32,
+    cave_culled: u32,
 }
 
 pub struct App {
@@ -77,6 +78,9 @@ pub struct App {
     /// finish out of order; only a result matching the current version may
     /// be uploaded, or a stale snapshot would overwrite the fresh mesh.
     mesh_versions: HashMap<crate::world::chunks::SectionPos, u64>,
+    /// Face-connectivity mask per meshed section (cave culling, spec §6).
+    visibility_masks: HashMap<crate::world::chunks::SectionPos, u16>,
+    cave_culling: bool,
     stats: FrameStats,
 }
 
@@ -111,6 +115,8 @@ impl App {
             jobs: crate::world::jobs::Jobs::new(),
             upload_queue: VecDeque::new(),
             mesh_versions: HashMap::new(),
+            visibility_masks: HashMap::new(),
+            cave_culling: true,
             stats: FrameStats::default(),
         }
     }
@@ -220,9 +226,10 @@ impl App {
                         crate::world::light_engine::on_block_changed(&mut self.world, p);
                     }
                 }
-                JobResult::Meshed { pos, version, quads, visibility: _ } => {
+                JobResult::Meshed { pos, version, quads, visibility } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
                     if version == current && self.world.ready(pos.column()).is_some() {
+                        self.visibility_masks.insert(pos, visibility);
                         self.upload_queue.push_back((pos, quads));
                     }
                     // version < current: a newer job is in flight (or already
@@ -238,6 +245,7 @@ impl App {
                     let section = SectionPos { x: pos.x, y, z: pos.z };
                     terrain.remove_section(section);
                     self.mesh_versions.remove(&section);
+                    self.visibility_masks.remove(&section);
                 }
             }
         }
@@ -359,6 +367,9 @@ impl App {
             if self.input.key_pressed(KeyCode::KeyF) {
                 self.player.toggle_mode();
             }
+            if self.input.key_pressed(KeyCode::KeyV) {
+                self.cave_culling = !self.cave_culling;
+            }
             if self.input.key_pressed(KeyCode::Space) {
                 let now = std::time::Instant::now();
                 if self
@@ -422,6 +433,27 @@ impl App {
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
         let view_proj = self.camera.view_proj(aspect);
+
+        // Compute cave-culling visible set BEFORE borrowing terrain mutably.
+        // Capture only the fields we need so the closure stays disjoint from
+        // the mutable terrain borrow below.
+        let cam_pos = self.camera.position;
+        let cave_culling = self.cave_culling;
+        let masks = &self.visibility_masks;
+        let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
+        let visible = if cave_culling {
+            let cam_section = crate::world::chunks::SectionPos {
+                x: (cam_pos.x as i32).div_euclid(32),
+                y: (cam_pos.y as i32).div_euclid(32),
+                z: (cam_pos.z as i32).div_euclid(32),
+            };
+            Some(crate::render::visibility::visible_set(cam_section, RENDER_RADIUS, |p| {
+                masks.get(&p).copied()
+            }))
+        } else {
+            None
+        };
+
         if let Some(terrain) = self.terrain.as_mut() {
             terrain.write_frame(
                 &gpu.queue,
@@ -430,11 +462,11 @@ impl App {
                 self.day.day_factor(),
                 self.day.sun_dir(),
             );
-            let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
-            let stats = terrain.prepare(&gpu.queue, &frustum);
+            let stats = terrain.prepare(&gpu.queue, &frustum, visible.as_ref());
             self.stats.visible_sections = stats.visible_sections;
             self.stats.resident_sections = stats.resident_sections;
             self.stats.drawn_quads = stats.drawn_quads;
+            self.stats.cave_culled = stats.cave_culled;
         }
         if let Some(outline) = self.outline.as_mut() {
             outline.set_target(&gpu.queue, view_proj, self.target.map(|h| h.block));
@@ -530,6 +562,8 @@ impl App {
         let visible = self.stats.visible_sections;
         let resident = self.stats.resident_sections;
         let quads = self.stats.drawn_quads;
+        let cave_culled = self.stats.cave_culled;
+        let cave_cull_on = self.cave_culling;
         let gen_q = self.jobs.gen_in_flight;
         let mesh_q = self.jobs.mesh_in_flight;
         let uploads = self.upload_queue.len();
@@ -577,7 +611,10 @@ impl App {
                                 ui.label(format!("Light:    {light_label}"));
                                 ui.label(format!("Time:     {day_label}"));
                                 ui.label(format!("Columns:  {cols}"));
-                                ui.label(format!("Sections: {visible}/{resident} drawn/resident"));
+                                ui.label(format!(
+                                    "Sections: {visible}/{resident} drawn/resident (cave-culled {cave_culled})"
+                                ));
+                                ui.label(format!("CaveCull: {}", if cave_cull_on { "on (V)" } else { "OFF (V)" }));
                                 ui.label(format!("Quads:    {quads}"));
                                 ui.label(format!("Jobs:     gen {gen_q}  mesh {mesh_q}  upload {uploads}"));
                                 ui.label(format!(

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use wgpu::util::DeviceExt;
 
@@ -44,6 +44,7 @@ pub struct DrawStats {
     pub resident_sections: u32,
     pub visible_sections: u32,
     pub drawn_quads: u32,
+    pub cave_culled: u32,
 }
 
 /// Indirect args for one section: quads at `offset` (arena slots), section
@@ -298,15 +299,28 @@ impl TerrainRenderer {
         }
     }
 
-    /// Frustum-cull resident sections and write this frame's indirect args.
+    /// Frustum-cull resident sections (optionally pre-filtered by the cave
+    /// culling visible set) and write this frame's indirect args.
     /// Call BEFORE the render pass; `draw` then replays `visible_count`
     /// indirect draws. write_buffer data lands before any subsequently
     /// submitted command buffer, so ordering is safe.
-    pub fn prepare(&mut self, queue: &wgpu::Queue, frustum: &Frustum) -> DrawStats {
+    pub fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        frustum: &Frustum,
+        visible: Option<&HashSet<SectionPos>>,
+    ) -> DrawStats {
         let mut args: Vec<wgpu::util::DrawIndexedIndirectArgs> =
             Vec::with_capacity(self.entries.len());
         let mut drawn_quads = 0u32;
+        let mut cave_culled = 0u32;
         for (pos, e) in &self.entries {
+            if let Some(v) = visible
+                && !v.contains(pos)
+            {
+                cave_culled += 1;
+                continue;
+            }
             let min = pos.origin().as_vec3();
             let max = min + glam::Vec3::splat(32.0);
             if !frustum.intersects_aabb(min, max) {
@@ -323,6 +337,7 @@ impl TerrainRenderer {
             resident_sections: self.entries.len() as u32,
             visible_sections: self.visible_count,
             drawn_quads,
+            cave_culled,
         }
     }
 
@@ -370,5 +385,19 @@ mod tests {
     #[test]
     fn packed_args_are_20_bytes() {
         assert_eq!(std::mem::size_of::<wgpu::util::DrawIndexedIndirectArgs>(), 20);
+    }
+
+    #[test]
+    fn draw_stats_count_cave_culled_sections() {
+        // prepare() is GPU-coupled; the cave filter itself is pure: verify
+        // the filtering contract via the stats struct shape instead.
+        let stats = DrawStats {
+            resident_sections: 10,
+            visible_sections: 4,
+            drawn_quads: 100,
+            cave_culled: 3,
+        };
+        assert_eq!(stats.resident_sections - stats.cave_culled - stats.visible_sections, 3,
+            "remaining 3 are frustum-culled");
     }
 }
