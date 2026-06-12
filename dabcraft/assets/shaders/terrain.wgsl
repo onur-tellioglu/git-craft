@@ -1,22 +1,32 @@
 struct FrameUniform {
     view_proj: mat4x4<f32>,
-    sky: vec4<f32>,   // rgb sky color (linear), w = day factor 0..1
-    sun: vec4<f32>,   // xyz sun direction (normalized, toward the sun)
+    inv_view_proj: mat4x4<f32>,
+    camera: vec4<f32>,    // xyz camera world pos
+    sky: vec4<f32>,       // rgb ambient sky color (linear), w day factor
+    sun: vec4<f32>,       // xyz light dir (toward sun/moon), w 1=sun 0=moon
+    sun_color: vec4<f32>, // rgb light radiance
+    params: vec4<f32>,    // xy viewport px, z aerial km-per-meter
 };
 
 struct SectionInfo {
     origin: vec4<i32>,
 };
 
+struct ShadowUniform {
+    mats: array<mat4x4<f32>, 3>,
+    splits: vec4<f32>,  // cascade far view-distances
+    texels: vec4<f32>,  // world texel size per cascade
+};
+
 @group(0) @binding(0) var<uniform> frame: FrameUniform;
 @group(1) @binding(0) var<storage, read> quads: array<vec2<u32>>;
 @group(1) @binding(1) var<storage, read> sections: array<SectionInfo>;
+@group(2) @binding(0) var<uniform> shadow: ShadowUniform;
+@group(2) @binding(1) var shadow_map: texture_depth_2d_array;
+@group(2) @binding(2) var shadow_samp: sampler_comparison;
 
 // Per-face: origin offset (added to voxel pos), U axis, V axis.
 // Face order matches Rust: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
-// Invariant: cross(U, V) == outward face normal, so quads wind CCW seen from
-// outside and survive backface culling. Quad w spans U, h spans V; AO corner
-// order (0,0) (w,0) (w,h) (0,h) is defined in these same U/V axes.
 const FACE_ORIGIN = array<vec3<f32>, 6>(
     vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
     vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 0.0),
@@ -37,10 +47,9 @@ const FACE_NORMAL = array<vec3<f32>, 6>(
     vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0),
     vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0),
 );
-// Minecraft-style face shading: +X, -X, +Y(top), -Y(bottom), +Z, -Z.
+// Ambient directional shade (the direct term has real NdotL now).
 const FACE_SHADE = array<f32, 6>(0.8, 0.8, 1.0, 0.5, 0.6, 0.6);
-// Warm torch tint, applied where blocklight dominates skylight.
-const TORCH_TINT = vec3(1.0, 0.62, 0.33);
+const TORCH_COLOR = vec3(1.0, 0.62, 0.33);
 
 // M2 palette indexed by the quad's texture field = block id;
 // procedural textures replace this in M6.
@@ -60,26 +69,29 @@ const PALETTE = array<vec3<f32>, 13>(
     vec3(0.95, 0.71, 0.3),    // 12 torch
 );
 
-// Corner order matches PackedQuad ao order: (0,0) (w,0) (w,h) (0,h).
 const CORNER_UV = array<vec2<f32>, 4>(
     vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0),
 );
 
+const SHADOW_TEXEL: f32 = 1.0 / 2048.0;
+
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
-    @location(0) color: vec3<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) @interpolate(flat) face: u32,
+    @location(2) ao: f32,
+    // x = skylight, y = blocklight (constant across a greedy quad).
+    @location(3) @interpolate(flat) light: vec2<f32>,
+    @location(4) @interpolate(flat) albedo: vec3<f32>,
 };
 
-// base_vertex (4 × arena offset) is already folded into vi, so vi/4 is the
-// arena-global quad index; first_instance carries the section slot.
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -> VsOut {
     let quad = quads[vi / 4u];
     let flip = extractBits(quad.y, 31u, 1u);
     // AO diagonal flip: rotating the corner mapping by one turns the fixed
     // index pattern (0,1,2)(0,2,3) into triangles (1,2,3)(1,3,0) — the same
-    // rectangle cut along the other diagonal. Positions and AO follow the
-    // rotated corner, so geometry is identical and only the cut changes.
+    // rectangle cut along the other diagonal.
     let corner = (vi + flip) % 4u;
 
     let x = f32(extractBits(quad.x, 0u, 6u));
@@ -99,23 +111,59 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
 
     var out: VsOut;
     out.clip = frame.view_proj * vec4(world, 1.0);
-
-    // M4 basic-sun lighting (the full spec §6 model arrives with CSM in M5):
-    //   sky term  = flood-fill skylight × day factor × (ambient face shade
-    //               blended with per-face NdotL toward the sun)
-    //   torch term = flood-fill blocklight × face shade, time-independent
-    // Skylight gates the sun term, so caves stay dark at noon.
-    let ndotl = max(dot(FACE_NORMAL[face], frame.sun.xyz), 0.0);
-    let sky_l = skylight * frame.sky.w * (0.45 * FACE_SHADE[face] + 0.55 * ndotl);
-    let torch_l = blocklight * FACE_SHADE[face];
-    let level = max(max(sky_l, torch_l), 0.02);
-    let tint = mix(vec3(1.0), TORCH_TINT, clamp(torch_l - sky_l, 0.0, 1.0));
-    let ao_f = mix(0.4, 1.0, ao / 3.0);
-    out.color = PALETTE[min(tex, 12u)] * tint * level * ao_f;
+    out.world_pos = world;
+    out.face = face;
+    out.ao = ao / 3.0;
+    out.light = vec2(skylight, blocklight);
+    out.albedo = PALETTE[min(tex, 12u)];
     return out;
+}
+
+// 3×3 PCF over the selected cascade; each tap is hardware 2×2 PCF.
+fn shadow_factor(world_pos: vec3<f32>, normal: vec3<f32>, view_dist: f32) -> f32 {
+    var c: u32 = 3u;
+    if view_dist < shadow.splits.x { c = 0u; }
+    else if view_dist < shadow.splits.y { c = 1u; }
+    else if view_dist < shadow.splits.z { c = 2u; }
+    if c == 3u {
+        return 1.0; // beyond the cascades: the skylight guard rules alone
+    }
+    // Normal-offset bias scaled by this cascade's texel footprint.
+    let pos = world_pos + normal * shadow.texels[c] * 1.5;
+    let p = shadow.mats[c] * vec4(pos, 1.0);
+    let uv = vec2(p.x, -p.y) * 0.5 + 0.5;
+    if uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 {
+        return 1.0;
+    }
+    var sum = 0.0;
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
+            let o = vec2(f32(dx), f32(dy)) * SHADOW_TEXEL;
+            sum += textureSampleCompareLevel(shadow_map, shadow_samp, uv + o, c, p.z);
+        }
+    }
+    return sum / 9.0;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    return vec4(in.color, 1.0);
+    let normal = FACE_NORMAL[in.face];
+    let view_dist = length(in.world_pos - frame.camera.xyz);
+    let ndotl = max(dot(normal, frame.sun.xyz), 0.0);
+
+    // Flood-fill skylight gates the direct term beyond shadow range and
+    // underground (spec §6): caves stay dark at noon, shafts of light need
+    // actual sky exposure.
+    let guard = smoothstep(0.0, 0.5, in.light.x);
+    var shadow_f = 0.0;
+    if ndotl > 0.0 && guard > 0.0 {
+        shadow_f = shadow_factor(in.world_pos, normal, view_dist);
+    }
+
+    let ao = mix(0.35, 1.0, in.ao);
+    let direct = frame.sun_color.rgb * ndotl * min(shadow_f, guard);
+    let ambient = frame.sky.rgb * pow(in.light.x, 1.8) * FACE_SHADE[in.face] * ao;
+    let torch = TORCH_COLOR * 1.4 * pow(in.light.y, 1.6) * FACE_SHADE[in.face] * ao;
+    let color = in.albedo * (direct + ambient + torch);
+    return vec4(color, 1.0);
 }
