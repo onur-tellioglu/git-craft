@@ -4,5 +4,6 @@ pub mod frustum;
 pub mod egui_layer;
 pub mod gpu;
 pub mod hot_reload;
+pub mod outline;
 pub mod terrain;
 pub mod timestamps;
