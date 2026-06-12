@@ -6,11 +6,17 @@ use crate::mesh::greedy::Mesher;
 use crate::mesh::neighborhood::MeshNeighborhood;
 use crate::mesh::quad::PackedQuad;
 use crate::world::chunks::{ColumnPos, SectionPos};
+use crate::world::light::{light_new_column, LightData};
 use crate::world::r#gen::{ColumnData, StructureWrite, WorldGen};
 
 #[derive(Debug)]
 pub enum JobResult {
-    Generated { pos: ColumnPos, data: ColumnData, writes: Vec<StructureWrite> },
+    Generated {
+        pos: ColumnPos,
+        data: ColumnData,
+        light: Box<[LightData; 8]>,
+        writes: Vec<StructureWrite>,
+    },
     /// `version` echoes the caller's per-section counter at spawn time so
     /// out-of-order completions of two in-flight jobs for the same section
     /// can be detected — only the latest version may be uploaded.
@@ -39,8 +45,9 @@ impl Jobs {
         let tx = self.tx.clone();
         rayon::spawn(move || {
             let (data, writes) = worldgen.generate_column(pos.x, pos.z);
+            let light = Box::new(light_new_column(&data.sections));
             // Send fails only when the app is shutting down; fine to drop.
-            let _ = tx.send(JobResult::Generated { pos, data, writes });
+            let _ = tx.send(JobResult::Generated { pos, data, light, writes });
         });
     }
 

@@ -16,7 +16,6 @@ pub enum LightChannel {
     Block,
 }
 
-#[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
 pub fn pack_light(sky: u8, block: u8) -> u8 {
     debug_assert!(sky <= MAX_LIGHT && block <= MAX_LIGHT);
     sky | (block << 4)
@@ -135,9 +134,159 @@ impl LightData {
     }
 }
 
+use std::collections::VecDeque;
+
+use crate::world::block::AIR;
+use crate::world::r#gen::COLUMN_SECTIONS;
+use crate::world::section::Section;
+
+const WORLD_H: usize = 256;
+
+fn cidx(x: usize, y: usize, z: usize) -> usize {
+    (y * SIZE + z) * SIZE + x
+}
+
+/// Initial skylight for a freshly generated column (pure; runs in the rayon
+/// gen job). Vertical seed: 15 from the top until the first light-blocking
+/// block. Then an in-column BFS: sideways/up lose 1 per step, level-15
+/// falls downward undimmed (vanilla rule). Blocklight starts 0 — worldgen
+/// places no emitters. Cross-column seams are healed by
+/// `light_engine::seed_column_borders` when neighbors are loaded.
+pub fn light_new_column(sections: &[Section]) -> [LightData; COLUMN_SECTIONS] {
+    assert_eq!(sections.len(), COLUMN_SECTIONS);
+    let mut blocks = vec![AIR; SIZE * SIZE * WORLD_H];
+    for (s, section) in sections.iter().enumerate() {
+        section.unpack_into(&mut blocks[s * VOLUME..(s + 1) * VOLUME]);
+    }
+    let mut sky = vec![0u8; SIZE * SIZE * WORLD_H];
+    let mut queue: VecDeque<(usize, usize, usize, u8)> = VecDeque::new();
+    for x in 0..SIZE {
+        for z in 0..SIZE {
+            for y in (0..WORLD_H).rev() {
+                if blocks[cidx(x, y, z)].blocks_light() {
+                    break;
+                }
+                sky[cidx(x, y, z)] = MAX_LIGHT;
+                queue.push_back((x, y, z, MAX_LIGHT));
+            }
+        }
+    }
+    while let Some((x, y, z, level)) = queue.pop_front() {
+        for (dx, dy, dz) in [(1i32, 0i32, 0i32), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
+            if !(0..SIZE as i32).contains(&nx)
+                || !(0..WORLD_H as i32).contains(&ny)
+                || !(0..SIZE as i32).contains(&nz)
+            {
+                continue;
+            }
+            let (nx, ny, nz) = (nx as usize, ny as usize, nz as usize);
+            if blocks[cidx(nx, ny, nz)].blocks_light() {
+                continue;
+            }
+            let candidate = if level == MAX_LIGHT && dy == -1 { MAX_LIGHT } else { level - 1 };
+            if candidate > sky[cidx(nx, ny, nz)] {
+                sky[cidx(nx, ny, nz)] = candidate;
+                if candidate > 1 {
+                    queue.push_back((nx, ny, nz, candidate));
+                }
+            }
+        }
+    }
+    std::array::from_fn(|s| LightData::from_sky_slice(&sky[s * VOLUME..(s + 1) * VOLUME]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::world::block::{STONE, TORCH, WATER};
+    use crate::world::section::Section;
+
+    /// 8 empty sections with `fill(x, y, z) -> Option<BlockId>` applied.
+    fn column_with(fill: impl Fn(usize, i32, usize) -> Option<crate::world::block::BlockId>) -> Vec<Section> {
+        let mut sections: Vec<Section> = (0..8).map(|_| Section::empty()).collect();
+        for y in 0..256i32 {
+            for x in 0..32usize {
+                for z in 0..32usize {
+                    if let Some(b) = fill(x, y, z) {
+                        sections[(y / 32) as usize].set(x, (y % 32) as usize, z, b);
+                    }
+                }
+            }
+        }
+        sections
+    }
+
+    fn sky_at(light: &[LightData; 8], x: usize, y: i32, z: usize) -> u8 {
+        light[(y / 32) as usize].sky(x, (y % 32) as usize, z)
+    }
+
+    #[test]
+    fn flat_ground_splits_sky_above_dark_below() {
+        // Solid stone slab below y=20, open air above.
+        let sections = column_with(|_, y, _| (y < 20).then_some(STONE));
+        let light = light_new_column(&sections);
+        assert_eq!(sky_at(&light, 5, 20, 5), 15, "first air cell above ground");
+        assert_eq!(sky_at(&light, 5, 200, 5), 15, "high air");
+        assert_eq!(sky_at(&light, 5, 10, 5), 0, "inside stone");
+        assert!(matches!(light[7], LightData::Uniform(15)), "all-air section collapses to uniform");
+        // Section 0 (y=0..31) has stone at y=0..19 and sky-lit air at y=20..31,
+        // so it is Dense. Sky reads 0 inside the stone, 15 in the lit air.
+        assert!(matches!(light[0], LightData::Dense(_)), "mixed section stays dense");
+        assert_eq!(sky_at(&light, 5, 0, 5), 0, "deep stone cell is dark");
+    }
+
+    #[test]
+    fn overhang_light_decrements_sideways_then_falls() {
+        // Ground at y<20 plus a roof slab at y=40 covering x<16: under the
+        // roof, light enters from the open side (x>=16) and decays inward.
+        let sections = column_with(|x, y, _| {
+            if y < 20 { return Some(STONE); }
+            (y == 40 && x < 16).then_some(STONE)
+        });
+        let light = light_new_column(&sections);
+        assert_eq!(sky_at(&light, 16, 30, 5), 15, "open shaft beside the roof");
+        assert_eq!(sky_at(&light, 15, 30, 5), 14, "one step under the roof");
+        assert_eq!(sky_at(&light, 12, 30, 5), 11, "four steps under the roof");
+        assert_eq!(sky_at(&light, 0, 30, 5), 0, "16 steps in: fully dark (15-16 < 0)");
+        // Horizontal entry happens at every y under the roof independently,
+        // so every open cell under the roof at x=15 reads 14.
+        assert_eq!(sky_at(&light, 15, 21, 5), 14);
+    }
+
+    #[test]
+    fn sealed_cave_is_dark_and_water_blocks_sky() {
+        // Stone up to y=100 with a sealed air pocket at y 40..44, x/z 10..14;
+        // a water column at (20,*,20) from y=60..=100 over air below.
+        let sections = column_with(|x, y, z| {
+            let pocket = (40..44).contains(&y) && (10..14).contains(&x) && (10..14).contains(&z);
+            let shaft = x == 20 && z == 20 && (0..=100).contains(&y);
+            if pocket { return None; }
+            if shaft { return ((60..=100).contains(&y)).then_some(WATER); }
+            (y <= 100).then_some(STONE)
+        });
+        let light = light_new_column(&sections);
+        assert_eq!(sky_at(&light, 11, 41, 11), 0, "sealed pocket gets no skylight");
+        assert_eq!(sky_at(&light, 20, 50, 20), 0, "below the water plug: dark (water blocks light in M4)");
+        assert_eq!(sky_at(&light, 20, 101, 20), 15, "above the water surface");
+    }
+
+    #[test]
+    fn torch_block_does_not_block_the_sky_shaft() {
+        // A floating torch at (5,50,5): the shaft below it stays sky-15.
+        let sections = column_with(|x, y, z| (x == 5 && y == 50 && z == 5).then_some(TORCH));
+        let light = light_new_column(&sections);
+        assert_eq!(sky_at(&light, 5, 50, 5), 15, "the torch cell itself");
+        assert_eq!(sky_at(&light, 5, 49, 5), 15, "below the torch");
+    }
+
+    #[test]
+    fn generated_light_has_no_blocklight() {
+        let sections = column_with(|_, y, _| (y < 20).then_some(STONE));
+        let light = light_new_column(&sections);
+        assert_eq!(light[1].block_light(5, 5, 5), 0);
+        assert_eq!(light[6].block_light(5, 5, 5), 0);
+    }
 
     #[test]
     fn dark_default_reads_zero_everywhere() {

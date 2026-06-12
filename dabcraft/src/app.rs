@@ -197,7 +197,7 @@ impl App {
         // 1. Drain finished jobs.
         for result in self.jobs.drain() {
             match result {
-                JobResult::Generated { pos, data, writes } => {
+                JobResult::Generated { pos, data, light, writes } => {
                     let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
                     if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
                         // Player moved on; drop the data but keep its writes
@@ -205,9 +205,7 @@ impl App {
                         self.world.queue_writes(writes);
                         continue;
                     }
-                    // Placeholder until the gen job computes real light (M4 Task 4).
-                    let light: [crate::world::light::LightData; 8] = std::array::from_fn(|_| crate::world::light::LightData::dark());
-                    let _touched = self.world.insert_generated(pos, data, light, writes);
+                    let _touched = self.world.insert_generated(pos, data, *light, writes);
                 }
                 JobResult::Meshed { pos, version, quads } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
