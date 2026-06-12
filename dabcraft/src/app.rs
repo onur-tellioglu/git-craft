@@ -68,6 +68,7 @@ pub struct App {
     break_timer: f32,
     place_timer: f32,
     cursor_grabbed: bool,
+    day: crate::game::daycycle::DayCycle,
     world: crate::world::chunks::ChunkMap,
     worldgen: crate::world::r#gen::WorldGen,
     jobs: crate::world::jobs::Jobs,
@@ -104,6 +105,7 @@ impl App {
             break_timer: 0.0,
             place_timer: 0.0,
             cursor_grabbed: false,
+            day: crate::game::daycycle::DayCycle::new(),
             world: crate::world::chunks::ChunkMap::default(),
             worldgen: crate::world::r#gen::WorldGen::new(SEED),
             jobs: crate::world::jobs::Jobs::new(),
@@ -342,6 +344,9 @@ impl App {
         // Smooth FPS estimate.
         self.fps_smoothed = self.fps_smoothed * 0.95 + (1.0 / dt.max(1e-6)) * 0.05;
 
+        // Advance day/night cycle unconditionally — time flows even while paused.
+        self.day.advance(dt);
+
         let (dx, dy) = self.input.take_mouse_delta();
 
         // Released cursor = paused: the world keeps streaming, but the
@@ -418,13 +423,12 @@ impl App {
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
         let view_proj = self.camera.view_proj(aspect);
         if let Some(terrain) = self.terrain.as_mut() {
-            // Noon placeholder until the day cycle lands (M4 Task 9).
             terrain.write_frame(
                 &gpu.queue,
                 view_proj,
-                glam::Vec3::new(0.25, 0.55, 0.95),
-                1.0,
-                glam::Vec3::new(0.3, 0.85, 0.42).normalize(),
+                self.day.sky_color(),
+                self.day.day_factor(),
+                self.day.sun_dir(),
             );
             let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
             let stats = terrain.prepare(&gpu.queue, &frustum);
@@ -436,6 +440,7 @@ impl App {
             outline.set_target(&gpu.queue, view_proj, self.target.map(|h| h.block));
         }
 
+        let sky = self.day.sky_color();
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
             // even when the swapchain frame is dropped, or a click would fire
@@ -459,7 +464,12 @@ impl App {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.25, g: 0.55, b: 0.95, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: sky.x as f64,
+                            g: sky.y as f64,
+                            b: sky.z as f64,
+                            a: 1.0,
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -529,6 +539,12 @@ impl App {
         let hotbar_selected = self.hotbar.selected;
         let hud_visible = self.hud_visible;
         let paused = !self.cursor_grabbed;
+        let day_label = format!(
+            "{:02}:{:02} (×{:.2})",
+            ((self.day.time * 24.0 + 6.0) % 24.0) as u32,
+            ((self.day.time * 24.0 * 60.0) % 60.0) as u32,
+            self.day.day_factor()
+        );
 
         // Draw egui overlay: crosshair + hotbar always; Debug HUD only when F3.
         let egui_cmds = if let Some(egui) = &mut self.egui {
@@ -559,6 +575,7 @@ impl App {
                                 ui.label(format!("Mode:     {mode}"));
                                 ui.label(format!("Target:   {target_label}"));
                                 ui.label(format!("Light:    {light_label}"));
+                                ui.label(format!("Time:     {day_label}"));
                                 ui.label(format!("Columns:  {cols}"));
                                 ui.label(format!("Sections: {visible}/{resident} drawn/resident"));
                                 ui.label(format!("Quads:    {quads}"));
