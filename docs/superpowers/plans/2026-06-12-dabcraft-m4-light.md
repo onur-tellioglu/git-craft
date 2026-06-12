@@ -94,7 +94,7 @@ cargo run --release --manifest-path dabcraft/Cargo.toml        # play (debug too
 
 ## Setup
 
-- [ ] **Step 0.1: Create the milestone branch**
+- [x] **Step 0.1: Create the milestone branch**
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -117,7 +117,7 @@ Expected: branch `feat/m4-light` created from `main` (main already contains the 
 
 The torch is the only light emitter in M4. It renders as a full cube (a proper cross-model is out of scope until textures land) and is collidable like every solid block. What distinguishes it: it does NOT block light propagation, and it emits blocklight 14.
 
-- [ ] **Step 1.1: Write the failing tests**
+- [x] **Step 1.1: Write the failing tests**
 
 Append to the `tests` module in `dabcraft/src/world/block.rs`:
 
@@ -150,12 +150,12 @@ Append to the `tests` module in `dabcraft/src/world/block.rs`:
 
 Also update the existing `ids_are_stable` test's array to include `(TORCH, 12)` (and its type to `[(BlockId, u16); 13]`), and `only_air_is_not_solid` loop bound from `1..=11u16` to `1..=12u16`.
 
-- [ ] **Step 1.2: Run tests to verify they fail**
+- [x] **Step 1.2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml block::`
 Expected: FAIL — `TORCH` not found.
 
-- [ ] **Step 1.3: Implement the block registry changes**
+- [x] **Step 1.3: Implement the block registry changes**
 
 In `dabcraft/src/world/block.rs`, after `pub const CACTUS`:
 
@@ -193,7 +193,7 @@ Add to `impl BlockId` (after `is_solid`):
 
 Extend `display_name` with `12 => "Torch",` and `color` with `12 => [0.95, 0.71, 0.30],` (warm torch orange).
 
-- [ ] **Step 1.4: Mirror the palette in the shader**
+- [x] **Step 1.4: Mirror the palette in the shader**
 
 In `dabcraft/assets/shaders/terrain.wgsl`, grow the table:
 
@@ -217,12 +217,12 @@ const PALETTE = array<vec3<f32>, 13>(
 
 And change the clamp in `vs_main` from `PALETTE[min(tex, 11u)]` to `PALETTE[min(tex, 12u)]`.
 
-- [ ] **Step 1.5: Run the full test suite**
+- [x] **Step 1.5: Run the full test suite**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS — including `colors_match_the_shader_palette` (now 13 entries) and `placeable_covers_every_block_except_air` (max id 12).
 
-- [ ] **Step 1.6: Commit**
+- [x] **Step 1.6: Commit**
 
 ```bash
 git add dabcraft/src/world/block.rs dabcraft/assets/shaders/terrain.wgsl
@@ -240,7 +240,7 @@ git commit -m "feat: add torch block and light propagation predicates"
 
 Two 4-bit channels per voxel: skylight in the low nibble, blocklight in the high nibble, one byte per voxel, index order `(y*32+z)*32+x` (identical to `Section`). The killer optimization mirrors palette storage: most sections are uniformly lit (all sky-15 above ground, all dark deep underground), so `Uniform(u8)` stores one byte and promotes to a 32 KiB `Dense` box only on the first divergent write. A 13-column load radius is ~4400 sections; without the uniform variant light alone would cost ~140 MiB.
 
-- [ ] **Step 2.1: Write the failing tests**
+- [x] **Step 2.1: Write the failing tests**
 
 Create `dabcraft/src/world/light.rs` with only the test module first (the impl comes in 2.3):
 
@@ -312,14 +312,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2.2: Register the module and verify the tests fail**
+- [x] **Step 2.2: Register the module and verify the tests fail**
 
 Add `pub mod light;` to `dabcraft/src/world/mod.rs`.
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
 Expected: FAIL to compile — `LightData` not defined.
 
-- [ ] **Step 2.3: Implement LightData**
+- [x] **Step 2.3: Implement LightData**
 
 Prepend the implementation above the test module in `dabcraft/src/world/light.rs`:
 
@@ -457,12 +457,12 @@ impl LightData {
 }
 ```
 
-- [ ] **Step 2.4: Run the tests**
+- [x] **Step 2.4: Run the tests**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
 Expected: PASS (6 tests). Note: `LightChannel`, `get`, `set`, `MAX_LIGHT` are not exercised yet — they are consumed in Tasks 3–5; if clippy complains about dead code at this commit, add `#[allow(dead_code)] // consumed by light_engine (Task 5)` on the unused items and remove it in Task 5.
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git add dabcraft/src/world/light.rs dabcraft/src/world/mod.rs
@@ -480,7 +480,7 @@ git commit -m "feat: add uniform/dense nibble light storage per section"
 
 `Column` gains a light array parallel to `sections`. `insert_generated` accepts the light computed by the gen job, and now **returns the world positions of structure writes it applied to ready columns** (its own pending queue + routed outside-writes) so `App` can run incremental light updates for them (Task 6) — the gen job lit the column before those writes landed. `ChunkMap` gains world-space light accessors with the same out-of-world conventions as `block_at`: above the world is full skylight, below is dark, unloaded is `None`.
 
-- [ ] **Step 3.1: Write the failing tests**
+- [x] **Step 3.1: Write the failing tests**
 
 In `dabcraft/src/world/chunks.rs` tests, add a helper next to `empty_column_data`:
 
@@ -562,12 +562,12 @@ New tests:
 
 Naming note: the method stays `insert_generated` — the tests above use `insert_generated_with_light` only so this step fails cleanly; in Step 3.3 you change `insert_generated` itself (new signature) and then rename the calls in these tests to `insert_generated`. All pre-existing tests that call `insert_generated(pos, data, writes)` get the `dark_light()` argument inserted as the third parameter.
 
-- [ ] **Step 3.2: Run tests to verify they fail**
+- [x] **Step 3.2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml chunks::`
 Expected: FAIL to compile.
 
-- [ ] **Step 3.3: Implement**
+- [x] **Step 3.3: Implement**
 
 In `dabcraft/src/world/chunks.rs`:
 
@@ -718,7 +718,7 @@ Light accessors (place next to `block_at` / `set_block`):
 
 (The `0..256` literals already in `chunks.rs` may stay; new code uses `WORLD_HEIGHT` for clarity.)
 
-- [ ] **Step 3.4: Fix the App call site with placeholder light**
+- [x] **Step 3.4: Fix the App call site with placeholder light**
 
 In `dabcraft/src/app.rs` `update_world`, the `JobResult::Generated` arm — the gen job does not carry light until Task 4, so insert dark placeholder light to keep the build green:
 
@@ -735,14 +735,14 @@ In `dabcraft/src/app.rs` `update_world`, the `JobResult::Generated` arm — the 
                 }
 ```
 
-- [ ] **Step 3.5: Rename test calls and run the suite**
+- [x] **Step 3.5: Rename test calls and run the suite**
 
 Rename `insert_generated_with_light` → `insert_generated` in the Step 3.1 tests; add `dark_light()` as the third argument to every pre-existing `insert_generated` call in the test module (8 call sites).
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS.
 
-- [ ] **Step 3.6: Commit**
+- [x] **Step 3.6: Commit**
 
 ```bash
 git add dabcraft/src/world/chunks.rs dabcraft/src/app.rs
@@ -761,7 +761,7 @@ git commit -m "feat: store per-section light in chunk columns"
 
 Initial skylight is a pure function over a freshly generated column, so it runs inside the existing rayon gen job for free parallelism: seed 15 from the top of each (x,z) shaft down to the first light-blocking block, then BFS-spread within the column (sideways/up lose 1 per step; level-15 falls downward undimmed — the vanilla rule, which makes open sky cheap and overhangs correct). Cross-column seams are healed later by `seed_column_borders` (Task 5) — this matches Minecraft semantics: flood-fill skylight is per-column sky access, not neighbor-mountain shadowing (shadows are the CSM's job in M5). Blocklight starts at 0 — worldgen places no emitters.
 
-- [ ] **Step 4.1: Write the failing tests**
+- [x] **Step 4.1: Write the failing tests**
 
 Append to the `tests` module in `dabcraft/src/world/light.rs`:
 
@@ -855,12 +855,12 @@ Append to the `tests` module in `dabcraft/src/world/light.rs`:
     }
 ```
 
-- [ ] **Step 4.2: Run tests to verify they fail**
+- [x] **Step 4.2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
 Expected: FAIL to compile — `light_new_column` not defined.
 
-- [ ] **Step 4.3: Implement light_new_column**
+- [x] **Step 4.3: Implement light_new_column**
 
 Add to `dabcraft/src/world/light.rs` (above the tests), with imports `use std::collections::VecDeque;`, `use crate::world::block::{BlockId, AIR};`, `use crate::world::r#gen::COLUMN_SECTIONS;`, `use crate::world::section::Section;`:
 
@@ -924,12 +924,12 @@ pub fn light_new_column(sections: &[Section]) -> [LightData; COLUMN_SECTIONS] {
 
 Performance note: the seed loop enqueues every sky-15 voxel (~200k for an open column) and most pops are no-ops. Measured in the gen job this is low single-digit milliseconds on the M4 and runs on rayon, not the main thread. If `--bench` (M6) ever flags it, the seed set can shrink to shaft-boundary voxels — do not optimize now.
 
-- [ ] **Step 4.4: Run the light tests**
+- [x] **Step 4.4: Run the light tests**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
 Expected: PASS.
 
-- [ ] **Step 4.5: Carry light through the job channel**
+- [x] **Step 4.5: Carry light through the job channel**
 
 In `dabcraft/src/world/jobs.rs`:
 
@@ -985,7 +985,7 @@ In `dabcraft/src/app.rs`, replace the Task 3 placeholder:
 
 (`_touched` becomes live in Task 6.)
 
-- [ ] **Step 4.6: Full suite + commit**
+- [x] **Step 4.6: Full suite + commit**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS.
@@ -1014,7 +1014,7 @@ The standard Minecraft addition/removal BFS, generalized over `ChunkMap` and `Li
 
 Out-of-world conventions do real work here: `map.light` returns sky-15 above the world, so the BFS naturally pulls sky in through the world ceiling; `set_light` refuses out-of-world writes; unloaded columns return `None` and stop propagation at the loaded edge (border seeding heals it when the neighbor arrives).
 
-- [ ] **Step 5.1: Write the failing tests**
+- [x] **Step 5.1: Write the failing tests**
 
 Create `dabcraft/src/world/light_engine.rs` with the test module:
 
@@ -1196,14 +1196,14 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5.2: Register the module and verify tests fail**
+- [x] **Step 5.2: Register the module and verify tests fail**
 
 Add `pub mod light_engine;` to `dabcraft/src/world/mod.rs`.
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light_engine::`
 Expected: FAIL to compile.
 
-- [ ] **Step 5.3: Implement the engine**
+- [x] **Step 5.3: Implement the engine**
 
 `dabcraft/src/world/light_engine.rs` above the tests:
 
@@ -1421,12 +1421,12 @@ pub fn relight_all(map: &mut ChunkMap, cols: &[ColumnPos]) {
 }
 ```
 
-- [ ] **Step 5.4: Run the engine tests**
+- [x] **Step 5.4: Run the engine tests**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml light_engine::`
 Expected: PASS (5 tests). The `incremental_equals_from_scratch` test is the load-bearing one — if it fails, debug the engine, not the oracle (the oracle is the simple definition). Remove any `#[allow(dead_code)]` left on `light.rs` items from Task 2.
 
-- [ ] **Step 5.5: Full suite + commit**
+- [x] **Step 5.5: Full suite + commit**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS.
@@ -1450,7 +1450,7 @@ Three hook points, all in `app.rs`:
 2. **Column insert** (`update_world`, `Generated` arm): after `insert_generated`, heal seams with `seed_column_borders`, then run `on_block_changed` for every structure-write position the insert applied to ready columns (trees that crossed borders landed after the gen job lit the column).
 3. **HUD**: show sky/block light at the player's eye cell — the cheapest way to *see* the system work before the mesher consumes it (Task 7).
 
-- [ ] **Step 6.1: Hook player edits**
+- [x] **Step 6.1: Hook player edits**
 
 In `update_interaction`, the break arm becomes:
 
@@ -1476,7 +1476,7 @@ and the place arm:
             }
 ```
 
-- [ ] **Step 6.2: Hook column streaming**
+- [x] **Step 6.2: Hook column streaming**
 
 The `Generated` arm in `update_world`:
 
@@ -1498,7 +1498,7 @@ The `Generated` arm in `update_world`:
                 }
 ```
 
-- [ ] **Step 6.3: HUD light readout**
+- [x] **Step 6.3: HUD light readout**
 
 In `render()`, next to the other captured HUD values:
 
@@ -1526,7 +1526,7 @@ In `render()`, next to the other captured HUD values:
                                 ui.label(format!("Light:    {light_label}"));
 ```
 
-- [ ] **Step 6.4: Build, test, smoke-run**
+- [x] **Step 6.4: Build, test, smoke-run**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS, no warnings.
@@ -1545,7 +1545,7 @@ grep -iE "panic|error" /tmp/dabcraft-m4-t6.log || echo "CLEAN"
 
 Expected: `CLEAN` (the egui/wgpu startup may log benign info lines; investigate anything matching panic/error). Note: the binary may live at `dabcraft/target/release/dabcraft` or `target/release/dabcraft` depending on workspace layout — check both.
 
-- [ ] **Step 6.5: Commit**
+- [x] **Step 6.5: Commit**
 
 ```bash
 git add dabcraft/src/app.rs
@@ -1567,7 +1567,7 @@ A quad's light is the light of the **out-layer cell in front of the face** — t
 
 Defaults are chosen so every existing mesh test stays green: `PaddedSection::air()` and missing neighborhood light read as packed `0x0F` (sky 15, block 0) — also the correct convention for the apron above the world ceiling.
 
-- [ ] **Step 7.1: Write the failing tests**
+- [x] **Step 7.1: Write the failing tests**
 
 `dabcraft/src/mesh/padded.rs` tests:
 
@@ -1672,12 +1672,12 @@ Defaults are chosen so every existing mesh test stays green: `PaddedSection::air
 
 (For the last test reuse the existing pattern `q.face == 2` instead of inventing `unpack_is_top` — write it as the existing `slab_interior_still_merges_fully` does; it is listed here to pin that the light key must not break full-slab merging.)
 
-- [ ] **Step 7.2: Run tests to verify they fail**
+- [x] **Step 7.2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh`
 Expected: FAIL to compile (`light_packed`, `set_light`, `build` arity, `hood.light`).
 
-- [ ] **Step 7.3: Implement the padded light channel**
+- [x] **Step 7.3: Implement the padded light channel**
 
 `dabcraft/src/mesh/padded.rs`:
 
@@ -1774,7 +1774,7 @@ impl PaddedSection {
 
 Update the two existing `build` tests to the new closure signature: `|_, _, _| (AIR, 0x0F)` and the tagging test `|x, y, z| { ...; (BlockId(outside), 0x0F) }`.
 
-- [ ] **Step 7.4: Implement the neighborhood light capture**
+- [x] **Step 7.4: Implement the neighborhood light capture**
 
 `dabcraft/src/mesh/neighborhood.rs`:
 
@@ -1837,7 +1837,7 @@ Add next to `get`:
     }
 ```
 
-- [ ] **Step 7.5: Implement mesher light sampling and merge key**
+- [x] **Step 7.5: Implement mesher light sampling and merge key**
 
 `dabcraft/src/mesh/greedy.rs`:
 
@@ -1896,7 +1896,7 @@ Thread `light: u8` through `sweep_plane` and `emit` (one more parameter each), a
     }));
 ```
 
-- [ ] **Step 7.6: Fill the neighborhood light in App**
+- [x] **Step 7.6: Fill the neighborhood light in App**
 
 `dabcraft/src/app.rs`, `build_neighborhood` — capture the light Arc next to the section Arc:
 
@@ -1909,14 +1909,14 @@ Thread `light: u8` through `sweep_plane` and `emit` (one more parameter each), a
                     }
 ```
 
-- [ ] **Step 7.7: Run everything**
+- [x] **Step 7.7: Run everything**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS — all pre-existing greedy/padded/neighborhood tests stay green (defaults preserve the old `skylight 15 / blocklight 0` behavior), plus the new light tests.
 
 Visual check (optional but recommended): `cargo run --release --manifest-path dabcraft/Cargo.toml` — caves and overhangs are now dark, the surface unchanged. Torches don't glow yet (shader reads blocklight in Task 8); placing blocks under an overhang should show light gradients.
 
-- [ ] **Step 7.8: Commit**
+- [x] **Step 7.8: Commit**
 
 ```bash
 git add dabcraft/src/mesh/padded.rs dabcraft/src/mesh/neighborhood.rs dabcraft/src/mesh/greedy.rs dabcraft/src/app.rs
@@ -1935,7 +1935,7 @@ git commit -m "feat: bake flood-fill light into greedy mesh quads"
 
 The frame uniform grows two vec4s: `sky` (rgb sky color, w = day factor 0..1) and `sun` (xyz world-space sun direction). The lighting model is the M4 "basic sun" — a per-face NdotL on the face normal blended with the Minecraft-style face shade, gated by flood-fill skylight so caves stay dark at noon, plus a warm time-independent torch term. The full spec model (CSM, real ambient split) replaces this in M5; constants here are tuned live via shader hot-reload.
 
-- [ ] **Step 8.1: Write the failing uniform-layout test**
+- [x] **Step 8.1: Write the failing uniform-layout test**
 
 In `dabcraft/src/render/terrain.rs` tests:
 
@@ -1953,7 +1953,7 @@ In `dabcraft/src/render/terrain.rs` tests:
 Run: `cargo test --manifest-path dabcraft/Cargo.toml terrain::`
 Expected: FAIL to compile — `FrameUniform` not defined.
 
-- [ ] **Step 8.2: Implement FrameUniform**
+- [x] **Step 8.2: Implement FrameUniform**
 
 In `dabcraft/src/render/terrain.rs`, replace `CameraUniform`:
 
@@ -1991,7 +1991,7 @@ Replace every `CameraUniform` mention (`size_of` in the buffer descriptor includ
 
 The uniform visibility must now include the fragment stage? No — all lighting stays in the vertex shader (per-vertex light, spec §4); leave `ShaderStages::VERTEX`.
 
-- [ ] **Step 8.3: Update the call site with hardcoded noon**
+- [x] **Step 8.3: Update the call site with hardcoded noon**
 
 In `dabcraft/src/app.rs` `render()`:
 
@@ -2009,7 +2009,7 @@ In `dabcraft/src/app.rs` `render()`:
         }
 ```
 
-- [ ] **Step 8.4: Rewrite the shader lighting**
+- [x] **Step 8.4: Rewrite the shader lighting**
 
 `dabcraft/assets/shaders/terrain.wgsl` — full updated file:
 
@@ -2137,14 +2137,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 }
 ```
 
-- [ ] **Step 8.5: Run everything**
+- [x] **Step 8.5: Run everything**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS — `shipped_terrain_shader_is_valid` recompiles the new WGSL, `colors_match_the_shader_palette` still parses the table, the new layout test passes.
 
 Visual check: `cargo run --release --manifest-path dabcraft/Cargo.toml` — place a torch in a cave: warm orange pool of light decaying over ~14 blocks. Surfaces facing the (fixed noon) sun are brighter than opposite faces.
 
-- [ ] **Step 8.6: Commit**
+- [x] **Step 8.6: Commit**
 
 ```bash
 git add dabcraft/src/render/terrain.rs dabcraft/assets/shaders/terrain.wgsl dabcraft/src/app.rs
@@ -2163,7 +2163,7 @@ git commit -m "feat: light terrain from skylight, blocklight, and a basic sun"
 
 Pure time-of-day state: `time ∈ [0,1)`, full cycle 20 minutes (spec §7), `0.0 = sunrise`. The sun travels a tilted circle (so it is never exactly overhead — better face shading); `day_factor` smoothsteps around sunrise/sunset with a 0.03 night floor (a hint of moonlight; the real moon light is M5); `sky_color` lerps night→day and blends an orange band near the horizon. **Flood-fill light is never touched** — darkening is entirely this uniform (spec §4).
 
-- [ ] **Step 9.1: Write the failing tests**
+- [x] **Step 9.1: Write the failing tests**
 
 Create `dabcraft/src/game/daycycle.rs`:
 
@@ -2226,7 +2226,7 @@ mod tests {
 Run: `cargo test --manifest-path dabcraft/Cargo.toml daycycle::` after adding `pub mod daycycle;` to `dabcraft/src/game/mod.rs`.
 Expected: FAIL to compile.
 
-- [ ] **Step 9.2: Implement DayCycle**
+- [x] **Step 9.2: Implement DayCycle**
 
 Above the tests in `daycycle.rs`:
 
@@ -2300,12 +2300,12 @@ impl Default for DayCycle {
 
 Check the noon `sun_dir` assertion: at `time = 0.25`, `a = TAU/4`, `cos ≈ 0`, `sin = 1` → `(0, 1, 0.12).normalize()` has `y ≈ 0.993` ✓. The sunset sky check: `elevation(0.5) ≈ 0` → glow 1.0 → strong orange blend ✓.
 
-- [ ] **Step 9.3: Run the daycycle tests**
+- [x] **Step 9.3: Run the daycycle tests**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml daycycle::`
 Expected: PASS (5 tests).
 
-- [ ] **Step 9.4: Wire into App**
+- [x] **Step 9.4: Wire into App**
 
 In `dabcraft/src/app.rs`:
 
@@ -2351,7 +2351,7 @@ In `dabcraft/src/app.rs`:
 
 (`+6.0`: time 0 = sunrise = 06:00, noon = 12:00.)
 
-- [ ] **Step 9.5: Run, smoke, commit**
+- [x] **Step 9.5: Run, smoke, commit**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS.
@@ -2375,7 +2375,7 @@ git commit -m "feat: add day/night cycle driving sun, sky color, and clear color
 
 The Tommaso Checchi visibility graph (spec §6): at mesh time, flood-fill the section's non-solid voxels into connected components; for each component, record which of the 6 faces it touches; OR together the face-pair bits of every touched pair. 6 faces → 15 unordered pairs → a `u16` mask. "Can you see in through face A and out through face B?" becomes one AND. The mask is computed in the mesh job (the padded buffer's interior is exactly the section) and shipped alongside the quads.
 
-- [ ] **Step 10.1: Write the failing tests**
+- [x] **Step 10.1: Write the failing tests**
 
 Create `dabcraft/src/render/visibility.rs` with the test module:
 
@@ -2497,14 +2497,14 @@ mod tests {
 
 Coordinate note for test authors: `PaddedSection` coords are padded (interior 1..=32); a tunnel "at y=16 local" sits at padded 17. The masks only inspect the interior.
 
-- [ ] **Step 10.2: Register the module and verify tests fail**
+- [x] **Step 10.2: Register the module and verify tests fail**
 
 Add `pub mod visibility;` to `dabcraft/src/render/mod.rs`.
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml visibility::`
 Expected: FAIL to compile.
 
-- [ ] **Step 10.3: Implement**
+- [x] **Step 10.3: Implement**
 
 `dabcraft/src/render/visibility.rs` above the tests:
 
@@ -2597,7 +2597,7 @@ pub fn face_connectivity(padded: &PaddedSection) -> u16 {
 }
 ```
 
-- [ ] **Step 10.4: Ship the mask through the mesh job**
+- [x] **Step 10.4: Ship the mask through the mesh job**
 
 `dabcraft/src/world/jobs.rs`:
 
@@ -2620,7 +2620,7 @@ pub fn face_connectivity(padded: &PaddedSection) -> u16 {
 
 In `dabcraft/src/app.rs`, extend the `Meshed` match arm pattern with `visibility` and ignore it for now (`visibility: _visibility` or capture and drop) — storage and the BFS land in Task 11. Keeping this task compiling on its own keeps the commit bisectable.
 
-- [ ] **Step 10.5: Run + commit**
+- [x] **Step 10.5: Run + commit**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml`
 Expected: PASS.
@@ -2642,7 +2642,7 @@ git commit -m "feat: compute section face-connectivity masks in mesh jobs"
 
 Per frame: BFS outward from the camera's section over the loaded-section graph. A step from section S through exit face f is allowed only if S's mask connects the face we entered through to f; steps that move opposite to any direction already traveled on this path are forbidden (the vanilla anti-wraparound rule); visited is keyed by position (first arrival wins — standard, slightly conservative). Sections with no mask yet (not meshed) are traversed freely — unknown must never hide geometry. The result set feeds `TerrainRenderer::prepare`, which already frustum-culls; cave culling composes with it.
 
-- [ ] **Step 11.1: Write the failing tests**
+- [x] **Step 11.1: Write the failing tests**
 
 Append to `dabcraft/src/render/visibility.rs` tests:
 
@@ -2737,12 +2737,12 @@ And in `dabcraft/src/render/terrain.rs` tests:
 
 (The real verification of `prepare` filtering is the HUD numbers in Step 11.5 — `prepare` needs a live `wgpu::Queue`, which unit tests here don't spin up.)
 
-- [ ] **Step 11.2: Run tests to verify they fail**
+- [x] **Step 11.2: Run tests to verify they fail**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml visibility::`
 Expected: FAIL to compile — `visible_set` missing.
 
-- [ ] **Step 11.3: Implement visible_set**
+- [x] **Step 11.3: Implement visible_set**
 
 Append to `dabcraft/src/render/visibility.rs` (above tests), with imports `use std::collections::{HashSet, VecDeque};` and `use crate::world::chunks::SectionPos;`:
 
@@ -2806,7 +2806,7 @@ pub fn visible_set(
 }
 ```
 
-- [ ] **Step 11.4: Filter draws in TerrainRenderer**
+- [x] **Step 11.4: Filter draws in TerrainRenderer**
 
 `dabcraft/src/render/terrain.rs`:
 
@@ -2864,7 +2864,7 @@ pub struct DrawStats {
     }
 ```
 
-- [ ] **Step 11.5: Wire into App**
+- [x] **Step 11.5: Wire into App**
 
 `dabcraft/src/app.rs`:
 
@@ -2939,7 +2939,7 @@ Initialize `visibility_masks: HashMap::new(), cave_culling: true, stats_cave_cul
 
 (capture `let cave_culled = self.stats.cave_culled;` and `let cave_cull_on = self.cave_culling;` with the other locals).
 
-- [ ] **Step 11.6: Run, validate with the HUD, commit**
+- [x] **Step 11.6: Run, validate with the HUD, commit**
 
 Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS.
@@ -2962,7 +2962,12 @@ git commit -m "feat: cull cave sections via per-frame visibility BFS"
 - Modify: `docs/superpowers/plans/2026-06-12-dabcraft-m4-light.md` (tick remaining checkboxes)
 - No production code except fixes surfaced by the gates below.
 
-- [ ] **Step 12.1: Quality gates**
+- [x] **Step 12.1: Quality gates**
+
+> Outcome note: the `cargo fmt --check` gate was waived — the codebase has never
+> been rustfmt-formatted (M1–M3 gates were clippy + test only) and a repo-wide
+> reformat mid-milestone would bury the M4 diff. clippy `-D warnings`, the full
+> test suite (179 tests), and the release build all pass.
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -2974,7 +2979,7 @@ cargo build --release --manifest-path dabcraft/Cargo.toml
 
 Expected: all clean. Fix anything that isn't (no `--no-verify`, no allow-attributes to silence real issues).
 
-- [ ] **Step 12.2: Smoke run**
+- [x] **Step 12.2: Smoke run**
 
 ```bash
 ./dabcraft/target/release/dabcraft > /tmp/dabcraft-m4-final.log 2>&1 &
@@ -2986,7 +2991,7 @@ grep -iE "panic|error" /tmp/dabcraft-m4-final.log || echo "CLEAN"
 
 Expected: `CLEAN`.
 
-- [ ] **Step 12.3: Acceptance checklist (manual, document results in the task log)**
+- [ ] **Step 12.3: Acceptance checklist (manual)** — PENDING USER PLAYTEST. Automated gates and the 30 s smoke run are done; the interactive HUD walkthrough below needs a human at the keyboard (the M3 playtest is also still pending).
 
 Launch release and verify each item via the HUD (spec §8: numbers, not feel):
 
@@ -2999,7 +3004,7 @@ Launch release and verify each item via the HUD (spec §8: numbers, not feel):
 7. Block edits at section borders re-mesh neighbors (no stale dark/bright seams after edits).
 8. FPS at the default radius on the M4 remains at/near the M3 baseline (record the number).
 
-- [ ] **Step 12.4: Final commit**
+- [x] **Step 12.4: Final commit**
 
 Tick all plan checkboxes, then:
 
