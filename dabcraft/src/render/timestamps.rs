@@ -114,8 +114,6 @@ impl GpuTimer {
         })
     }
 
-    // Expected to be dead until compute passes are added in later M5 tasks.
-    #[expect(dead_code)]
     pub fn compute_writes(&self, pass: usize) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
         self.query_set_for(pass).map(|qs| wgpu::ComputePassTimestampWrites {
             query_set: qs,

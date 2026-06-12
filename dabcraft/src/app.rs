@@ -17,10 +17,11 @@ use crate::render::timestamps::GpuTimer;
 
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
-const PASS_LABELS: &[&str] = &["shadow0", "shadow1", "shadow2", "main", "post"];
-const PASS_SHADOW0: usize = 0;
-const PASS_MAIN: usize = 3;
-const PASS_POST: usize = 4;
+const PASS_LABELS: &[&str] = &["luts", "shadow0", "shadow1", "shadow2", "main", "post"];
+const PASS_LUTS: usize = 0;
+const PASS_SHADOW0: usize = 1;
+const PASS_MAIN: usize = 4;
+const PASS_POST: usize = 5;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -67,6 +68,7 @@ pub struct App {
     last_frame: std::time::Instant,
     terrain: Option<TerrainRenderer>,
     shadow: Option<crate::render::shadow::ShadowRenderer>,
+    sky_luts: Option<crate::render::atmosphere::SkyLuts>,
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
@@ -111,6 +113,7 @@ impl App {
             last_frame: std::time::Instant::now(),
             terrain: None,
             shadow: None,
+            sky_luts: None,
             shaders: None,
             targets: None,
             post: None,
@@ -376,6 +379,11 @@ impl App {
                             s.swap_shader(&gpu.device, t.quads_layout(), &source);
                         }
                     }
+                    "sky_luts" => {
+                        if let Some(l) = self.sky_luts.as_mut() {
+                            l.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -534,6 +542,20 @@ impl App {
             );
         }
 
+        if let Some(luts) = self.sky_luts.as_ref() {
+            luts.prepare(&gpu.queue, &crate::render::atmosphere::AtmUniform {
+                inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+                camera: [self.camera.position.x, self.camera.position.y, self.camera.position.z, altitude_km],
+                sun: [self.day.sun_dir().x, self.day.sun_dir().y, self.day.sun_dir().z, 0.0],
+                sun_radiance: [
+                    crate::render::atmosphere::SUN_RADIANCE.x,
+                    crate::render::atmosphere::SUN_RADIANCE.y,
+                    crate::render::atmosphere::SUN_RADIANCE.z,
+                    0.0,
+                ],
+            });
+        }
+
         let sky = self.day.sky_color();
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
@@ -548,6 +570,11 @@ impl App {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+
+        let luts_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_LUTS));
+        if let Some(luts) = self.sky_luts.as_mut() {
+            luts.encode(&mut encoder, luts_writes);
+        }
 
         if let (Some(shadow), Some(terrain)) = (self.shadow.as_mut(), self.terrain.as_ref()) {
             shadow.encode(&mut encoder, terrain, self.timer.as_ref(), PASS_SHADOW0);
@@ -755,6 +782,7 @@ impl ApplicationHandler for App {
         shaders.watch("outline", shader_path("outline.wgsl"));
         shaders.watch("post", shader_path("post.wgsl"));
         shaders.watch("shadow", shader_path("shadow.wgsl"));
+        shaders.watch("sky_luts", shader_path("sky_luts.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -796,6 +824,10 @@ impl ApplicationHandler for App {
             &post_src,
         ));
         self.targets = Some(targets);
+
+        let luts_src =
+            std::fs::read_to_string(shader_path("sky_luts.wgsl")).expect("sky_luts.wgsl missing");
+        self.sky_luts = Some(crate::render::atmosphere::SkyLuts::new(&gpu.device, &luts_src));
 
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
