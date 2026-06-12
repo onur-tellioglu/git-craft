@@ -1,4 +1,5 @@
 pub mod arena;
+pub mod shadow;
 pub mod depth;
 pub mod frustum;
 pub mod egui_layer;
