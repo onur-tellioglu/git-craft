@@ -12,6 +12,31 @@ pub fn draw_crosshair(ctx: &egui::Context) {
     painter.line_segment([c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)], stroke);
 }
 
+/// Dimmed full-screen veil with a centered notice, shown while the cursor
+/// is released (Escape) and gameplay is frozen.
+pub fn draw_pause_overlay(ctx: &egui::Context) {
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("pause"),
+    ));
+    let rect = ctx.content_rect();
+    painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(120));
+    painter.text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "Paused",
+        egui::FontId::proportional(28.0),
+        egui::Color32::WHITE,
+    );
+    painter.text(
+        rect.center() + egui::vec2(0.0, 28.0),
+        egui::Align2::CENTER_CENTER,
+        "Click to resume",
+        egui::FontId::proportional(16.0),
+        egui::Color32::from_gray(200),
+    );
+}
+
 /// Bottom-center hotbar: 9 color swatches (block colors mirror the terrain
 /// palette until M6 textures), white border on the selected slot, selected
 /// block name above.
