@@ -63,7 +63,7 @@ impl Default for Hotbar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::block::{CACTUS, GRASS, SPRUCE_LEAVES, SPRUCE_LOG, WATER};
+    use crate::world::block::{CACTUS, GRASS, SPRUCE_LEAVES, SPRUCE_LOG, TORCH, WATER};
 
     #[test]
     fn defaults_to_first_nine_placeable_blocks() {
@@ -99,10 +99,11 @@ mod tests {
     fn page_scroll_swaps_in_the_remaining_blocks_with_wraparound_fill() {
         let mut hb = Hotbar::new();
         hb.page_scroll(1);
-        // Page 1 = PLACEABLE[9..] then wraps to the front of the list.
+        // Page 1 = PLACEABLE[9..11] (SPRUCE_LEAVES, CACTUS, TORCH) then wraps to the front.
         assert_eq!(hb.slots[0], SPRUCE_LEAVES);
         assert_eq!(hb.slots[1], CACTUS);
-        assert_eq!(hb.slots[2], GRASS, "wraparound fill keeps slots populated");
+        assert_eq!(hb.slots[2], TORCH);
+        assert_eq!(hb.slots[3], GRASS, "wraparound fill keeps slots populated");
         hb.page_scroll(1);
         assert_eq!(hb.slots[0], GRASS, "two pages total, wraps back to page 0");
         hb.page_scroll(-1);
