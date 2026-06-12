@@ -1,7 +1,6 @@
-//! Cascade split and light-matrix math for Cascaded Shadow Maps (CSM).
-//! This module is pure math — no GPU resources. It will be wired into the
-//! render pipeline in a later milestone, so the public API is unused here.
-#![allow(dead_code)]
+//! Cascaded Shadow Maps (CSM): cascade split/light-matrix math (pure, TDD)
+//! and the GPU depth-pass renderer that renders three 2048² cascade layers
+//! with texel-snapped orthographic matrices and a cadenced update schedule.
 
 use glam::{Mat4, Vec3};
 
@@ -311,14 +310,12 @@ impl ShadowRenderer {
         self.pipeline = Self::build_pipeline(device, &self.cascade_layout, quads_layout, shader_source);
     }
 
-    /// Returns the uniform buffer (consumed by Task 5 terrain fragment shader).
-    #[allow(dead_code)] // consumed by Task 5
+    /// Returns the uniform buffer sampled by terrain.wgsl's fragment stage.
     pub fn uniform_buffer(&self) -> &wgpu::Buffer {
         &self.uniform_buffer
     }
 
-    /// Returns the D2Array view of all cascade depth maps (consumed by Task 5).
-    #[allow(dead_code)] // consumed by Task 5
+    /// Returns the D2Array view of all cascade depth maps, sampled by terrain.
     pub fn array_view(&self) -> &wgpu::TextureView {
         &self.array_view
     }

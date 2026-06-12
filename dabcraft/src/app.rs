@@ -489,13 +489,22 @@ impl App {
             None
         };
 
+        let light_dir = self.day.sun_dir(); // Task 6 replaces with sun-or-moon
+        let light_color = glam::Vec3::splat(2.2) * self.day.day_factor(); // placeholder until Task 6
+
         if let Some(terrain) = self.terrain.as_mut() {
             terrain.write_frame(
                 &gpu.queue,
-                view_proj,
-                self.day.sky_color(),
-                self.day.day_factor(),
-                self.day.sun_dir(),
+                &crate::render::terrain::FrameParams {
+                    view_proj,
+                    camera_pos: self.camera.position,
+                    sky_color: self.day.sky_color(),
+                    day_factor: self.day.day_factor(),
+                    light_dir,
+                    light_is_sun: true,
+                    light_color,
+                    viewport: (gpu.config.width, gpu.config.height),
+                },
             );
             let stats = terrain.prepare(&gpu.queue, &frustum, visible.as_ref());
             self.stats.visible_sections = stats.visible_sections;
@@ -507,7 +516,6 @@ impl App {
             outline.set_target(&gpu.queue, view_proj, self.target.map(|h| h.block));
         }
 
-        let light_dir = self.day.sun_dir(); // Task 6 replaces with sun-or-moon
         if let (Some(shadow), Some(terrain)) = (self.shadow.as_mut(), self.terrain.as_ref()) {
             shadow.prepare(
                 &gpu.queue,
@@ -759,6 +767,11 @@ impl ApplicationHandler for App {
             terrain_ref.quads_layout(),
             &shadow_src,
         ));
+
+        // Wire shadow resources into terrain group 2 (after both exist).
+        if let (Some(terrain), Some(shadow)) = (self.terrain.as_mut(), self.shadow.as_ref()) {
+            terrain.attach_shadow(&gpu.device, shadow.uniform_buffer(), shadow.array_view());
+        }
 
         let outline_src =
             std::fs::read_to_string(shader_path("outline.wgsl")).expect("outline.wgsl missing");

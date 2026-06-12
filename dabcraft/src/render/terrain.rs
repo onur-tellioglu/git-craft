@@ -22,10 +22,29 @@ const MAX_QUADS_PER_SECTION: u32 = 1 << 17;
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct FrameUniform {
     view_proj: [[f32; 4]; 4],
-    /// rgb = sky color (linear), w = day factor 0..1.
+    inv_view_proj: [[f32; 4]; 4],
+    /// xyz = camera world position; w unused.
+    camera: [f32; 4],
+    /// rgb = ambient sky color (linear), w = day factor 0..1.
     sky: [f32; 4],
-    /// xyz = world-space sun direction (normalized, pointing AT the sun).
+    /// xyz = light direction (toward sun or moon), w = 1 sun / 0 moon.
     sun: [f32; 4],
+    /// rgb = light radiance after atmospheric transmittance.
+    sun_color: [f32; 4],
+    /// x,y = viewport px; z = aerial-perspective km per world meter (Task 9).
+    params: [f32; 4],
+}
+
+/// Everything the frame uniform needs, gathered by the app.
+pub struct FrameParams {
+    pub view_proj: glam::Mat4,
+    pub camera_pos: glam::Vec3,
+    pub sky_color: glam::Vec3,
+    pub day_factor: f32,
+    pub light_dir: glam::Vec3,
+    pub light_is_sun: bool,
+    pub light_color: glam::Vec3,
+    pub viewport: (u32, u32),
 }
 
 #[repr(C)]
@@ -67,6 +86,9 @@ pub struct TerrainRenderer {
     camera_bind_group: wgpu::BindGroup,
     camera_layout: wgpu::BindGroupLayout,
     quads_layout: wgpu::BindGroupLayout,
+    shadow_layout: wgpu::BindGroupLayout,
+    shadow_bind_group: Option<wgpu::BindGroup>,
+    shadow_sampler: wgpu::Sampler,
     // The bind group references quads_buffer + section_info_buffer; both are
     // owned fields, so they outlive it by construction (M1's Option dance is
     // gone — all buffers are fixed-size and created once).
@@ -88,7 +110,7 @@ impl TerrainRenderer {
             label: Some("camera"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -96,6 +118,48 @@ impl TerrainRenderer {
                 },
                 count: None,
             }],
+        });
+
+        let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("terrain shadow"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("shadow compare"),
+            mag_filter: wgpu::FilterMode::Linear, // hardware 2×2 PCF per tap
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
         });
 
         // Two read-only storage bindings in one layout: quads (0) + section info (1).
@@ -162,7 +226,7 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let pipeline = Self::build_pipeline(device, surface_format, &camera_layout, &quads_layout, shader_source);
+        let pipeline = Self::build_pipeline(device, surface_format, &camera_layout, &quads_layout, &shadow_layout, shader_source);
 
         Self {
             pipeline,
@@ -170,6 +234,9 @@ impl TerrainRenderer {
             camera_bind_group,
             camera_layout,
             quads_layout,
+            shadow_layout,
+            shadow_bind_group: None,
+            shadow_sampler,
             quads_bind_group,
             quads_buffer,
             section_info_buffer,
@@ -188,6 +255,7 @@ impl TerrainRenderer {
         surface_format: wgpu::TextureFormat,
         camera_layout: &wgpu::BindGroupLayout,
         quads_layout: &wgpu::BindGroupLayout,
+        shadow_layout: &wgpu::BindGroupLayout,
         shader_source: &str,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -196,7 +264,7 @@ impl TerrainRenderer {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain"),
-            bind_group_layouts: &[Some(camera_layout), Some(quads_layout)],
+            bind_group_layouts: &[Some(camera_layout), Some(quads_layout), Some(shadow_layout)],
             immediate_size: 0,
         });
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -240,22 +308,19 @@ impl TerrainRenderer {
     /// Replace the pipeline with one built from new shader source (hot-reload, Task 9).
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
         self.pipeline = Self::build_pipeline(
-            device, self.surface_format, &self.camera_layout, &self.quads_layout, shader_source,
+            device, self.surface_format, &self.camera_layout, &self.quads_layout, &self.shadow_layout, shader_source,
         );
     }
 
-    pub fn write_frame(
-        &self,
-        queue: &wgpu::Queue,
-        view_proj: glam::Mat4,
-        sky_color: glam::Vec3,
-        day_factor: f32,
-        sun_dir: glam::Vec3,
-    ) {
+    pub fn write_frame(&self, queue: &wgpu::Queue, p: &FrameParams) {
         let uniform = FrameUniform {
-            view_proj: view_proj.to_cols_array_2d(),
-            sky: [sky_color.x, sky_color.y, sky_color.z, day_factor],
-            sun: [sun_dir.x, sun_dir.y, sun_dir.z, 0.0],
+            view_proj: p.view_proj.to_cols_array_2d(),
+            inv_view_proj: p.view_proj.inverse().to_cols_array_2d(),
+            camera: [p.camera_pos.x, p.camera_pos.y, p.camera_pos.z, 0.0],
+            sky: [p.sky_color.x, p.sky_color.y, p.sky_color.z, p.day_factor],
+            sun: [p.light_dir.x, p.light_dir.y, p.light_dir.z, p.light_is_sun as u32 as f32],
+            sun_color: [p.light_color.x, p.light_color.y, p.light_color.z, 0.0],
+            params: [p.viewport.0 as f32, p.viewport.1 as f32, 0.0, 0.0], // z set in Task 9
         };
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
@@ -383,13 +448,38 @@ impl TerrainRenderer {
         args.len() as u32
     }
 
+    /// Wire the shadow resources into group 2. Called once from app after the
+    /// ShadowRenderer is built. The pipeline layout already includes the slot.
+    pub fn attach_shadow(
+        &mut self,
+        device: &wgpu::Device,
+        uniform: &wgpu::Buffer,
+        map: &wgpu::TextureView,
+    ) {
+        self.shadow_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("terrain shadow"),
+            layout: &self.shadow_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(map) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.shadow_sampler) },
+            ],
+        }));
+    }
+
     pub fn draw(&self, rpass: &mut wgpu::RenderPass<'_>) {
+        // Guard: shadow group must be wired before drawing; better one dark
+        // frame than a pipeline validation panic.
+        let Some(shadow_bg) = &self.shadow_bind_group else {
+            return;
+        };
         if self.visible_count == 0 {
             return;
         }
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &self.camera_bind_group, &[]);
         rpass.set_bind_group(1, &self.quads_bind_group, &[]);
+        rpass.set_bind_group(2, shadow_bg, &[]);
         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         for i in 0..self.visible_count {
             rpass.draw_indexed_indirect(&self.indirect_buffer, i as u64 * 20);
@@ -403,11 +493,14 @@ mod tests {
 
     #[test]
     fn frame_uniform_layout_matches_wgsl() {
-        // mat4x4 (64) + vec4 sky (16) + vec4 sun (16). WGSL struct layout
-        // would silently misread on drift.
-        assert_eq!(std::mem::size_of::<FrameUniform>(), 96);
-        assert_eq!(std::mem::offset_of!(FrameUniform, sky), 64);
-        assert_eq!(std::mem::offset_of!(FrameUniform, sun), 80);
+        // 2×mat4 (128) + 5×vec4 (80). WGSL would silently misread on drift.
+        assert_eq!(std::mem::size_of::<FrameUniform>(), 208);
+        assert_eq!(std::mem::offset_of!(FrameUniform, inv_view_proj), 64);
+        assert_eq!(std::mem::offset_of!(FrameUniform, camera), 128);
+        assert_eq!(std::mem::offset_of!(FrameUniform, sky), 144);
+        assert_eq!(std::mem::offset_of!(FrameUniform, sun), 160);
+        assert_eq!(std::mem::offset_of!(FrameUniform, sun_color), 176);
+        assert_eq!(std::mem::offset_of!(FrameUniform, params), 192);
     }
 
     #[test]
