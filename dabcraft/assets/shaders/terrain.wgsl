@@ -1,12 +1,14 @@
-struct CameraUniform {
+struct FrameUniform {
     view_proj: mat4x4<f32>,
+    sky: vec4<f32>,   // rgb sky color (linear), w = day factor 0..1
+    sun: vec4<f32>,   // xyz sun direction (normalized, toward the sun)
 };
 
 struct SectionInfo {
     origin: vec4<i32>,
 };
 
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(0) @binding(0) var<uniform> frame: FrameUniform;
 @group(1) @binding(0) var<storage, read> quads: array<vec2<u32>>;
 @group(1) @binding(1) var<storage, read> sections: array<SectionInfo>;
 
@@ -30,8 +32,15 @@ const FACE_V = array<vec3<f32>, 6>(
     vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0),
     vec3(0.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0),
 );
+const FACE_NORMAL = array<vec3<f32>, 6>(
+    vec3(1.0, 0.0, 0.0), vec3(-1.0, 0.0, 0.0),
+    vec3(0.0, 1.0, 0.0), vec3(0.0, -1.0, 0.0),
+    vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, -1.0),
+);
 // Minecraft-style face shading: +X, -X, +Y(top), -Y(bottom), +Z, -Z.
 const FACE_SHADE = array<f32, 6>(0.8, 0.8, 1.0, 0.5, 0.6, 0.6);
+// Warm torch tint, applied where blocklight dominates skylight.
+const TORCH_TINT = vec3(1.0, 0.62, 0.33);
 
 // M2 palette indexed by the quad's texture field = block id;
 // procedural textures replace this in M6.
@@ -80,7 +89,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
     let w = f32(extractBits(quad.x, 21u, 5u) + 1u);
     let h = f32(extractBits(quad.y, 0u, 5u) + 1u);
     let ao = f32(extractBits(quad.y, 5u + corner * 2u, 2u));
-    let skylight = f32(extractBits(quad.y, 13u, 4u));
+    let skylight = f32(extractBits(quad.y, 13u, 4u)) / 15.0;
+    let blocklight = f32(extractBits(quad.y, 17u, 4u)) / 15.0;
     let tex = extractBits(quad.y, 21u, 10u);
 
     let uv = CORNER_UV[corner];
@@ -88,9 +98,20 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
     let world = vec3<f32>(sections[slot].origin.xyz) + local;
 
     var out: VsOut;
-    out.clip = camera.view_proj * vec4(world, 1.0);
-    let light = (skylight / 15.0) * FACE_SHADE[face] * mix(0.4, 1.0, ao / 3.0);
-    out.color = PALETTE[min(tex, 12u)] * light;
+    out.clip = frame.view_proj * vec4(world, 1.0);
+
+    // M4 basic-sun lighting (the full spec §6 model arrives with CSM in M5):
+    //   sky term  = flood-fill skylight × day factor × (ambient face shade
+    //               blended with per-face NdotL toward the sun)
+    //   torch term = flood-fill blocklight × face shade, time-independent
+    // Skylight gates the sun term, so caves stay dark at noon.
+    let ndotl = max(dot(FACE_NORMAL[face], frame.sun.xyz), 0.0);
+    let sky_l = skylight * frame.sky.w * (0.45 * FACE_SHADE[face] + 0.55 * ndotl);
+    let torch_l = blocklight * FACE_SHADE[face];
+    let level = max(max(sky_l, torch_l), 0.02);
+    let tint = mix(vec3(1.0), TORCH_TINT, clamp(torch_l - sky_l, 0.0, 1.0));
+    let ao_f = mix(0.4, 1.0, ao / 3.0);
+    out.color = PALETTE[min(tex, 12u)] * tint * level * ao_f;
     return out;
 }
 

@@ -418,7 +418,14 @@ impl App {
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
         let view_proj = self.camera.view_proj(aspect);
         if let Some(terrain) = self.terrain.as_mut() {
-            terrain.write_camera(&gpu.queue, view_proj);
+            // Noon placeholder until the day cycle lands (M4 Task 9).
+            terrain.write_frame(
+                &gpu.queue,
+                view_proj,
+                glam::Vec3::new(0.25, 0.55, 0.95),
+                1.0,
+                glam::Vec3::new(0.3, 0.85, 0.42).normalize(),
+            );
             let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
             let stats = terrain.prepare(&gpu.queue, &frustum);
             self.stats.visible_sections = stats.visible_sections;
