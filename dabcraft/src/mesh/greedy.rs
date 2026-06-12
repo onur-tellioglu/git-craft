@@ -20,21 +20,27 @@ const FACE_V: [[i32; 3]; 6] =
     [[0, 0, 1], [0, 1, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]];
 
 /// Binary greedy mesher (spec §5). Reusable: `mesh` clears prior state.
-/// M2: per-corner AO (Task 6), flip bit, skylight=15, blocklight=0
-/// (flood-fill light deferred to M4).
+/// M2: per-corner AO (Task 6), flip bit
+/// M4: flood-fill light baked into quads (Task 7).
 pub struct Mesher {
     /// Solidity columns. Bit c of axis_cols[axis][i][j] = solid at padded
     /// coord c along the axis. axis 0: bits=Y,i=z,j=x; 1: bits=X,i=y,j=z;
     /// 2: bits=Z,i=y,j=x.
     axis_cols: [[[u64; PADDED]; PADDED]; 3],
-    /// (face,slice,block,ao) key → 32×32 face bit-plane.
+    /// (face,slice,block,ao,light) key → 32×32 face bit-plane.
     planes: HashMap<u64, [u32; SIZE]>,
     quads: Vec<PackedQuad>,
 }
 
-fn plane_key(face: u32, slice: u32, block: u16, ao_key: u32) -> u64 {
+/// Bits 0..16: block id, 16..25: ao_key (9 bits), 25..31: slice (6 bits),
+/// 31..34: face (3 bits), 34..42: light packed byte.
+fn plane_key(face: u32, slice: u32, block: u16, ao_key: u32, light: u8) -> u64 {
     debug_assert!(ao_key < 512, "ao_key {ao_key} exceeds 9 bits; would corrupt slice field");
-    block as u64 | (ao_key as u64) << 16 | (slice as u64) << 25 | (face as u64) << 31
+    block as u64
+        | (ao_key as u64) << 16
+        | (slice as u64) << 25
+        | (face as u64) << 31
+        | (light as u64) << 34
 }
 
 /// 9-bit solidity pattern of the out-layer 3×3 neighborhood of a face,
@@ -134,7 +140,13 @@ impl Mesher {
                             };
                             let block = padded.get(x, y, z);
                             let ao_key = ao_neighborhood(padded, x, y, z, face as usize);
-                            let key = plane_key(face, c, block.0, ao_key);
+                            let n = FACE_N[face as usize];
+                            let light = padded.light_packed(
+                                (x as i32 + n[0]) as usize,
+                                (y as i32 + n[1]) as usize,
+                                (z as i32 + n[2]) as usize,
+                            );
+                            let key = plane_key(face, c, block.0, ao_key, light);
                             self.planes.entry(key).or_insert([0u32; SIZE])[i - 1] |= 1 << (j - 1);
                         }
                     }
@@ -149,8 +161,9 @@ impl Mesher {
             let block = (key & 0xFFFF) as u16;
             let ao_key = ((key >> 16) & 0x1FF) as u32;
             let slice = ((key >> 25) & 0x3F) as u32;
-            let face = (key >> 31) as u32;
-            sweep_plane(face, slice, block, ao_key, plane, &mut self.quads);
+            let face = ((key >> 31) & 0x7) as u32;
+            let light = ((key >> 34) & 0xFF) as u8;
+            sweep_plane(face, slice, block, ao_key, light, plane, &mut self.quads);
         }
     }
 }
@@ -167,6 +180,7 @@ fn sweep_plane(
     slice: u32,
     block: u16,
     ao_key: u32,
+    light: u8,
     mut plane: [u32; SIZE],
     out: &mut Vec<PackedQuad>,
 ) {
@@ -188,7 +202,7 @@ fn sweep_plane(
                 plane[row + rw] &= !mask;
                 rw += 1;
             }
-            emit(face, slice, row as u32, b, rw as u32, rb, block, ao_key, out);
+            emit(face, slice, row as u32, b, rw as u32, rb, block, ao_key, light, out);
             b += rb;
         }
     }
@@ -204,6 +218,7 @@ fn emit(
     rb: u32,
     block: u16,
     ao_key: u32,
+    light: u8,
     out: &mut Vec<PackedQuad>,
 ) {
     // See the face/plane mapping table; w spans U, h spans V.
@@ -220,8 +235,8 @@ fn emit(
     out.push(PackedQuad::pack(Quad {
         x, y, z, face, w, h,
         ao,
-        skylight: 15,
-        blocklight: 0,
+        skylight: (light & 0x0F) as u32,
+        blocklight: (light >> 4) as u32,
         texture: block as u32,
         flip,
     }));
@@ -503,5 +518,63 @@ mod tests {
             .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
             .unwrap();
         assert_eq!(top.ao, [2, 3, 3, 3], "bit 0: only corner 0 darkened");
+    }
+
+    // --- M4 Task 7: light tests ---
+
+    #[test]
+    fn quad_light_samples_the_out_cell_not_the_block() {
+        // Stone at padded (6,6,6); the cell above it carries sky 12, the
+        // stone's own cell carries 0 (opaque cells hold no light).
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set_light(6, 7, 6, 12); // sky 12, block 0
+        p.set_light(6, 6, 6, 0);
+        let quads = mesh(&p);
+        let top = quads.iter().find(|q| q.face == 2).unwrap();
+        assert_eq!(top.skylight, 12, "top face lit by the cell above");
+        assert_eq!(top.blocklight, 0);
+    }
+
+    #[test]
+    fn torch_lit_out_cell_sets_blocklight() {
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set_light(7, 6, 6, 0x0E << 4); // sky 0, block 14 in front of +X
+        let quads = mesh(&p);
+        let px = quads.iter().find(|q| q.face == 0).unwrap();
+        assert_eq!(px.blocklight, 14);
+        assert_eq!(px.skylight, 0);
+    }
+
+    #[test]
+    fn light_boundary_splits_the_greedy_merge() {
+        // Two-block strip along x whose top out-cells differ: 15 vs 10.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, STONE);
+        p.set(7, 6, 6, STONE);
+        p.set_light(7, 7, 6, 10);
+        let quads = mesh(&p);
+        let tops: Vec<_> = quads.iter().filter(|q| q.face == 2 && q.y == 5).collect();
+        assert_eq!(tops.len(), 2, "differing light must split the merge");
+        let mut lights: Vec<u32> = tops.iter().map(|q| q.skylight).collect();
+        lights.sort_unstable();
+        assert_eq!(lights, vec![10, 15]);
+    }
+
+    #[test]
+    fn uniform_light_still_merges_fully() {
+        // Default uniform sky-15 everywhere: a full 32×32 slab's top face
+        // must still merge to exactly one quad. The light key must not break
+        // full-slab merging when light is uniform.
+        let mut p = PaddedSection::air();
+        for x in 1..=32 {
+            for z in 1..=32 {
+                p.set(x, 1, z, GRASS);
+            }
+        }
+        let quads = mesh(&p);
+        assert_eq!(quads.iter().filter(|q| q.face == 2).count(), 1,
+            "uniform light must not split the slab merge");
     }
 }
