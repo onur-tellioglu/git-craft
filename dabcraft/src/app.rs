@@ -220,7 +220,7 @@ impl App {
                         crate::world::light_engine::on_block_changed(&mut self.world, p);
                     }
                 }
-                JobResult::Meshed { pos, version, quads } => {
+                JobResult::Meshed { pos, version, quads, visibility: _ } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
                     if version == current && self.world.ready(pos.column()).is_some() {
                         self.upload_queue.push_back((pos, quads));
