@@ -34,14 +34,12 @@ impl BlockId {
     /// Does this block stop flood-fill light? Everything except air and
     /// torches. Water blocks light fully in M4 (it also renders opaque);
     /// per-block attenuation can arrive with transparency in M5.
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-5)
     pub fn blocks_light(self) -> bool {
         self != AIR && self != TORCH
     }
 
     /// Blocklight level seeded at this block's cell (spec §4: BFS from
     /// emitters). Torches emit 14, like vanilla.
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-5)
     pub fn light_emission(self) -> u8 {
         if self == TORCH { 14 } else { 0 }
     }
