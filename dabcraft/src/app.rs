@@ -330,62 +330,70 @@ impl App {
         self.fps_smoothed = self.fps_smoothed * 0.95 + (1.0 / dt.max(1e-6)) * 0.05;
 
         let (dx, dy) = self.input.take_mouse_delta();
+
+        // Released cursor = paused: the world keeps streaming, but the
+        // player, camera, and all gameplay input are frozen until the
+        // click-to-refocus re-grab.
         if self.cursor_grabbed {
             self.camera.apply_mouse_delta(dx, dy);
-        }
 
-        // Mode toggles: F, or double-tapped Space (spec §7).
-        if self.input.key_pressed(KeyCode::KeyF) {
-            self.player.toggle_mode();
-        }
-        if self.input.key_pressed(KeyCode::Space) {
-            let now = std::time::Instant::now();
-            if self
-                .last_space_press
-                .is_some_and(|t| now.duration_since(t).as_secs_f32() < DOUBLE_TAP_WINDOW)
-            {
+            // Mode toggles: F, or double-tapped Space (spec §7).
+            if self.input.key_pressed(KeyCode::KeyF) {
                 self.player.toggle_mode();
-                self.last_space_press = None;
-            } else {
-                self.last_space_press = Some(now);
             }
-        }
-
-        // Hotbar: 1–9 select, wheel cycles, shift+wheel pages (spec §7).
-        const DIGITS: [KeyCode; 9] = [
-            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-            KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-            KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
-        ];
-        for (i, key) in DIGITS.iter().enumerate() {
-            if self.input.key_pressed(*key) {
-                self.hotbar.select(i);
+            if self.input.key_pressed(KeyCode::Space) {
+                let now = std::time::Instant::now();
+                if self
+                    .last_space_press
+                    .is_some_and(|t| now.duration_since(t).as_secs_f32() < DOUBLE_TAP_WINDOW)
+                {
+                    self.player.toggle_mode();
+                    self.last_space_press = None;
+                } else {
+                    self.last_space_press = Some(now);
+                }
             }
-        }
-        let scroll_steps = self.input.take_scroll_steps();
-        if scroll_steps != 0 {
-            if self.input.is_down(KeyCode::ShiftLeft) {
-                self.hotbar.page_scroll(scroll_steps);
-            } else {
-                self.hotbar.scroll(scroll_steps);
+
+            // Hotbar: 1–9 select, wheel cycles, shift+wheel pages (spec §7).
+            const DIGITS: [KeyCode; 9] = [
+                KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+                KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+                KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+            ];
+            for (i, key) in DIGITS.iter().enumerate() {
+                if self.input.key_pressed(*key) {
+                    self.hotbar.select(i);
+                }
             }
-        }
+            let scroll_steps = self.input.take_scroll_steps();
+            if scroll_steps != 0 {
+                if self.input.is_down(KeyCode::ShiftLeft) {
+                    self.hotbar.page_scroll(scroll_steps);
+                } else {
+                    self.hotbar.scroll(scroll_steps);
+                }
+            }
 
-        // Player movement against the loaded world. Unloaded columns are solid:
-        // the player floats at the load edge instead of falling through terrain
-        // that hasn't generated yet.
-        {
-            let world = &self.world;
-            let is_solid = |c: glam::IVec3| match world.block_at(c) {
-                Some(b) => b != crate::world::block::AIR && b != crate::world::block::WATER,
-                None => true,
-            };
-            let is_water = |c: glam::IVec3| world.block_at(c) == Some(crate::world::block::WATER);
-            self.player.update(&self.input, self.camera.yaw, dt, &is_solid, &is_water);
-        }
-        self.camera.position = self.player.eye();
+            // Player movement against the loaded world. Unloaded columns are
+            // solid: the player floats at the load edge instead of falling
+            // through terrain that hasn't generated yet.
+            {
+                let world = &self.world;
+                let is_solid = |c: glam::IVec3| match world.block_at(c) {
+                    Some(b) => b != crate::world::block::AIR && b != crate::world::block::WATER,
+                    None => true,
+                };
+                let is_water =
+                    |c: glam::IVec3| world.block_at(c) == Some(crate::world::block::WATER);
+                self.player.update(&self.input, self.camera.yaw, dt, &is_solid, &is_water);
+            }
+            self.camera.position = self.player.eye();
 
-        self.update_interaction(dt);
+            self.update_interaction(dt);
+        } else {
+            // No targeted block while paused: hides the outline.
+            self.target = None;
+        }
 
         // World streaming: gen/mesh/upload jobs.
         self.update_world();
@@ -485,6 +493,7 @@ impl App {
         let hotbar_slots = self.hotbar.slots;
         let hotbar_selected = self.hotbar.selected;
         let hud_visible = self.hud_visible;
+        let paused = !self.cursor_grabbed;
 
         // Draw egui overlay: crosshair + hotbar always; Debug HUD only when F3.
         let egui_cmds = if let Some(egui) = &mut self.egui {
@@ -498,7 +507,11 @@ impl App {
                 &view,
                 config,
                 |ctx| {
-                    crate::render::game_ui::draw_crosshair(ctx);
+                    if paused {
+                        crate::render::game_ui::draw_pause_overlay(ctx);
+                    } else {
+                        crate::render::game_ui::draw_crosshair(ctx);
+                    }
                     crate::render::game_ui::draw_hotbar(ctx, &hotbar_slots, hotbar_selected);
                     if hud_visible {
                         egui::Window::new("Debug HUD")
@@ -620,7 +633,9 @@ impl ApplicationHandler for App {
                         self.set_cursor_grab(false);
                         return;
                     }
-                    PhysicalKey::Code(KeyCode::F3) => {
+                    // H mirrors F3: macOS routes bare function keys to system
+                    // shortcuts (F3 = Mission Control), so F3 needs Fn held.
+                    PhysicalKey::Code(KeyCode::F3) | PhysicalKey::Code(KeyCode::KeyH) => {
                         self.hud_visible = !self.hud_visible;
                         return;
                     }

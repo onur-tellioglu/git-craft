@@ -89,8 +89,13 @@ impl GpuTimer {
                 {
                     let data = self.read_buffer.get_mapped_range(..);
                     let ts: &[u64] = bytemuck::cast_slice(&data);
-                    let ns = ts[1].wrapping_sub(ts[0]) as f32 * queue.get_timestamp_period();
-                    self.last_ms = ns / 1_000_000.0;
+                    // Metal occasionally reports end < begin (invalid sample);
+                    // a wrapping subtraction would show ~u64::MAX ns. Keep the
+                    // previous reading instead.
+                    if ts[1] > ts[0] {
+                        let ns = (ts[1] - ts[0]) as f32 * queue.get_timestamp_period();
+                        self.last_ms = ns / 1_000_000.0;
+                    }
                 }
                 self.read_buffer.unmap();
             } else {
