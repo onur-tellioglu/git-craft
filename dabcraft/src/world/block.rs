@@ -27,7 +27,6 @@ impl BlockId {
         self != AIR
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn display_name(self) -> &'static str {
         match self.0 {
             0 => "Air",
@@ -48,7 +47,6 @@ impl BlockId {
 
     /// Linear-space RGB mirroring the PALETTE table in terrain.wgsl, used for
     /// UI swatches until M6 ships real textures.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn color(self) -> [f32; 3] {
         match self.0 {
             0 => [1.0, 0.0, 1.0], // air: magenta = bug color, mirrors PALETTE[0]
