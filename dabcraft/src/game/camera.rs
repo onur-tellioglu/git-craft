@@ -84,7 +84,7 @@ mod tests {
     fn far_plane_covers_render_distance_diagonal() {
         // 384 blocks horizontally + 256 world height: corner diagonal
         // sqrt(384² + 384² + 256²) ≈ 601. Far must comfortably exceed it.
-        assert!(Camera::FAR_PLANE >= 700.0);
+        const { assert!(Camera::FAR_PLANE >= 700.0) }
     }
 
 }
