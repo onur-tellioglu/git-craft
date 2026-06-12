@@ -163,7 +163,6 @@ impl ChunkMap {
     /// Block at a world position. `None` when the column is not loaded;
     /// callers decide whether unloaded means solid (physics) or miss (raycast).
     /// Outside world height it is always air.
-    #[allow(dead_code)]
     pub fn block_at(&self, pos: glam::IVec3) -> Option<BlockId> {
         if !(0..256).contains(&pos.y) {
             return Some(AIR);
@@ -180,7 +179,6 @@ impl ChunkMap {
     /// volume contains the position (the existing M2 re-mesh path picks the
     /// dirty flags up next frame). Returns false when the column is not
     /// loaded or the position is outside world height.
-    #[allow(dead_code)]
     pub fn set_block(&mut self, pos: glam::IVec3, block: BlockId) -> bool {
         if !(0..256).contains(&pos.y) {
             return false;
