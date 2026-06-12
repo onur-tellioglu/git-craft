@@ -46,7 +46,6 @@ fn spread(ch: LightChannel, level: u8, dir: IVec3) -> u8 {
 /// (emitters, sky re-entry). Seeds at out-of-world positions propagate
 /// virtually (the write is refused but the spread still happens), which is
 /// how sky-15 above the world ceiling re-enters dug-out mountain tops.
-#[allow(dead_code)] // wired into App in Task 6
 pub fn add_light(map: &mut ChunkMap, ch: LightChannel, seeds: Vec<(IVec3, u8)>) {
     let mut queue: VecDeque<(IVec3, u8)> = VecDeque::new();
     for (p, v) in seeds {
@@ -86,7 +85,6 @@ pub fn add_light(map: &mut ChunkMap, ch: LightChannel, seeds: Vec<(IVec3, u8)>) 
 /// surviving brighter frontier. When `start` held no light (e.g. the block
 /// there was just removed), nothing is torn down and the frontier reflow
 /// simply refills the cell — so this single function serves both edits.
-#[allow(dead_code)] // wired into App in Task 6
 pub fn remove_light(map: &mut ChunkMap, ch: LightChannel, start: IVec3) {
     let Some(old) = map.light(ch, start) else { return };
     map.set_light(ch, start, 0);
@@ -118,7 +116,6 @@ pub fn remove_light(map: &mut ChunkMap, ch: LightChannel, start: IVec3) {
 }
 
 /// Fix light after the block at `pos` was changed (block state already set).
-#[allow(dead_code)] // wired into App in Task 6
 pub fn on_block_changed(map: &mut ChunkMap, pos: IVec3) {
     if !(0..WORLD_HEIGHT).contains(&pos.y) {
         return;
@@ -137,7 +134,6 @@ pub fn on_block_changed(map: &mut ChunkMap, pos: IVec3) {
 /// Only cells whose across-the-border partner is ≥2 levels dimmer become
 /// seeds (light must actually flow), keeping the queue tiny on open
 /// terrain where both sides are already sky-15.
-#[allow(dead_code)] // wired into App in Task 6
 pub fn seed_column_borders(map: &mut ChunkMap, pos: ColumnPos) {
     for ch in CHANNELS {
         let mut seeds: Vec<(IVec3, u8)> = Vec::new();
@@ -174,7 +170,7 @@ pub fn seed_column_borders(map: &mut ChunkMap, pos: ColumnPos) {
 /// From-scratch recompute for the given columns: gen-style skylight per
 /// column, emitter scan for blocklight, then seam healing. The oracle for
 /// the incremental engine (spec §9) and a future debug command.
-#[allow(dead_code)] // wired into App in Task 6
+#[allow(dead_code)] // debug/oracle helper; also used by tests
 pub fn relight_all(map: &mut ChunkMap, cols: &[ColumnPos]) {
     use std::sync::Arc;
     for &c in cols {

@@ -158,7 +158,9 @@ impl App {
         if self.input.mouse_pressed(MouseButton::Left)
             || (self.input.mouse_down(MouseButton::Left) && self.break_timer == 0.0)
         {
-            self.world.set_block(hit.block, AIR);
+            if self.world.set_block(hit.block, AIR) {
+                crate::world::light_engine::on_block_changed(&mut self.world, hit.block);
+            }
             self.break_timer = EDIT_REPEAT;
         }
 
@@ -172,7 +174,9 @@ impl App {
             let cell = hit.block + hit.normal;
             let free = self.world.block_at(cell).is_some_and(|b| b == AIR || b == WATER);
             if free && !self.player.aabb().intersects_cell(cell) {
-                self.world.set_block(cell, self.hotbar.selected_block());
+                if self.world.set_block(cell, self.hotbar.selected_block()) {
+                    crate::world::light_engine::on_block_changed(&mut self.world, cell);
+                }
                 self.place_timer = EDIT_REPEAT;
             }
         }
@@ -205,7 +209,14 @@ impl App {
                         self.world.queue_writes(writes);
                         continue;
                     }
-                    let _touched = self.world.insert_generated(pos, data, *light, writes);
+                    let touched = self.world.insert_generated(pos, data, *light, writes);
+                    // Heal the light seams against already-loaded neighbors,
+                    // then fix light under structure writes that landed after
+                    // the gen job lit the column.
+                    crate::world::light_engine::seed_column_borders(&mut self.world, pos);
+                    for p in touched {
+                        crate::world::light_engine::on_block_changed(&mut self.world, p);
+                    }
                 }
                 JobResult::Meshed { pos, version, quads } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
@@ -473,6 +484,21 @@ impl App {
         let fps = self.fps_smoothed;
         let gpu_ms = self.timer.as_ref().map(|t| t.last_ms).unwrap_or(0.0);
         let cam = self.camera.position;
+        let eye_cell = glam::IVec3::new(
+            cam.x.floor() as i32,
+            cam.y.floor() as i32,
+            cam.z.floor() as i32,
+        );
+        let light_label = {
+            use crate::world::light::LightChannel;
+            match (
+                self.world.light(LightChannel::Sky, eye_cell),
+                self.world.light(LightChannel::Block, eye_cell),
+            ) {
+                (Some(s), Some(b)) => format!("sky {s} / block {b}"),
+                _ => "—".to_string(),
+            }
+        };
         let mode = match self.player.mode {
             crate::game::player::MoveMode::Walk => "walk",
             crate::game::player::MoveMode::Fly => "fly",
@@ -523,6 +549,7 @@ impl App {
                                 ui.label(format!("Pos:      {:.0} {:.0} {:.0}", cam.x, cam.y, cam.z));
                                 ui.label(format!("Mode:     {mode}"));
                                 ui.label(format!("Target:   {target_label}"));
+                                ui.label(format!("Light:    {light_label}"));
                                 ui.label(format!("Columns:  {cols}"));
                                 ui.label(format!("Sections: {visible}/{resident} drawn/resident"));
                                 ui.label(format!("Quads:    {quads}"));
