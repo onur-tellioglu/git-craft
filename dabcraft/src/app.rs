@@ -17,8 +17,13 @@ use crate::render::timestamps::GpuTimer;
 
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
-const PASS_LABELS: &[&str] = &["main"];
+const PASS_LABELS: &[&str] = &["main", "post"];
 const PASS_MAIN: usize = 0;
+const PASS_POST: usize = 1;
+
+fn shader_path(name: &str) -> String {
+    format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
+}
 
 /// Sections are drawn within this column radius: 12 × 32 = 384 blocks (spec §1).
 const RENDER_RADIUS: i32 = 12;
@@ -60,7 +65,9 @@ pub struct App {
     camera: Camera,
     last_frame: std::time::Instant,
     terrain: Option<TerrainRenderer>,
-    shader_watcher: Option<crate::render::hot_reload::ShaderWatcher>,
+    shaders: Option<crate::render::hot_reload::ShaderSet>,
+    targets: Option<crate::render::targets::RenderTargets>,
+    post: Option<crate::render::post::PostPass>,
     egui: Option<EguiLayer>,
     timer: Option<GpuTimer>,
     hud_visible: bool,
@@ -100,7 +107,9 @@ impl App {
             camera: Camera::new(glam::Vec3::new(16.0, 140.0, 16.0)),
             last_frame: std::time::Instant::now(),
             terrain: None,
-            shader_watcher: None,
+            shaders: None,
+            targets: None,
+            post: None,
             egui: None,
             timer: None,
             hud_visible: true,
@@ -343,12 +352,25 @@ impl App {
             return;
         }
 
-        // Hot-reload: poll shader file; swap pipeline only if naga validation passes.
-        if let (Some(watcher), Some(terrain), Some(gpu)) =
-            (self.shader_watcher.as_mut(), self.terrain.as_mut(), self.gpu.as_ref())
-            && let Some(source) = watcher.poll() {
-                terrain.swap_shader(&gpu.device, &source);
+        // Hot-reload: poll all shader files; swap pipelines only if naga validation passes.
+        if let (Some(set), Some(gpu)) = (self.shaders.as_mut(), self.gpu.as_ref()) {
+            for (name, source) in set.poll() {
+                match name {
+                    "terrain" => {
+                        if let Some(t) = self.terrain.as_mut() {
+                            t.swap_shader(&gpu.device, &source);
+                        }
+                    }
+                    "post" => {
+                        if let Some(p) = self.post.as_mut() {
+                            p.swap_shader(&gpu.device, &source);
+                        }
+                    }
+                    // outline has no swap_shader yet; restart to pick it up.
+                    _ => {}
+                }
             }
+        }
 
         let now = std::time::Instant::now();
         let dt = (now - self.last_frame).as_secs_f32().min(0.1);
@@ -485,6 +507,8 @@ impl App {
             self.input.end_frame();
             return;
         };
+        let Some(targets) = self.targets.as_ref() else { return };
+        let hdr_view = &targets.hdr_view;
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu
             .device
@@ -497,7 +521,7 @@ impl App {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: hdr_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -529,6 +553,12 @@ impl App {
             if let Some(outline) = self.outline.as_ref() {
                 outline.draw(&mut rpass);
             }
+        }
+
+        // Post pass: blit HDR target into the swapchain view.
+        let post_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_POST));
+        if let Some(post) = self.post.as_ref() {
+            post.draw(&mut encoder, &view, post_writes);
         }
 
         // Resolve GPU timestamps into the readback buffer.
@@ -679,24 +709,40 @@ impl ApplicationHandler for App {
         let size = window.inner_size();
         self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
 
-        let shader_path = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/shaders/terrain.wgsl");
-        // Watcher first: its baseline mtime must predate the source read, so a
-        // save landing in between is detected as a change instead of missed.
-        self.shader_watcher = Some(crate::render::hot_reload::ShaderWatcher::new(shader_path));
-        let shader_source = std::fs::read_to_string(shader_path).expect("terrain.wgsl missing");
-        let terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
-        self.terrain = Some(terrain);
+        // Watchers first: their baseline mtime must predate the source reads,
+        // so a save landing in between is detected as a change instead of missed.
+        let mut shaders = crate::render::hot_reload::ShaderSet::new();
+        shaders.watch("terrain", shader_path("terrain.wgsl"));
+        shaders.watch("outline", shader_path("outline.wgsl"));
+        shaders.watch("post", shader_path("post.wgsl"));
+        self.shaders = Some(shaders);
 
-        let outline_src = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/outline.wgsl"
-        ))
-        .expect("outline.wgsl missing");
+        let size = window.inner_size();
+        let targets =
+            crate::render::targets::RenderTargets::new(&gpu.device, size.width, size.height);
+
+        let hdr_format = crate::render::targets::HDR_FORMAT;
+        let terrain_src =
+            std::fs::read_to_string(shader_path("terrain.wgsl")).expect("terrain.wgsl missing");
+        self.terrain = Some(TerrainRenderer::new(&gpu.device, hdr_format, &terrain_src));
+
+        let outline_src =
+            std::fs::read_to_string(shader_path("outline.wgsl")).expect("outline.wgsl missing");
         self.outline = Some(crate::render::outline::OutlineRenderer::new(
             &gpu.device,
-            gpu.config.format,
+            hdr_format,
             &outline_src,
         ));
+
+        let post_src =
+            std::fs::read_to_string(shader_path("post.wgsl")).expect("post.wgsl missing");
+        self.post = Some(crate::render::post::PostPass::new(
+            &gpu.device,
+            gpu.config.format,
+            &targets.hdr_view,
+            &post_src,
+        ));
+        self.targets = Some(targets);
 
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
@@ -725,6 +771,16 @@ impl ApplicationHandler for App {
                     gpu.resize(size.width, size.height);
                     self.depth_view =
                         Some(depth::create_depth_view(&gpu.device, size.width, size.height));
+                    self.targets = Some(crate::render::targets::RenderTargets::new(
+                        &gpu.device,
+                        size.width,
+                        size.height,
+                    ));
+                    if let (Some(post), Some(targets)) =
+                        (self.post.as_mut(), self.targets.as_ref())
+                    {
+                        post.set_input(&gpu.device, &targets.hdr_view);
+                    }
                 }
                 return;
             }
