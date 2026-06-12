@@ -54,6 +54,7 @@ pub struct App {
     hud_visible: bool,
     fps_smoothed: f32,
     occluded: bool,
+    player: crate::game::player::Player,
     world: crate::world::chunks::ChunkMap,
     worldgen: crate::world::r#gen::WorldGen,
     jobs: crate::world::jobs::Jobs,
@@ -82,6 +83,7 @@ impl App {
             hud_visible: true,
             fps_smoothed: 0.0,
             occluded: false,
+            player: crate::game::player::Player::new(glam::Vec3::new(16.0, 140.0, 16.0)),
             world: crate::world::chunks::ChunkMap::default(),
             worldgen: crate::world::r#gen::WorldGen::new(SEED),
             jobs: crate::world::jobs::Jobs::new(),
@@ -244,7 +246,18 @@ impl App {
 
         let (dx, dy) = self.input.take_mouse_delta();
         self.camera.apply_mouse_delta(dx, dy);
-        self.camera.fly(&self.input, dt);
+        // Temporary M3 hookup (full wiring in the app integration task): step the
+        // player and pin the camera to its eye.
+        {
+            let world = &self.world;
+            let is_solid = |c: glam::IVec3| match world.block_at(c) {
+                Some(b) => b != crate::world::block::AIR && b != crate::world::block::WATER,
+                None => true,
+            };
+            let is_water = |c: glam::IVec3| world.block_at(c) == Some(crate::world::block::WATER);
+            self.player.update(&self.input, self.camera.yaw, dt, &is_solid, &is_water);
+        }
+        self.camera.position = self.player.eye();
 
         // World streaming: gen/mesh/upload jobs.
         self.update_world();
