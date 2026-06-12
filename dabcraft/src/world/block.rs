@@ -17,7 +17,6 @@ pub const CACTUS: BlockId = BlockId(11);
 
 /// Every block the player can place (creative: everything but air),
 /// in hotbar paging order.
-#[cfg_attr(not(test), allow(dead_code))]
 pub const PLACEABLE: [BlockId; 11] = [
     GRASS, DIRT, STONE, SAND, SNOW_GRASS, WATER,
     OAK_LOG, OAK_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, CACTUS,
