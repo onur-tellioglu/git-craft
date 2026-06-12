@@ -11,7 +11,6 @@ struct OutlineUniform {
 
 /// Wireframe outline for the targeted block: one 24-vertex LineList draw,
 /// vertices pulled from a const table in the shader.
-#[allow(dead_code)]
 pub struct OutlineRenderer {
     pipeline: wgpu::RenderPipeline,
     buffer: wgpu::Buffer,
@@ -19,7 +18,6 @@ pub struct OutlineRenderer {
     target: Option<IVec3>,
 }
 
-#[allow(dead_code)]
 impl OutlineRenderer {
     pub fn new(
         device: &wgpu::Device,

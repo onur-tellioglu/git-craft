@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use winit::keyboard::KeyCode;
 
 /// Game-relevant mouse buttons (winit's enum carries more; app.rs maps).
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseButton {
     Left,
@@ -36,12 +35,10 @@ impl InputState {
 
     /// True only on the frame the key transitioned up→down (OS key-repeat
     /// does not re-fire). Cleared by `end_frame`.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn key_pressed(&self, key: KeyCode) -> bool {
         self.just_pressed.contains(&key)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn set_mouse_button(&mut self, button: MouseButton, down: bool) {
         if down {
             if self.mouse_held.insert(button) {
@@ -52,12 +49,10 @@ impl InputState {
         }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn mouse_down(&self, button: MouseButton) -> bool {
         self.mouse_held.contains(&button)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn mouse_pressed(&self, button: MouseButton) -> bool {
         self.mouse_just_pressed.contains(&button)
     }
@@ -72,14 +67,12 @@ impl InputState {
         std::mem::take(&mut self.mouse_delta)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn accumulate_scroll(&mut self, delta: f32) {
         self.scroll += delta;
     }
 
     /// Whole scroll steps accumulated since the last call; the fractional
     /// remainder (trackpad deltas) carries over so slow scrolls still land.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn take_scroll_steps(&mut self) -> i32 {
         let steps = self.scroll.trunc() as i32;
         self.scroll -= steps as f32;
@@ -87,7 +80,6 @@ impl InputState {
     }
 
     /// Consume this frame's press edges. Call once at the end of each frame.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn end_frame(&mut self) {
         self.just_pressed.clear();
         self.mouse_just_pressed.clear();
