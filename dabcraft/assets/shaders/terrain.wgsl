@@ -35,7 +35,7 @@ const FACE_SHADE = array<f32, 6>(0.8, 0.8, 1.0, 0.5, 0.6, 0.6);
 
 // M2 palette indexed by the quad's texture field = block id;
 // procedural textures replace this in M6.
-const PALETTE = array<vec3<f32>, 12>(
+const PALETTE = array<vec3<f32>, 13>(
     vec3(1.0, 0.0, 1.0),      //  0 air (never rendered; magenta = bug)
     vec3(0.35, 0.62, 0.22),   //  1 grass
     vec3(0.45, 0.32, 0.2),    //  2 dirt
@@ -48,6 +48,7 @@ const PALETTE = array<vec3<f32>, 12>(
     vec3(0.32, 0.23, 0.14),   //  9 spruce log
     vec3(0.16, 0.3, 0.19),    // 10 spruce leaves
     vec3(0.27, 0.5, 0.21),    // 11 cactus
+    vec3(0.95, 0.71, 0.3),    // 12 torch
 );
 
 // Corner order matches PackedQuad ao order: (0,0) (w,0) (w,h) (0,h).
@@ -89,7 +90,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
     var out: VsOut;
     out.clip = camera.view_proj * vec4(world, 1.0);
     let light = (skylight / 15.0) * FACE_SHADE[face] * mix(0.4, 1.0, ao / 3.0);
-    out.color = PALETTE[min(tex, 11u)] * light;
+    out.color = PALETTE[min(tex, 12u)] * light;
     return out;
 }
 

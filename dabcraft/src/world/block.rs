@@ -14,17 +14,36 @@ pub const OAK_LEAVES: BlockId = BlockId(8);
 pub const SPRUCE_LOG: BlockId = BlockId(9);
 pub const SPRUCE_LEAVES: BlockId = BlockId(10);
 pub const CACTUS: BlockId = BlockId(11);
+pub const TORCH: BlockId = BlockId(12);
 
 /// Every block the player can place (creative: everything but air),
 /// in hotbar paging order.
-pub const PLACEABLE: [BlockId; 11] = [
+pub const PLACEABLE: [BlockId; 12] = [
     GRASS, DIRT, STONE, SAND, SNOW_GRASS, WATER,
-    OAK_LOG, OAK_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, CACTUS,
+    OAK_LOG, OAK_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, CACTUS, TORCH,
 ];
 
 impl BlockId {
+    /// Opaque cube face for meshing (and, via app closures, collision).
+    /// Does NOT imply light-blocking: a torch is a solid cube that light
+    /// passes through — see `blocks_light`.
     pub fn is_solid(self) -> bool {
         self != AIR
+    }
+
+    /// Does this block stop flood-fill light? Everything except air and
+    /// torches. Water blocks light fully in M4 (it also renders opaque);
+    /// per-block attenuation can arrive with transparency in M5.
+    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-5)
+    pub fn blocks_light(self) -> bool {
+        self != AIR && self != TORCH
+    }
+
+    /// Blocklight level seeded at this block's cell (spec §4: BFS from
+    /// emitters). Torches emit 14, like vanilla.
+    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-5)
+    pub fn light_emission(self) -> u8 {
+        if self == TORCH { 14 } else { 0 }
     }
 
     pub fn display_name(self) -> &'static str {
@@ -41,6 +60,7 @@ impl BlockId {
             9 => "Spruce Log",
             10 => "Spruce Leaves",
             11 => "Cactus",
+            12 => "Torch",
             _ => "Unknown",
         }
     }
@@ -61,6 +81,7 @@ impl BlockId {
             9 => [0.32, 0.23, 0.14],
             10 => [0.16, 0.3, 0.19],
             11 => [0.27, 0.5, 0.21],
+            12 => [0.95, 0.71, 0.30],
             _ => [1.0, 0.0, 1.0],
         }
     }
@@ -138,11 +159,11 @@ mod tests {
     #[test]
     fn ids_are_stable() {
         // Persisted worlds (M6) depend on these exact values; never renumber.
-        let expected: [(BlockId, u16); 12] = [
+        let expected: [(BlockId, u16); 13] = [
             (AIR, 0), (GRASS, 1), (DIRT, 2), (STONE, 3),
             (SAND, 4), (SNOW_GRASS, 5), (WATER, 6),
             (OAK_LOG, 7), (OAK_LEAVES, 8), (SPRUCE_LOG, 9),
-            (SPRUCE_LEAVES, 10), (CACTUS, 11),
+            (SPRUCE_LEAVES, 10), (CACTUS, 11), (TORCH, 12),
         ];
         for (block, id) in expected {
             assert_eq!(block.0, id);
@@ -152,8 +173,39 @@ mod tests {
     #[test]
     fn only_air_is_not_solid() {
         assert!(!AIR.is_solid());
-        for id in 1..=11u16 {
+        for id in 1..=12u16 {
             assert!(BlockId(id).is_solid());
+        }
+    }
+
+    #[test]
+    fn torch_is_registered_and_placeable() {
+        assert_eq!(TORCH.0, 12, "persisted ids are stable; torch is 12");
+        assert!(PLACEABLE.contains(&TORCH));
+        assert_eq!(TORCH.display_name(), "Torch");
+        assert!(TORCH.is_solid(), "torch renders as an opaque cube in M4");
+    }
+
+    #[test]
+    fn only_air_and_torch_pass_light() {
+        assert!(!AIR.blocks_light());
+        assert!(!TORCH.blocks_light(), "a torch must not shadow the sky shaft it sits in");
+        for id in 1..=max_block_id() {
+            if BlockId(id) == TORCH {
+                continue;
+            }
+            assert!(BlockId(id).blocks_light(), "block {id} must block light");
+        }
+    }
+
+    #[test]
+    fn torch_is_the_only_emitter() {
+        assert_eq!(TORCH.light_emission(), 14);
+        for id in 0..=max_block_id() {
+            if BlockId(id) == TORCH {
+                continue;
+            }
+            assert_eq!(BlockId(id).light_emission(), 0, "block {id} must not emit");
         }
     }
 }
