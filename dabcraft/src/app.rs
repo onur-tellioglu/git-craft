@@ -482,20 +482,25 @@ impl App {
         let uploads = self.upload_queue.len();
         let (arena_used, arena_cap) =
             self.terrain.as_ref().map(|t| t.arena_usage()).unwrap_or((0, 1));
+        let hotbar_slots = self.hotbar.slots;
+        let hotbar_selected = self.hotbar.selected;
+        let hud_visible = self.hud_visible;
 
-        // Draw egui HUD overlay.
-        let egui_cmds = if self.hud_visible {
-            if let Some(egui) = &mut self.egui {
-                let window = self.window.as_ref().unwrap().clone();
-                let config = &gpu.config;
-                let cmds = egui.draw(
-                    &gpu.device,
-                    &gpu.queue,
-                    &mut encoder,
-                    &window,
-                    &view,
-                    config,
-                    |ctx| {
+        // Draw egui overlay: crosshair + hotbar always; Debug HUD only when F3.
+        let egui_cmds = if let Some(egui) = &mut self.egui {
+            let window = self.window.as_ref().unwrap().clone();
+            let config = &gpu.config;
+            let cmds = egui.draw(
+                &gpu.device,
+                &gpu.queue,
+                &mut encoder,
+                &window,
+                &view,
+                config,
+                |ctx| {
+                    crate::render::game_ui::draw_crosshair(ctx);
+                    crate::render::game_ui::draw_hotbar(ctx, &hotbar_slots, hotbar_selected);
+                    if hud_visible {
                         egui::Window::new("Debug HUD")
                             .resizable(false)
                             .collapsible(false)
@@ -515,18 +520,11 @@ impl App {
                                     arena_cap as f32 * 8.0 / (1 << 20) as f32
                                 ));
                             });
-                    },
-                );
-                Some(cmds)
-            } else {
-                None
-            }
+                    }
+                },
+            );
+            Some(cmds)
         } else {
-            // HUD hidden: still drain egui's buffered input so re-enabling it
-            // doesn't replay a backlog of stale events in one frame.
-            if let (Some(egui), Some(window)) = (&mut self.egui, &self.window) {
-                egui.drain_input(window);
-            }
             None
         };
 

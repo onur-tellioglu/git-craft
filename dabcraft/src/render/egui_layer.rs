@@ -31,13 +31,6 @@ impl EguiLayer {
         self.state.on_window_event(window, event).consumed
     }
 
-    /// Discard accumulated input. Must be called every frame the HUD is not
-    /// drawn — on_window_event buffers events until take_egui_input drains
-    /// them, and a long-hidden HUD would otherwise replay the whole backlog.
-    pub fn drain_input(&mut self, window: &Window) {
-        let _ = self.state.take_egui_input(window);
-    }
-
     // The argument list is wgpu frame plumbing (device/queue/encoder/target);
     // bundling it into a context struct would add a type for one call site.
     #[allow(clippy::too_many_arguments)]
