@@ -220,7 +220,6 @@ impl ChunkMap {
     /// Light level at a world position. `None` when the column is not
     /// loaded. Above the world it is open sky (sky 15 / block 0); below
     /// the world it is dark — mirrors `block_at`'s "outside is air".
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-6)
     pub fn light(&self, ch: LightChannel, pos: glam::IVec3) -> Option<u8> {
         if pos.y >= WORLD_HEIGHT {
             return Some(match ch {
@@ -242,7 +241,6 @@ impl ChunkMap {
 
     /// Write one light value; dirties every section whose padded volume sees
     /// the cell. Returns false when out of world, unloaded, or unchanged.
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-6)
     pub fn set_light(&mut self, ch: LightChannel, pos: glam::IVec3, v: u8) -> bool {
         if !(0..WORLD_HEIGHT).contains(&pos.y) {
             return false;

@@ -8,9 +8,6 @@ const VOLUME: usize = SIZE * SIZE * SIZE;
 
 /// Which flood-fill channel an operation targets.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-// Variants are constructed by the M4 light engine (Tasks 4-6); the chunk
-// accessors already match on the channel.
-#[allow(dead_code)]
 pub enum LightChannel {
     Sky,
     Block,
@@ -30,12 +27,13 @@ pub enum LightData {
     Dense(Box<[u8; VOLUME]>),
 }
 
-#[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
 impl LightData {
+    #[allow(dead_code)] // used in tests and future mesh work (M5+)
     pub fn dark() -> Self {
         LightData::Uniform(0)
     }
 
+    #[allow(dead_code)] // used in tests
     pub fn uniform(sky: u8, block: u8) -> Self {
         LightData::Uniform(pack_light(sky, block))
     }
@@ -110,6 +108,7 @@ impl LightData {
     }
 
     /// Bulk-decode all 32768 packed bytes (hot path for padded-buffer fill).
+    #[allow(dead_code)] // wired into mesh padding in M5
     pub fn unpack_into(&self, out: &mut [u8]) {
         assert_eq!(out.len(), VOLUME);
         match self {
