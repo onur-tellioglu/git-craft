@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::world::block::{BlockId, AIR};
-use crate::world::r#gen::{apply_write, apply_write_to_section, ColumnData, StructureWrite, COLUMN_SECTIONS};
+use crate::world::light::{LightChannel, LightData, MAX_LIGHT};
+use crate::world::r#gen::{apply_write_to_section, ColumnData, StructureWrite, COLUMN_SECTIONS, WORLD_HEIGHT};
 use crate::world::section::Section;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -38,6 +39,7 @@ pub fn block_to_column(wx: i32, wz: i32) -> ColumnPos {
 /// never the data) + per-section dirty flags (dirty = needs (re)meshing).
 pub struct Column {
     pub sections: [Arc<Section>; COLUMN_SECTIONS],
+    pub light: [Arc<LightData>; COLUMN_SECTIONS],
     pub dirty: [bool; COLUMN_SECTIONS],
 }
 
@@ -98,14 +100,10 @@ impl ChunkMap {
     pub fn insert_generated(
         &mut self,
         pos: ColumnPos,
-        mut data: ColumnData,
+        data: ColumnData,
+        light: [LightData; COLUMN_SECTIONS],
         outside_writes: Vec<StructureWrite>,
-    ) {
-        if let Some(queued) = self.pending.remove(&pos) {
-            for w in queued {
-                apply_write(&mut data.sections, w);
-            }
-        }
+    ) -> Vec<glam::IVec3> {
         let sections: [Arc<Section>; COLUMN_SECTIONS] = data
             .sections
             .into_iter()
@@ -113,29 +111,49 @@ impl ChunkMap {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap_or_else(|_| unreachable!("generate_column always yields 8 sections"));
+        let light = light.map(Arc::new);
         self.columns.insert(
             pos,
-            Slot::Ready(Column { sections, dirty: [true; COLUMN_SECTIONS] }),
+            Slot::Ready(Column { sections, light, dirty: [true; COLUMN_SECTIONS] }),
         );
-        for w in outside_writes {
-            self.route_write(w);
+        let mut applied = Vec::new();
+        if let Some(queued) = self.pending.remove(&pos) {
+            for w in queued {
+                applied.extend(self.route_write(w));
+            }
         }
+        for w in outside_writes {
+            applied.extend(self.route_write(w));
+        }
+        applied
     }
 
-    fn route_write(&mut self, w: StructureWrite) {
+    fn route_write(&mut self, w: StructureWrite) -> Option<glam::IVec3> {
         let target = block_to_column(w.pos.x, w.pos.z);
         match self.columns.get_mut(&target) {
             Some(Slot::Ready(col)) => {
-                if (0..256).contains(&w.pos.y) {
+                if (0..WORLD_HEIGHT).contains(&w.pos.y) {
                     // Arc::make_mut: clone-on-write only if a mesh job still
                     // holds the old Arc; otherwise mutates in place.
                     let section = Arc::make_mut(&mut col.sections[(w.pos.y / 32) as usize]);
+                    let (lx, ly, lz) = (
+                        w.pos.x.rem_euclid(32) as usize,
+                        (w.pos.y % 32) as usize,
+                        w.pos.z.rem_euclid(32) as usize,
+                    );
+                    let before = section.get(lx, ly, lz);
                     apply_write_to_section(section, w);
+                    let changed = section.get(lx, ly, lz) != before;
                     self.dirty_sections_touching(w.pos);
+                    if changed {
+                        return Some(w.pos);
+                    }
                 }
+                None
             }
             _ => {
                 self.pending.entry(target).or_default().push(w);
+                None
             }
         }
     }
@@ -199,6 +217,53 @@ impl ChunkMap {
         true
     }
 
+    /// Light level at a world position. `None` when the column is not
+    /// loaded. Above the world it is open sky (sky 15 / block 0); below
+    /// the world it is dark — mirrors `block_at`'s "outside is air".
+    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-6)
+    pub fn light(&self, ch: LightChannel, pos: glam::IVec3) -> Option<u8> {
+        if pos.y >= WORLD_HEIGHT {
+            return Some(match ch {
+                LightChannel::Sky => MAX_LIGHT,
+                LightChannel::Block => 0,
+            });
+        }
+        if pos.y < 0 {
+            return Some(0);
+        }
+        let col = self.ready(block_to_column(pos.x, pos.z))?;
+        Some(col.light[(pos.y / 32) as usize].get(
+            ch,
+            pos.x.rem_euclid(32) as usize,
+            (pos.y % 32) as usize,
+            pos.z.rem_euclid(32) as usize,
+        ))
+    }
+
+    /// Write one light value; dirties every section whose padded volume sees
+    /// the cell. Returns false when out of world, unloaded, or unchanged.
+    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 4-6)
+    pub fn set_light(&mut self, ch: LightChannel, pos: glam::IVec3, v: u8) -> bool {
+        if !(0..WORLD_HEIGHT).contains(&pos.y) {
+            return false;
+        }
+        let Some(col) = self.ready_mut(block_to_column(pos.x, pos.z)) else {
+            return false;
+        };
+        let light = Arc::make_mut(&mut col.light[(pos.y / 32) as usize]);
+        let changed = light.set(
+            ch,
+            pos.x.rem_euclid(32) as usize,
+            (pos.y % 32) as usize,
+            pos.z.rem_euclid(32) as usize,
+            v,
+        );
+        if changed {
+            self.dirty_sections_touching(pos);
+        }
+        changed
+    }
+
     pub fn neighbors_ready(&self, pos: ColumnPos) -> bool {
         (-1..=1).all(|dx| {
             (-1..=1).all(|dz| {
@@ -253,12 +318,17 @@ pub fn columns_in_radius(center: ColumnPos, radius: i32) -> Vec<ColumnPos> {
 mod tests {
     use super::*;
     use crate::world::block::{OAK_LEAVES, STONE};
+    use crate::world::light::{LightChannel, LightData};
     use crate::world::r#gen::StructureWrite;
 
     fn empty_column_data() -> crate::world::r#gen::ColumnData {
         crate::world::r#gen::ColumnData {
             sections: (0..8).map(|_| crate::world::section::Section::empty()).collect(),
         }
+    }
+
+    fn dark_light() -> [crate::world::light::LightData; COLUMN_SECTIONS] {
+        std::array::from_fn(|_| crate::world::light::LightData::dark())
     }
 
     #[test]
@@ -290,7 +360,7 @@ mod tests {
             block: OAK_LEAVES,
             only_air: true,
         }]);
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         let col = map.ready(ColumnPos { x: 0, z: 0 }).unwrap();
         assert_eq!(col.sections[2].get(5, 6, 5), OAK_LEAVES); // y 70 = section 2, local 6
     }
@@ -298,12 +368,13 @@ mod tests {
     #[test]
     fn insert_routes_writes_to_ready_columns_and_marks_dirty() {
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
         // Column (1,0) generates and spills a write into (0,0):
         map.insert_generated(
             ColumnPos { x: 1, z: 0 },
             empty_column_data(),
+            dark_light(),
             vec![StructureWrite { pos: glam::IVec3::new(31, 70, 5), block: STONE, only_air: false }],
         );
         let col = map.ready(ColumnPos { x: 0, z: 0 }).unwrap();
@@ -317,9 +388,10 @@ mod tests {
         map.insert_generated(
             ColumnPos { x: 0, z: 0 },
             empty_column_data(),
+            dark_light(),
             vec![StructureWrite { pos: glam::IVec3::new(40, 70, 5), block: STONE, only_air: false }],
         );
-        map.insert_generated(ColumnPos { x: 1, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 1, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         let col = map.ready(ColumnPos { x: 1, z: 0 }).unwrap();
         assert_eq!(col.sections[2].get(8, 6, 5), STONE); // 40 % 32 = 8
     }
@@ -332,11 +404,11 @@ mod tests {
                 if (dx, dz) == (1, 1) {
                     continue;
                 }
-                map.insert_generated(ColumnPos { x: dx, z: dz }, empty_column_data(), Vec::new());
+                map.insert_generated(ColumnPos { x: dx, z: dz }, empty_column_data(), dark_light(), Vec::new());
             }
         }
         assert!(!map.neighbors_ready(ColumnPos { x: 0, z: 0 }));
-        map.insert_generated(ColumnPos { x: 1, z: 1 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 1, z: 1 }, empty_column_data(), dark_light(), Vec::new());
         assert!(map.neighbors_ready(ColumnPos { x: 0, z: 0 }));
     }
 
@@ -345,13 +417,14 @@ mod tests {
         // A write at a section's x=0 edge sits in the +X apron of the west
         // neighbor: that neighbor's mesh must be rebuilt as well.
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
-        map.insert_generated(ColumnPos { x: -1, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
+        map.insert_generated(ColumnPos { x: -1, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
         map.clear_all_dirty(ColumnPos { x: -1, z: 0 });
         map.insert_generated(
             ColumnPos { x: 5, z: 5 }, // unrelated column whose gen spilled this write:
             empty_column_data(),
+            dark_light(),
             vec![StructureWrite { pos: glam::IVec3::new(0, 64, 5), block: STONE, only_air: false }],
         );
         let col = map.ready(ColumnPos { x: 0, z: 0 }).unwrap();
@@ -364,8 +437,8 @@ mod tests {
     #[test]
     fn unload_removes_columns_outside_keep_radius() {
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
-        map.insert_generated(ColumnPos { x: 9, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
+        map.insert_generated(ColumnPos { x: 9, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         let removed = map.unload_outside(ColumnPos { x: 0, z: 0 }, 5);
         assert_eq!(removed, vec![ColumnPos { x: 9, z: 0 }]);
         assert!(map.ready(ColumnPos { x: 9, z: 0 }).is_none());
@@ -375,7 +448,7 @@ mod tests {
     #[test]
     fn block_at_reads_world_positions_including_negatives() {
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: -1, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: -1, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         assert!(map.set_block(glam::IVec3::new(-31, 70, 5), STONE));
         assert_eq!(map.block_at(glam::IVec3::new(-31, 70, 5)), Some(STONE));
         assert_eq!(map.block_at(glam::IVec3::new(-32, 70, 5)), Some(crate::world::block::AIR));
@@ -387,8 +460,8 @@ mod tests {
     #[test]
     fn set_block_dirties_owner_and_border_neighbors() {
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
-        map.insert_generated(ColumnPos { x: 1, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
+        map.insert_generated(ColumnPos { x: 1, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
         map.clear_all_dirty(ColumnPos { x: 1, z: 0 });
         // x=32 is column (1,0)'s west edge: column (0,0)'s +X apron sees it.
@@ -403,9 +476,73 @@ mod tests {
     #[test]
     fn set_block_on_unloaded_or_out_of_range_is_rejected() {
         let mut map = ChunkMap::default();
-        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
         assert!(!map.set_block(glam::IVec3::new(100, 64, 100), STONE));
         assert!(!map.set_block(glam::IVec3::new(5, -1, 5), STONE));
         assert!(!map.set_block(glam::IVec3::new(5, 256, 5), STONE));
+    }
+
+    #[test]
+    fn light_accessors_follow_world_conventions() {
+        let mut map = ChunkMap::default();
+        let mut light = dark_light();
+        light[2] = LightData::uniform(15, 0); // sections 2: y 64..96 fully sky-lit
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), light, Vec::new());
+        assert_eq!(map.light(LightChannel::Sky, glam::IVec3::new(5, 70, 5)), Some(15));
+        assert_eq!(map.light(LightChannel::Sky, glam::IVec3::new(5, 10, 5)), Some(0));
+        assert_eq!(map.light(LightChannel::Block, glam::IVec3::new(5, 70, 5)), Some(0));
+        assert_eq!(map.light(LightChannel::Sky, glam::IVec3::new(5, 300, 5)), Some(15), "above world = open sky");
+        assert_eq!(map.light(LightChannel::Block, glam::IVec3::new(5, 300, 5)), Some(0));
+        assert_eq!(map.light(LightChannel::Sky, glam::IVec3::new(5, -1, 5)), Some(0), "below world = dark");
+        assert_eq!(map.light(LightChannel::Sky, glam::IVec3::new(99, 70, 5)), None, "unloaded");
+    }
+
+    #[test]
+    fn set_light_writes_and_dirties_like_set_block() {
+        let mut map = ChunkMap::default();
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
+        map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
+        assert!(map.set_light(LightChannel::Block, glam::IVec3::new(5, 64, 5), 14));
+        assert_eq!(map.light(LightChannel::Block, glam::IVec3::new(5, 64, 5)), Some(14));
+        let col = map.ready(ColumnPos { x: 0, z: 0 }).unwrap();
+        assert!(col.dirty[2], "light change must re-mesh the owning section");
+        assert!(col.dirty[1], "y=64 is section 2's bottom row → section 1 apron dirty");
+        // Same value again: no change, no work.
+        map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
+        assert!(!map.set_light(LightChannel::Block, glam::IVec3::new(5, 64, 5), 14));
+        assert!(!map.ready(ColumnPos { x: 0, z: 0 }).unwrap().dirty[2], "no-op write must not dirty");
+        // Out of world / unloaded are rejected.
+        assert!(!map.set_light(LightChannel::Sky, glam::IVec3::new(5, 300, 5), 3));
+        assert!(!map.set_light(LightChannel::Sky, glam::IVec3::new(99, 64, 5), 3));
+    }
+
+    #[test]
+    fn insert_returns_positions_of_writes_applied_to_ready_columns() {
+        let mut map = ChunkMap::default();
+        // Pending write waiting for column (0,0):
+        map.queue_writes(vec![StructureWrite {
+            pos: glam::IVec3::new(5, 70, 5),
+            block: OAK_LEAVES,
+            only_air: true,
+        }]);
+        let touched = map.insert_generated(
+            ColumnPos { x: 0, z: 0 }, empty_column_data(), dark_light(), Vec::new());
+        assert_eq!(touched, vec![glam::IVec3::new(5, 70, 5)], "pending write applied at insert");
+        // Outside-write routed into the now-ready column:
+        let touched = map.insert_generated(
+            ColumnPos { x: 1, z: 0 },
+            empty_column_data(),
+            dark_light(),
+            vec![StructureWrite { pos: glam::IVec3::new(31, 70, 5), block: STONE, only_air: false }],
+        );
+        assert_eq!(touched, vec![glam::IVec3::new(31, 70, 5)]);
+        // A write queued for an absent column is NOT reported (nothing applied yet).
+        let touched = map.insert_generated(
+            ColumnPos { x: 5, z: 5 },
+            empty_column_data(),
+            dark_light(),
+            vec![StructureWrite { pos: glam::IVec3::new(200, 70, 200), block: STONE, only_air: false }],
+        );
+        assert!(touched.is_empty());
     }
 }

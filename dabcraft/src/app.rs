@@ -205,7 +205,9 @@ impl App {
                         self.world.queue_writes(writes);
                         continue;
                     }
-                    self.world.insert_generated(pos, data, writes);
+                    // Placeholder until the gen job computes real light (M4 Task 4).
+                    let light: [crate::world::light::LightData; 8] = std::array::from_fn(|_| crate::world::light::LightData::dark());
+                    let _touched = self.world.insert_generated(pos, data, light, writes);
                 }
                 JobResult::Meshed { pos, version, quads } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);

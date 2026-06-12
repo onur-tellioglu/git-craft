@@ -8,7 +8,9 @@ const VOLUME: usize = SIZE * SIZE * SIZE;
 
 /// Which flood-fill channel an operation targets.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
+// Variants are constructed by the M4 light engine (Tasks 4-6); the chunk
+// accessors already match on the channel.
+#[allow(dead_code)]
 pub enum LightChannel {
     Sky,
     Block,
@@ -23,7 +25,6 @@ pub fn pack_light(sky: u8, block: u8) -> u8 {
 /// 32³ light values. `Uniform` covers the dominant cases (all sky-15 above
 /// ground, all dark underground) in one byte; the first divergent write
 /// promotes to `Dense` (32 KiB). Same voxel index order as `Section`.
-#[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
 #[derive(Clone, Debug, PartialEq)]
 pub enum LightData {
     Uniform(u8),
@@ -60,7 +61,6 @@ impl LightData {
         self.packed(x, y, z) >> 4
     }
 
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
     pub fn get(&self, ch: LightChannel, x: usize, y: usize, z: usize) -> u8 {
         match ch {
             LightChannel::Sky => self.sky(x, y, z),
@@ -103,7 +103,6 @@ impl LightData {
         self.set_packed(x, y, z, (old & 0x0F) | (v << 4))
     }
 
-    #[allow(dead_code)] // consumed by the M4 light engine (Tasks 3-5)
     pub fn set(&mut self, ch: LightChannel, x: usize, y: usize, z: usize, v: u8) -> bool {
         match ch {
             LightChannel::Sky => self.set_sky(x, y, z, v),
