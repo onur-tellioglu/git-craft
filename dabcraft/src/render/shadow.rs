@@ -54,6 +54,7 @@ pub fn slice_corners(
     out
 }
 
+#[derive(Clone, Copy)]
 pub struct CascadeFit {
     pub view_proj: Mat4,
     /// World size of one shadow-map texel (normal-offset bias scale).
@@ -94,6 +95,311 @@ pub fn cascade_due(frame: u64, cascade: usize) -> bool {
         0 => true,
         1 => frame.is_multiple_of(2),
         _ => frame.is_multiple_of(4),
+    }
+}
+
+// ── GPU renderer ─────────────────────────────────────────────────────────────
+
+use crate::render::depth::DEPTH_FORMAT;
+use crate::render::frustum::Frustum;
+use crate::render::terrain::{TerrainRenderer, MAX_SECTIONS};
+use crate::render::timestamps::GpuTimer;
+
+/// Terrain-facing uniform: sampled by terrain.wgsl's fragment stage (Task 5).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ShadowUniform {
+    pub mats: [[[f32; 4]; 4]; CASCADE_COUNT],
+    /// xyz = cascade far view-distances; w unused.
+    pub splits: [f32; 4],
+    /// xyz = world texel size per cascade (normal-offset scale); w unused.
+    pub texels: [f32; 4],
+}
+
+const CASCADE_SLOT: u64 = 256; // dynamic-offset alignment
+const INDIRECT_STRIDE: u64 = MAX_SECTIONS as u64 * 20;
+
+pub struct ShadowRenderer {
+    pipeline: wgpu::RenderPipeline,
+    cascade_layout: wgpu::BindGroupLayout,
+    cascade_buffer: wgpu::Buffer,
+    cascade_bind_group: wgpu::BindGroup,
+    layer_views: Vec<wgpu::TextureView>,
+    array_view: wgpu::TextureView,
+    uniform_buffer: wgpu::Buffer,
+    indirect_buffer: wgpu::Buffer,
+    draw_counts: [u32; CASCADE_COUNT],
+    fits: [CascadeFit; CASCADE_COUNT],
+    due: [bool; CASCADE_COUNT],
+    frame: u64,
+}
+
+impl ShadowRenderer {
+    pub fn new(
+        device: &wgpu::Device,
+        quads_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) -> Self {
+        // Cascade bind group layout: one uniform entry with dynamic offset.
+        let cascade_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("shadow cascade"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        // cascade_buffer: 3 slots × 256 bytes, one mat4 (64 bytes) per slot.
+        let cascade_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow cascade uniforms"),
+            size: CASCADE_SLOT * CASCADE_COUNT as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let cascade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("shadow cascade"),
+            layout: &cascade_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &cascade_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(64),
+                }),
+            }],
+        });
+
+        // Depth texture: 2048×2048×3 array layers.
+        let shadow_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("shadow maps"),
+            size: wgpu::Extent3d {
+                width: SHADOW_RESOLUTION,
+                height: SHADOW_RESOLUTION,
+                depth_or_array_layers: CASCADE_COUNT as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        // Per-layer views for depth-pass render targets.
+        let layer_views: Vec<wgpu::TextureView> = (0..CASCADE_COUNT as u32)
+            .map(|i| {
+                shadow_tex.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("shadow layer"),
+                    format: Some(DEPTH_FORMAT),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    aspect: wgpu::TextureAspect::All,
+                    base_mip_level: 0,
+                    mip_level_count: Some(1),
+                    base_array_layer: i,
+                    array_layer_count: Some(1),
+                    usage: None,
+                })
+            })
+            .collect();
+
+        // Full array view for sampling in Task 5.
+        let array_view = shadow_tex.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("shadow array"),
+            format: Some(DEPTH_FORMAT),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            aspect: wgpu::TextureAspect::All,
+            base_mip_level: 0,
+            mip_level_count: Some(1),
+            base_array_layer: 0,
+            array_layer_count: Some(CASCADE_COUNT as u32),
+            usage: None,
+        });
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow uniform"),
+            size: std::mem::size_of::<ShadowUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let indirect_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("shadow indirect"),
+            size: INDIRECT_STRIDE * CASCADE_COUNT as u64,
+            usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let pipeline = Self::build_pipeline(device, &cascade_layout, quads_layout, shader_source);
+
+        let fits = std::array::from_fn(|_| CascadeFit { view_proj: Mat4::IDENTITY, texel_world: 1.0 });
+
+        Self {
+            pipeline,
+            cascade_layout,
+            cascade_buffer,
+            cascade_bind_group,
+            layer_views,
+            array_view,
+            uniform_buffer,
+            indirect_buffer,
+            draw_counts: [0; CASCADE_COUNT],
+            fits,
+            due: [false; CASCADE_COUNT],
+            frame: 0,
+        }
+    }
+
+    fn build_pipeline(
+        device: &wgpu::Device,
+        cascade_layout: &wgpu::BindGroupLayout,
+        quads_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shadow"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shadow"),
+            bind_group_layouts: &[Some(cascade_layout), Some(quads_layout)],
+            immediate_size: 0,
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shadow"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState {
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: None,
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
+    pub fn swap_shader(
+        &mut self,
+        device: &wgpu::Device,
+        quads_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) {
+        self.pipeline = Self::build_pipeline(device, &self.cascade_layout, quads_layout, shader_source);
+    }
+
+    /// Returns the uniform buffer (consumed by Task 5 terrain fragment shader).
+    #[allow(dead_code)] // consumed by Task 5
+    pub fn uniform_buffer(&self) -> &wgpu::Buffer {
+        &self.uniform_buffer
+    }
+
+    /// Returns the D2Array view of all cascade depth maps (consumed by Task 5).
+    #[allow(dead_code)] // consumed by Task 5
+    pub fn array_view(&self) -> &wgpu::TextureView {
+        &self.array_view
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare(
+        &mut self,
+        queue: &wgpu::Queue,
+        terrain: &TerrainRenderer,
+        cam_pos: Vec3,
+        cam_forward: Vec3,
+        fov_y: f32,
+        aspect: f32,
+        light_dir: Vec3,
+    ) {
+        self.frame += 1;
+        let splits = cascade_splits(0.5, SHADOW_FAR, 0.7);
+
+        for i in 0..CASCADE_COUNT {
+            if self.frame != 1 && !cascade_due(self.frame, i) {
+                continue;
+            }
+            let corners = slice_corners(cam_pos, cam_forward, fov_y, aspect, splits[i], splits[i + 1]);
+            let fit = fit_light_matrix(&corners, light_dir, SHADOW_RESOLUTION);
+            // Write the mat4 for this cascade slot into cascade_buffer.
+            let mat_cols = fit.view_proj.to_cols_array();
+            queue.write_buffer(&self.cascade_buffer, i as u64 * CASCADE_SLOT, bytemuck::cast_slice(&mat_cols));
+            let frustum = Frustum::from_view_proj(fit.view_proj);
+            self.draw_counts[i] =
+                terrain.write_indirect_for(queue, &frustum, &self.indirect_buffer, i as u64 * INDIRECT_STRIDE);
+            self.fits[i] = fit;
+            self.due[i] = true;
+        }
+
+        // Always write the full ShadowUniform from cached fits.
+        let uniform = ShadowUniform {
+            mats: std::array::from_fn(|i| self.fits[i].view_proj.to_cols_array_2d()),
+            splits: [splits[1], splits[2], splits[3], 0.0],
+            texels: [self.fits[0].texel_world, self.fits[1].texel_world, self.fits[2].texel_world, 0.0],
+        };
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
+    }
+
+    pub fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        terrain: &TerrainRenderer,
+        timer: Option<&GpuTimer>,
+        first_pass_slot: usize,
+    ) {
+        for i in 0..CASCADE_COUNT {
+            if !std::mem::take(&mut self.due[i]) {
+                continue;
+            }
+            let ts_writes = timer.and_then(|t| t.render_writes(first_pass_slot + i));
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("shadow cascade"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.layer_views[i],
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: ts_writes,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_bind_group(0, &self.cascade_bind_group, &[(i as u64 * CASCADE_SLOT) as u32]);
+            rpass.set_bind_group(1, terrain.quads_bind_group(), &[]);
+            rpass.set_index_buffer(terrain.index_buffer().slice(..), wgpu::IndexFormat::Uint32);
+            for d in 0..self.draw_counts[i] {
+                rpass.draw_indexed_indirect(
+                    &self.indirect_buffer,
+                    i as u64 * INDIRECT_STRIDE + d as u64 * 20,
+                );
+            }
+        }
     }
 }
 
@@ -198,5 +504,13 @@ mod tests {
         }
         assert!(cascade_due(2, 1) && !cascade_due(3, 1));
         assert!(cascade_due(4, 2) && !cascade_due(5, 2) && !cascade_due(6, 2) && !cascade_due(7, 2));
+    }
+
+    #[test]
+    fn shadow_uniform_layout_matches_wgsl() {
+        // 3 mat4 (192) + splits vec4 (16) + texels vec4 (16).
+        assert_eq!(std::mem::size_of::<ShadowUniform>(), 224);
+        assert_eq!(std::mem::offset_of!(ShadowUniform, splits), 192);
+        assert_eq!(std::mem::offset_of!(ShadowUniform, texels), 208);
     }
 }

@@ -17,9 +17,10 @@ use crate::render::timestamps::GpuTimer;
 
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
-const PASS_LABELS: &[&str] = &["main", "post"];
-const PASS_MAIN: usize = 0;
-const PASS_POST: usize = 1;
+const PASS_LABELS: &[&str] = &["shadow0", "shadow1", "shadow2", "main", "post"];
+const PASS_SHADOW0: usize = 0;
+const PASS_MAIN: usize = 3;
+const PASS_POST: usize = 4;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -65,6 +66,7 @@ pub struct App {
     camera: Camera,
     last_frame: std::time::Instant,
     terrain: Option<TerrainRenderer>,
+    shadow: Option<crate::render::shadow::ShadowRenderer>,
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
@@ -107,6 +109,7 @@ impl App {
             camera: Camera::new(glam::Vec3::new(16.0, 140.0, 16.0)),
             last_frame: std::time::Instant::now(),
             terrain: None,
+            shadow: None,
             shaders: None,
             targets: None,
             post: None,
@@ -366,6 +369,11 @@ impl App {
                             p.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "shadow" => {
+                        if let (Some(s), Some(t)) = (self.shadow.as_mut(), self.terrain.as_ref()) {
+                            s.swap_shader(&gpu.device, t.quads_layout(), &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -499,6 +507,19 @@ impl App {
             outline.set_target(&gpu.queue, view_proj, self.target.map(|h| h.block));
         }
 
+        let light_dir = self.day.sun_dir(); // Task 6 replaces with sun-or-moon
+        if let (Some(shadow), Some(terrain)) = (self.shadow.as_mut(), self.terrain.as_ref()) {
+            shadow.prepare(
+                &gpu.queue,
+                terrain,
+                self.camera.position,
+                self.camera.forward(),
+                self.camera.fov_y,
+                aspect,
+                light_dir,
+            );
+        }
+
         let sky = self.day.sky_color();
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
@@ -513,6 +534,10 @@ impl App {
         let mut encoder = gpu
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+
+        if let (Some(shadow), Some(terrain)) = (self.shadow.as_mut(), self.terrain.as_ref()) {
+            shadow.encode(&mut encoder, terrain, self.timer.as_ref(), PASS_SHADOW0);
+        }
 
         // Capture timestamp_writes before the block to avoid borrow issues.
         let ts_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_MAIN));
@@ -715,6 +740,7 @@ impl ApplicationHandler for App {
         shaders.watch("terrain", shader_path("terrain.wgsl"));
         shaders.watch("outline", shader_path("outline.wgsl"));
         shaders.watch("post", shader_path("post.wgsl"));
+        shaders.watch("shadow", shader_path("shadow.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -725,6 +751,14 @@ impl ApplicationHandler for App {
         let terrain_src =
             std::fs::read_to_string(shader_path("terrain.wgsl")).expect("terrain.wgsl missing");
         self.terrain = Some(TerrainRenderer::new(&gpu.device, hdr_format, &terrain_src));
+        let shadow_src =
+            std::fs::read_to_string(shader_path("shadow.wgsl")).expect("shadow.wgsl missing");
+        let terrain_ref = self.terrain.as_ref().unwrap();
+        self.shadow = Some(crate::render::shadow::ShadowRenderer::new(
+            &gpu.device,
+            terrain_ref.quads_layout(),
+            &shadow_src,
+        ));
 
         let outline_src =
             std::fs::read_to_string(shader_path("outline.wgsl")).expect("outline.wgsl missing");

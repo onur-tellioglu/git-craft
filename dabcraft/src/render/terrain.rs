@@ -13,7 +13,7 @@ use crate::world::chunks::SectionPos;
 /// measures in the hundreds of thousands of quads; 4M is headroom.
 const QUAD_CAPACITY: u32 = 4 << 20;
 /// Max resident sections (slots). Load diameter 27 → ~553 columns × 8 ≈ 4424.
-const MAX_SECTIONS: u32 = 8192;
+pub const MAX_SECTIONS: u32 = 8192;
 /// Static index buffer covers the worst single section. The theoretical max
 /// (3D checkerboard) is 32³/2 × 6 = 98 304 quads; 131 072 gives margin.
 const MAX_QUADS_PER_SECTION: u32 = 1 << 17;
@@ -343,6 +343,44 @@ impl TerrainRenderer {
 
     pub fn arena_usage(&self) -> (u32, u32) {
         (self.arena.used(), self.arena.capacity())
+    }
+
+    pub fn quads_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.quads_layout
+    }
+
+    pub fn quads_bind_group(&self) -> &wgpu::BindGroup {
+        &self.quads_bind_group
+    }
+
+    pub fn index_buffer(&self) -> &wgpu::Buffer {
+        &self.index_buffer
+    }
+
+    /// Write indirect args for every resident section intersecting `frustum`
+    /// into `buffer` at `offset_bytes`; returns the draw count. Used by the
+    /// shadow cascades — no cave culling (anything in the light frustum casts
+    /// a shadow, seen or not).
+    pub fn write_indirect_for(
+        &self,
+        queue: &wgpu::Queue,
+        frustum: &Frustum,
+        buffer: &wgpu::Buffer,
+        offset_bytes: u64,
+    ) -> u32 {
+        let mut args: Vec<wgpu::util::DrawIndexedIndirectArgs> =
+            Vec::with_capacity(self.entries.len());
+        for (pos, e) in &self.entries {
+            let min = pos.origin().as_vec3();
+            if !frustum.intersects_aabb(min, min + glam::Vec3::splat(32.0)) {
+                continue;
+            }
+            args.push(section_draw_args(e.offset, e.len, e.slot));
+        }
+        if !args.is_empty() {
+            queue.write_buffer(buffer, offset_bytes, bytemuck::cast_slice(&args));
+        }
+        args.len() as u32
     }
 
     pub fn draw(&self, rpass: &mut wgpu::RenderPass<'_>) {
