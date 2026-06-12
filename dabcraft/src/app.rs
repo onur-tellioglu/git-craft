@@ -29,6 +29,12 @@ const MAX_MESH_IN_FLIGHT: usize = 24;
 /// GPU upload budget per frame (sections), to avoid frame spikes (spec §3).
 const MAX_UPLOADS_PER_FRAME: usize = 24;
 const SEED: i32 = 1337;
+/// Block interaction reach from the eye (spec §7).
+const REACH: f32 = 6.0;
+/// Held-button break/place repeat interval (creative).
+const EDIT_REPEAT: f32 = 0.25;
+/// Two Space presses within this window toggle walk/fly.
+const DOUBLE_TAP_WINDOW: f32 = 0.35;
 
 #[derive(Default)]
 struct FrameStats {
@@ -55,6 +61,13 @@ pub struct App {
     fps_smoothed: f32,
     occluded: bool,
     player: crate::game::player::Player,
+    hotbar: crate::game::hotbar::Hotbar,
+    outline: Option<crate::render::outline::OutlineRenderer>,
+    target: Option<crate::game::raycast::RayHit>,
+    last_space_press: Option<std::time::Instant>,
+    break_timer: f32,
+    place_timer: f32,
+    cursor_grabbed: bool,
     world: crate::world::chunks::ChunkMap,
     worldgen: crate::world::r#gen::WorldGen,
     jobs: crate::world::jobs::Jobs,
@@ -84,12 +97,84 @@ impl App {
             fps_smoothed: 0.0,
             occluded: false,
             player: crate::game::player::Player::new(glam::Vec3::new(16.0, 140.0, 16.0)),
+            hotbar: crate::game::hotbar::Hotbar::new(),
+            outline: None,
+            target: None,
+            last_space_press: None,
+            break_timer: 0.0,
+            place_timer: 0.0,
+            cursor_grabbed: false,
             world: crate::world::chunks::ChunkMap::default(),
             worldgen: crate::world::r#gen::WorldGen::new(SEED),
             jobs: crate::world::jobs::Jobs::new(),
             upload_queue: VecDeque::new(),
             mesh_versions: HashMap::new(),
             stats: FrameStats::default(),
+        }
+    }
+
+    /// Grab (lock + hide) or release the cursor. Input state is cleared on
+    /// both transitions so half-held keys/buttons don't leak across.
+    fn set_cursor_grab(&mut self, grab: bool) {
+        let Some(window) = &self.window else { return };
+        if grab {
+            if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
+                let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
+            }
+            window.set_cursor_visible(false);
+        } else {
+            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+            window.set_cursor_visible(true);
+        }
+        self.cursor_grabbed = grab;
+        self.input.clear();
+        // A Space tap before the transition must not pair with one after it.
+        self.last_space_press = None;
+    }
+
+    /// Raycast the targeted block and apply break/place edits. Edits call
+    /// ChunkMap::set_block, whose dirty flags feed the existing M2 re-mesh
+    /// path in update_world (versioned jobs drop any stale in-flight mesh).
+    fn update_interaction(&mut self, dt: f32) {
+        use crate::game::input::MouseButton;
+        use crate::world::block::{AIR, WATER};
+
+        self.break_timer = (self.break_timer - dt).max(0.0);
+        self.place_timer = (self.place_timer - dt).max(0.0);
+
+        // Target anything non-air: water is visually opaque until M5, so
+        // targeting (and breaking) it matches what the player sees.
+        self.target = {
+            let world = &self.world;
+            let hits = |c: glam::IVec3| world.block_at(c).is_some_and(|b| b != AIR);
+            crate::game::raycast::raycast(self.camera.position, self.camera.forward(), REACH, &hits)
+        };
+        if !self.cursor_grabbed {
+            return;
+        }
+        let Some(hit) = self.target else { return };
+
+        // Left: instant break (creative), repeating while held.
+        if self.input.mouse_pressed(MouseButton::Left)
+            || (self.input.mouse_down(MouseButton::Left) && self.break_timer == 0.0)
+        {
+            self.world.set_block(hit.block, AIR);
+            self.break_timer = EDIT_REPEAT;
+        }
+
+        // Right: place against the hit face. No face when the ray started
+        // inside a block. Rejected if the cell is occupied (water counts as
+        // replaceable) or intersects the player AABB (spec §7).
+        if (self.input.mouse_pressed(MouseButton::Right)
+            || (self.input.mouse_down(MouseButton::Right) && self.place_timer == 0.0))
+            && hit.normal != glam::IVec3::ZERO
+        {
+            let cell = hit.block + hit.normal;
+            let free = self.world.block_at(cell).is_some_and(|b| b == AIR || b == WATER);
+            if free && !self.player.aabb().intersects_cell(cell) {
+                self.world.set_block(cell, self.hotbar.selected_block());
+                self.place_timer = EDIT_REPEAT;
+            }
         }
     }
 
@@ -245,9 +330,50 @@ impl App {
         self.fps_smoothed = self.fps_smoothed * 0.95 + (1.0 / dt.max(1e-6)) * 0.05;
 
         let (dx, dy) = self.input.take_mouse_delta();
-        self.camera.apply_mouse_delta(dx, dy);
-        // Temporary M3 hookup (full wiring in the app integration task): step the
-        // player and pin the camera to its eye.
+        if self.cursor_grabbed {
+            self.camera.apply_mouse_delta(dx, dy);
+        }
+
+        // Mode toggles: F, or double-tapped Space (spec §7).
+        if self.input.key_pressed(KeyCode::KeyF) {
+            self.player.toggle_mode();
+        }
+        if self.input.key_pressed(KeyCode::Space) {
+            let now = std::time::Instant::now();
+            if self
+                .last_space_press
+                .is_some_and(|t| now.duration_since(t).as_secs_f32() < DOUBLE_TAP_WINDOW)
+            {
+                self.player.toggle_mode();
+                self.last_space_press = None;
+            } else {
+                self.last_space_press = Some(now);
+            }
+        }
+
+        // Hotbar: 1–9 select, wheel cycles, shift+wheel pages (spec §7).
+        const DIGITS: [KeyCode; 9] = [
+            KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
+            KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
+            KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+        ];
+        for (i, key) in DIGITS.iter().enumerate() {
+            if self.input.key_pressed(*key) {
+                self.hotbar.select(i);
+            }
+        }
+        let scroll_steps = self.input.take_scroll_steps();
+        if scroll_steps != 0 {
+            if self.input.is_down(KeyCode::ShiftLeft) {
+                self.hotbar.page_scroll(scroll_steps);
+            } else {
+                self.hotbar.scroll(scroll_steps);
+            }
+        }
+
+        // Player movement against the loaded world. Unloaded columns are solid:
+        // the player floats at the load edge instead of falling through terrain
+        // that hasn't generated yet.
         {
             let world = &self.world;
             let is_solid = |c: glam::IVec3| match world.block_at(c) {
@@ -259,6 +385,8 @@ impl App {
         }
         self.camera.position = self.player.eye();
 
+        self.update_interaction(dt);
+
         // World streaming: gen/mesh/upload jobs.
         self.update_world();
 
@@ -266,9 +394,9 @@ impl App {
         let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
         let Some(gpu) = self.gpu.as_mut() else { return };
 
+        let aspect = gpu.config.width as f32 / gpu.config.height as f32;
+        let view_proj = self.camera.view_proj(aspect);
         if let Some(terrain) = self.terrain.as_mut() {
-            let aspect = gpu.config.width as f32 / gpu.config.height as f32;
-            let view_proj = self.camera.view_proj(aspect);
             terrain.write_camera(&gpu.queue, view_proj);
             let frustum = crate::render::frustum::Frustum::from_view_proj(view_proj);
             let stats = terrain.prepare(&gpu.queue, &frustum);
@@ -276,8 +404,17 @@ impl App {
             self.stats.resident_sections = stats.resident_sections;
             self.stats.drawn_quads = stats.drawn_quads;
         }
+        if let Some(outline) = self.outline.as_mut() {
+            outline.set_target(&gpu.queue, view_proj, self.target.map(|h| h.block));
+        }
 
-        let Some(frame) = gpu.acquire() else { return };
+        let Some(frame) = gpu.acquire() else {
+            // Press edges were consumed by this frame's logic above; clear them
+            // even when the swapchain frame is dropped, or a click would fire
+            // a second edit on the next frame.
+            self.input.end_frame();
+            return;
+        };
         let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu
             .device
@@ -314,6 +451,9 @@ impl App {
             if let Some(terrain) = self.terrain.as_ref() {
                 terrain.draw(&mut rpass);
             }
+            if let Some(outline) = self.outline.as_ref() {
+                outline.draw(&mut rpass);
+            }
         }
 
         // Resolve GPU timestamps into the readback buffer.
@@ -325,6 +465,14 @@ impl App {
         let fps = self.fps_smoothed;
         let gpu_ms = self.timer.as_ref().map(|t| t.last_ms).unwrap_or(0.0);
         let cam = self.camera.position;
+        let mode = match self.player.mode {
+            crate::game::player::MoveMode::Walk => "walk",
+            crate::game::player::MoveMode::Fly => "fly",
+        };
+        let target_label = self
+            .target
+            .map(|h| format!("{} {} {}", h.block.x, h.block.y, h.block.z))
+            .unwrap_or_else(|| "—".to_string());
         let cols = self.stats.columns_ready;
         let visible = self.stats.visible_sections;
         let resident = self.stats.resident_sections;
@@ -355,6 +503,8 @@ impl App {
                                 ui.label(format!("FPS:      {fps:.1}"));
                                 ui.label(format!("GPU ms:   {gpu_ms:.2}"));
                                 ui.label(format!("Pos:      {:.0} {:.0} {:.0}", cam.x, cam.y, cam.z));
+                                ui.label(format!("Mode:     {mode}"));
+                                ui.label(format!("Target:   {target_label}"));
                                 ui.label(format!("Columns:  {cols}"));
                                 ui.label(format!("Sections: {visible}/{resident} drawn/resident"));
                                 ui.label(format!("Quads:    {quads}"));
@@ -396,6 +546,7 @@ impl App {
         }
 
         frame.present();
+        self.input.end_frame();
     }
 }
 
@@ -422,17 +573,24 @@ impl ApplicationHandler for App {
         let terrain = TerrainRenderer::new(&gpu.device, gpu.config.format, &shader_source);
         self.terrain = Some(terrain);
 
+        let outline_src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/shaders/outline.wgsl"
+        ))
+        .expect("outline.wgsl missing");
+        self.outline = Some(crate::render::outline::OutlineRenderer::new(
+            &gpu.device,
+            gpu.config.format,
+            &outline_src,
+        ));
+
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
         self.timer = Some(GpuTimer::new(&gpu.device));
 
         self.gpu = Some(gpu);
-        if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
-            // Locked is unsupported on some platforms (e.g. X11); Confined is the fallback.
-            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
-        }
-        window.set_cursor_visible(false);
         self.window = Some(window);
+        self.set_cursor_grab(true);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -461,7 +619,7 @@ impl ApplicationHandler for App {
             {
                 match key.physical_key {
                     PhysicalKey::Code(KeyCode::Escape) => {
-                        event_loop.exit();
+                        self.set_cursor_grab(false);
                         return;
                     }
                     PhysicalKey::Code(KeyCode::F3) => {
@@ -485,6 +643,31 @@ impl ApplicationHandler for App {
                 if let PhysicalKey::Code(code) = event.physical_key {
                     self.input.set_key(code, event.state.is_pressed());
                 }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if !self.cursor_grabbed {
+                    // Click-to-refocus: re-grab and swallow the click so it doesn't
+                    // break a block.
+                    if state.is_pressed() {
+                        self.set_cursor_grab(true);
+                    }
+                    return;
+                }
+                let mapped = match button {
+                    winit::event::MouseButton::Left => Some(crate::game::input::MouseButton::Left),
+                    winit::event::MouseButton::Right => Some(crate::game::input::MouseButton::Right),
+                    _ => None,
+                };
+                if let Some(b) = mapped {
+                    self.input.set_mouse_button(b, state.is_pressed());
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let steps = match delta {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => y,
+                    winit::event::MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
+                };
+                self.input.accumulate_scroll(steps);
             }
             WindowEvent::Focused(_) => {
                 // Drop held keys and stale mouse deltas on any focus transition.

@@ -6,14 +6,12 @@ pub const SLOT_COUNT: usize = 9;
 /// a slot; shift+wheel pages the whole bar through every placeable block
 /// (spec §7). Pages wrap; a short last page wraps around to the list front
 /// so no slot is ever empty.
-#[cfg_attr(not(test), allow(dead_code))]
 pub struct Hotbar {
     pub slots: [BlockId; SLOT_COUNT],
     pub selected: usize,
     page: usize,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 impl Hotbar {
     pub fn new() -> Self {
         let mut hb = Self { slots: [PLACEABLE[0]; SLOT_COUNT], selected: 0, page: 0 };

@@ -1,6 +1,5 @@
 use glam::{IVec3, Vec3};
 
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RayHit {
     pub block: IVec3,
@@ -14,7 +13,6 @@ pub struct RayHit {
 /// Amanatides & Woo voxel DDA: visits every cell the ray passes through,
 /// in order, until `max_dist` (entering a cell exactly at `max_dist` still
 /// counts). `dir` need not be normalized; zero direction returns None.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn raycast(
     origin: Vec3,
     dir: Vec3,

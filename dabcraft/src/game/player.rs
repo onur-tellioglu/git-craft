@@ -41,7 +41,6 @@ impl Player {
         Self { position, velocity: Vec3::ZERO, on_ground: false, mode: MoveMode::Fly }
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn aabb(&self) -> Aabb {
         Aabb::from_feet(self.position, WIDTH, HEIGHT)
     }
@@ -50,7 +49,6 @@ impl Player {
         self.position + Vec3::new(0.0, EYE_HEIGHT, 0.0)
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn toggle_mode(&mut self) {
         self.mode = match self.mode {
             MoveMode::Walk => MoveMode::Fly,

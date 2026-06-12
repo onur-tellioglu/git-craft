@@ -27,7 +27,6 @@ impl Aabb {
 
     /// Does this box overlap the unit voxel at `cell`? (Strict inequality:
     /// exact face contact is not overlap.)
-    #[cfg_attr(not(test), allow(dead_code))]
     pub fn intersects_cell(&self, cell: IVec3) -> bool {
         let lo = cell.as_vec3();
         let hi = lo + Vec3::ONE;
