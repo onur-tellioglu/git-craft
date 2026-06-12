@@ -15,6 +15,11 @@ use crate::render::gpu::Gpu;
 use crate::render::terrain::TerrainRenderer;
 use crate::render::timestamps::GpuTimer;
 
+/// GPU pass timing slots (spec §8). Order is frame order; indices are stable
+/// within a task but renumbered as the frame graph grows through M5.
+const PASS_LABELS: &[&str] = &["main"];
+const PASS_MAIN: usize = 0;
+
 /// Sections are drawn within this column radius: 12 × 32 = 384 blocks (spec §1).
 const RENDER_RADIUS: i32 = 12;
 /// Columns are generated one ring wider: meshing needs a full 3×3 neighborhood.
@@ -486,7 +491,7 @@ impl App {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
 
         // Capture timestamp_writes before the block to avoid borrow issues.
-        let ts_writes = self.timer.as_ref().and_then(|t| t.pass_writes());
+        let ts_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_MAIN));
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -533,7 +538,12 @@ impl App {
 
         // Capture all values before the egui closure to avoid borrowing self.
         let fps = self.fps_smoothed;
-        let gpu_ms = self.timer.as_ref().map(|t| t.last_ms).unwrap_or(0.0);
+        let pass_ms: Vec<(&str, f32)> = self
+            .timer
+            .as_ref()
+            .map(|t| t.labels().iter().copied().zip(t.pass_ms.iter().copied()).collect())
+            .unwrap_or_default();
+        let gpu_total = self.timer.as_ref().map(|t| t.total_ms()).unwrap_or(0.0);
         let cam = self.camera.position;
         let eye_cell = glam::IVec3::new(
             cam.x.floor() as i32,
@@ -604,7 +614,10 @@ impl App {
                             .collapsible(false)
                             .show(ctx, |ui| {
                                 ui.label(format!("FPS:      {fps:.1}"));
-                                ui.label(format!("GPU ms:   {gpu_ms:.2}"));
+                                ui.label(format!("GPU ms:   {gpu_total:.2}"));
+                                for (label, ms) in &pass_ms {
+                                    ui.label(format!("  {label:<9} {ms:.2}"));
+                                }
                                 ui.label(format!("Pos:      {:.0} {:.0} {:.0}", cam.x, cam.y, cam.z));
                                 ui.label(format!("Mode:     {mode}"));
                                 ui.label(format!("Target:   {target_label}"));
@@ -687,7 +700,7 @@ impl ApplicationHandler for App {
 
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
-        self.timer = Some(GpuTimer::new(&gpu.device));
+        self.timer = Some(GpuTimer::new(&gpu.device, PASS_LABELS));
 
         self.gpu = Some(gpu);
         self.window = Some(window);
