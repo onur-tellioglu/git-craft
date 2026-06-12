@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::world::block::{BlockId, AIR};
 use crate::world::r#gen::{apply_write, apply_write_to_section, ColumnData, StructureWrite, COLUMN_SECTIONS};
 use crate::world::section::Section;
 
@@ -157,6 +158,47 @@ impl ChunkMap {
                 }
             }
         }
+    }
+
+    /// Block at a world position. `None` when the column is not loaded;
+    /// callers decide whether unloaded means solid (physics) or miss (raycast).
+    /// Outside world height it is always air.
+    #[allow(dead_code)]
+    pub fn block_at(&self, pos: glam::IVec3) -> Option<BlockId> {
+        if !(0..256).contains(&pos.y) {
+            return Some(AIR);
+        }
+        let col = self.ready(block_to_column(pos.x, pos.z))?;
+        Some(col.sections[(pos.y / 32) as usize].get(
+            pos.x.rem_euclid(32) as usize,
+            (pos.y % 32) as usize,
+            pos.z.rem_euclid(32) as usize,
+        ))
+    }
+
+    /// Player edit: set a block and dirty every section whose 34³ padded
+    /// volume contains the position (the existing M2 re-mesh path picks the
+    /// dirty flags up next frame). Returns false when the column is not
+    /// loaded or the position is outside world height.
+    #[allow(dead_code)]
+    pub fn set_block(&mut self, pos: glam::IVec3, block: BlockId) -> bool {
+        if !(0..256).contains(&pos.y) {
+            return false;
+        }
+        let Some(col) = self.ready_mut(block_to_column(pos.x, pos.z)) else {
+            return false;
+        };
+        // Arc::make_mut: clone-on-write only if a mesh job still holds the
+        // old Arc; the in-flight job's result is dropped by the version guard.
+        let section = Arc::make_mut(&mut col.sections[(pos.y / 32) as usize]);
+        section.set(
+            pos.x.rem_euclid(32) as usize,
+            (pos.y % 32) as usize,
+            pos.z.rem_euclid(32) as usize,
+            block,
+        );
+        self.dirty_sections_touching(pos);
+        true
     }
 
     pub fn neighbors_ready(&self, pos: ColumnPos) -> bool {
@@ -330,5 +372,42 @@ mod tests {
         assert_eq!(removed, vec![ColumnPos { x: 9, z: 0 }]);
         assert!(map.ready(ColumnPos { x: 9, z: 0 }).is_none());
         assert!(map.ready(ColumnPos { x: 0, z: 0 }).is_some());
+    }
+
+    #[test]
+    fn block_at_reads_world_positions_including_negatives() {
+        let mut map = ChunkMap::default();
+        map.insert_generated(ColumnPos { x: -1, z: 0 }, empty_column_data(), Vec::new());
+        assert!(map.set_block(glam::IVec3::new(-31, 70, 5), STONE));
+        assert_eq!(map.block_at(glam::IVec3::new(-31, 70, 5)), Some(STONE));
+        assert_eq!(map.block_at(glam::IVec3::new(-32, 70, 5)), Some(crate::world::block::AIR));
+        assert_eq!(map.block_at(glam::IVec3::new(50, 70, 5)), None, "unloaded column");
+        assert_eq!(map.block_at(glam::IVec3::new(-31, -1, 5)), Some(crate::world::block::AIR));
+        assert_eq!(map.block_at(glam::IVec3::new(-31, 256, 5)), Some(crate::world::block::AIR));
+    }
+
+    #[test]
+    fn set_block_dirties_owner_and_border_neighbors() {
+        let mut map = ChunkMap::default();
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
+        map.insert_generated(ColumnPos { x: 1, z: 0 }, empty_column_data(), Vec::new());
+        map.clear_all_dirty(ColumnPos { x: 0, z: 0 });
+        map.clear_all_dirty(ColumnPos { x: 1, z: 0 });
+        // x=32 is column (1,0)'s west edge: column (0,0)'s +X apron sees it.
+        assert!(map.set_block(glam::IVec3::new(32, 64, 5), STONE));
+        let east = map.ready(ColumnPos { x: 1, z: 0 }).unwrap();
+        assert!(east.dirty[2], "owner section (y=64 → section 2)");
+        assert!(east.dirty[1], "y=64 is section 2's bottom row → section 1 apron");
+        let west = map.ready(ColumnPos { x: 0, z: 0 }).unwrap();
+        assert!(west.dirty[2], "x=32 sits in the west column's +X apron");
+    }
+
+    #[test]
+    fn set_block_on_unloaded_or_out_of_range_is_rejected() {
+        let mut map = ChunkMap::default();
+        map.insert_generated(ColumnPos { x: 0, z: 0 }, empty_column_data(), Vec::new());
+        assert!(!map.set_block(glam::IVec3::new(100, 64, 100), STONE));
+        assert!(!map.set_block(glam::IVec3::new(5, -1, 5), STONE));
+        assert!(!map.set_block(glam::IVec3::new(5, 256, 5), STONE));
     }
 }
