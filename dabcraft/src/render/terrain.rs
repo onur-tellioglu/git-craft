@@ -410,6 +410,14 @@ impl TerrainRenderer {
         (self.arena.used(), self.arena.capacity())
     }
 
+    pub fn camera_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.camera_layout
+    }
+
+    pub fn camera_bind_group(&self) -> &wgpu::BindGroup {
+        &self.camera_bind_group
+    }
+
     pub fn quads_layout(&self) -> &wgpu::BindGroupLayout {
         &self.quads_layout
     }

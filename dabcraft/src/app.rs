@@ -69,6 +69,7 @@ pub struct App {
     terrain: Option<TerrainRenderer>,
     shadow: Option<crate::render::shadow::ShadowRenderer>,
     sky_luts: Option<crate::render::atmosphere::SkyLuts>,
+    sky_pass: Option<crate::render::atmosphere::SkyPass>,
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
@@ -114,6 +115,7 @@ impl App {
             terrain: None,
             shadow: None,
             sky_luts: None,
+            sky_pass: None,
             shaders: None,
             targets: None,
             post: None,
@@ -384,6 +386,11 @@ impl App {
                             l.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "sky" => {
+                        if let (Some(s), Some(t)) = (self.sky_pass.as_mut(), self.terrain.as_ref()) {
+                            s.swap_shader(&gpu.device, t.camera_layout(), &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -556,7 +563,6 @@ impl App {
             });
         }
 
-        let sky = self.day.sky_color();
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
             // even when the swapchain frame is dropped, or a click would fire
@@ -591,12 +597,7 @@ impl App {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: sky.x as f64,
-                            g: sky.y as f64,
-                            b: sky.z as f64,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -615,6 +616,9 @@ impl App {
             // Reborrow immutably for draw (prepare has already finished above).
             if let Some(terrain) = self.terrain.as_ref() {
                 terrain.draw(&mut rpass);
+            }
+            if let (Some(sky), Some(terrain)) = (self.sky_pass.as_ref(), self.terrain.as_ref()) {
+                sky.draw(&mut rpass, terrain.camera_bind_group());
             }
             if let Some(outline) = self.outline.as_ref() {
                 outline.draw(&mut rpass);
@@ -783,6 +787,7 @@ impl ApplicationHandler for App {
         shaders.watch("post", shader_path("post.wgsl"));
         shaders.watch("shadow", shader_path("shadow.wgsl"));
         shaders.watch("sky_luts", shader_path("sky_luts.wgsl"));
+        shaders.watch("sky", shader_path("sky.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -828,6 +833,17 @@ impl ApplicationHandler for App {
         let luts_src =
             std::fs::read_to_string(shader_path("sky_luts.wgsl")).expect("sky_luts.wgsl missing");
         self.sky_luts = Some(crate::render::atmosphere::SkyLuts::new(&gpu.device, &luts_src));
+
+        let sky_src =
+            std::fs::read_to_string(shader_path("sky.wgsl")).expect("sky.wgsl missing");
+        let terrain_ref = self.terrain.as_ref().unwrap();
+        let luts_ref = self.sky_luts.as_ref().unwrap();
+        self.sky_pass = Some(crate::render::atmosphere::SkyPass::new(
+            &gpu.device,
+            terrain_ref.camera_layout(),
+            &luts_ref.skyview_view,
+            &sky_src,
+        ));
 
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
