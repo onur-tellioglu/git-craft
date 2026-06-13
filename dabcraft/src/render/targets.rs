@@ -22,9 +22,13 @@ pub struct RenderTargets {
     /// TAA resolved output: read by bloom/exposure/post after the TAA pass.
     /// COPY_SRC so the TAA pass can copy resolved → history each frame.
     pub resolved_view: wgpu::TextureView,
+    /// Raw resolved texture (needed by copy_texture_to_texture in TaaPass).
+    pub resolved_texture: wgpu::Texture,
     /// TAA history ping-pong pair: [read_idx] is sampled this frame,
     /// [1-read_idx] receives the copy of resolved for next frame. COPY_DST.
     pub history_views: [wgpu::TextureView; 2],
+    /// Raw history textures (needed by copy_texture_to_texture in TaaPass).
+    pub history_textures: [wgpu::Texture; 2],
 }
 
 impl RenderTargets {
@@ -105,17 +109,19 @@ impl RenderTargets {
             view_formats: &[],
         });
 
+        let history0_view = history0.create_view(&wgpu::TextureViewDescriptor::default());
+        let history1_view = history1.create_view(&wgpu::TextureViewDescriptor::default());
+        let resolved_view = resolved.create_view(&wgpu::TextureViewDescriptor::default());
         Self {
             hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()),
             bloom_views,
             bloom_sizes,
             width,
             height,
-            resolved_view: resolved.create_view(&wgpu::TextureViewDescriptor::default()),
-            history_views: [
-                history0.create_view(&wgpu::TextureViewDescriptor::default()),
-                history1.create_view(&wgpu::TextureViewDescriptor::default()),
-            ],
+            resolved_view,
+            resolved_texture: resolved,
+            history_views: [history0_view, history1_view],
+            history_textures: [history0, history1],
         }
     }
 }

@@ -18,13 +18,14 @@ use crate::render::timestamps::GpuTimer;
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
 const PASS_LABELS: &[&str] =
-    &["luts", "shadow0", "shadow1", "shadow2", "main", "bloom", "exposure", "post"];
+    &["luts", "shadow0", "shadow1", "shadow2", "main", "taa", "bloom", "exposure", "post"];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
-const PASS_BLOOM: usize = 5;
-const PASS_EXPOSURE: usize = 6;
-const PASS_POST: usize = 7;
+const PASS_TAA: usize = 5;
+const PASS_BLOOM: usize = 6;
+const PASS_EXPOSURE: usize = 7;
+const PASS_POST: usize = 8;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -66,6 +67,9 @@ pub struct App {
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
     depth_view: Option<wgpu::TextureView>,
+    depth_texture: Option<wgpu::Texture>,
+    /// DepthOnly-aspect view of the depth texture — bound to the TAA shader for textureLoad.
+    depth_sample_view: Option<wgpu::TextureView>,
     input: InputState,
     camera: Camera,
     last_frame: std::time::Instant,
@@ -78,6 +82,15 @@ pub struct App {
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
+    taa: Option<crate::render::taa::TaaPass>,
+    /// Previous frame's UNJITTERED view_proj (for TAA reprojection).
+    prev_view_proj: glam::Mat4,
+    /// Ping-pong index: which history_views slot is read this frame (0 or 1).
+    taa_history_idx: usize,
+    /// Running frame counter; incremented each render() call.
+    frame_index: u64,
+    /// 0.0 on first frame and after resize; 1.0 once history is valid.
+    taa_valid: f32,
     egui: Option<EguiLayer>,
     timer: Option<GpuTimer>,
     hud_visible: bool,
@@ -114,6 +127,8 @@ impl App {
             window: None,
             gpu: None,
             depth_view: None,
+            depth_texture: None,
+            depth_sample_view: None,
             input: InputState::default(),
             camera: Camera::new(glam::Vec3::new(16.0, 140.0, 16.0)),
             last_frame: std::time::Instant::now(),
@@ -126,6 +141,11 @@ impl App {
             shaders: None,
             targets: None,
             post: None,
+            taa: None,
+            prev_view_proj: glam::Mat4::IDENTITY,
+            taa_history_idx: 0,
+            frame_index: 0,
+            taa_valid: 0.0,
             egui: None,
             timer: None,
             hud_visible: true,
@@ -408,6 +428,11 @@ impl App {
                             e.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "taa" => {
+                        if let Some(t) = self.taa.as_mut() {
+                            t.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -501,13 +526,15 @@ impl App {
         let Some(gpu) = self.gpu.as_mut() else { return };
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
-        let view_proj = self.camera.view_proj(aspect);
+        let view_proj = self.camera.view_proj(aspect); // unjittered — used for cull/shadows/reprojection
 
-        // Task 2 will apply this jitter to the main-pass projection; referenced
-        // here so the dead_code lint does not fire on the infrastructure added in
-        // Task 1 before it is wired in.
-        let _taa_jitter = crate::render::taa::jitter_offset(0);
-        let _taa_period = crate::render::taa::JITTER_PERIOD;
+        // Compute the sub-pixel jitter for this frame.
+        self.frame_index += 1;
+        let (jx, jy) = crate::render::taa::jitter_offset(self.frame_index);
+        let (w, h) = (gpu.config.width as f32, gpu.config.height as f32);
+        // NDC sub-pixel offset (one pixel = 2/size in NDC).
+        let jitter = glam::Mat4::from_translation(glam::vec3(2.0 * jx / w, 2.0 * jy / h, 0.0));
+        let jittered_vp = jitter * view_proj;
 
         // Compute cave-culling visible set BEFORE borrowing terrain mutably.
         // Capture only the fields we need so the closure stays disjoint from
@@ -540,7 +567,7 @@ impl App {
             terrain.write_frame(
                 &gpu.queue,
                 &crate::render::terrain::FrameParams {
-                    view_proj,
+                    view_proj: jittered_vp, // jittered for main-pass rasterization
                     camera_pos: self.camera.position,
                     sky_color: self.day.sky_color(),
                     day_factor: self.day.day_factor(),
@@ -587,6 +614,16 @@ impl App {
         }
         if let Some(exposure) = self.exposure.as_ref() {
             exposure.prepare(&gpu.queue, dt);
+        }
+
+        // Prepare TAA uniform: jittered inv_view_proj, prev unjittered view_proj.
+        if let Some(taa) = self.taa.as_ref() {
+            let taa_uniform = crate::render::taa::TaaUniform {
+                inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
+                prev_view_proj: self.prev_view_proj.to_cols_array_2d(),
+                params: [w, h, crate::render::taa::BLEND, self.taa_valid],
+            };
+            taa.prepare(&gpu.queue, &taa_uniform);
         }
 
         let Some(frame) = gpu.acquire() else {
@@ -651,7 +688,13 @@ impl App {
             }
         }
 
-        // Bloom down/up chain: runs after the main pass, before post.
+        // TAA resolve: passthrough this task; routes jittered HDR → resolved_view.
+        let taa_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_TAA));
+        if let (Some(taa), Some(targets)) = (self.taa.as_ref(), self.targets.as_ref()) {
+            taa.encode(&mut encoder, targets, self.taa_history_idx, taa_writes);
+        }
+
+        // Bloom down/up chain: runs after TAA resolve, before post.
         if let (Some(bloom), Some(targets)) = (self.bloom.as_ref(), self.targets.as_ref()) {
             bloom.encode(&mut encoder, targets, self.timer.as_ref(), PASS_BLOOM);
         }
@@ -662,7 +705,7 @@ impl App {
             exposure.encode(&mut encoder, gpu.config.width, gpu.config.height, exp_writes);
         }
 
-        // Post pass: blit HDR target (with bloom mixed in, exposure applied) into swapchain.
+        // Post pass: blit resolved TAA target (with bloom mixed in, exposure applied) into swapchain.
         let post_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_POST));
         if let Some(post) = self.post.as_ref() {
             post.draw(&mut encoder, &view, post_writes);
@@ -796,6 +839,11 @@ impl App {
             timer.after_submit(&gpu.device, &gpu.queue);
         }
 
+        // TAA bookkeeping after submit: store unjittered VP for next frame's reprojection.
+        self.prev_view_proj = view_proj; // unjittered
+        self.taa_history_idx ^= 1;
+        self.taa_valid = 1.0;
+
         frame.present();
         self.input.end_frame();
     }
@@ -814,7 +862,15 @@ impl ApplicationHandler for App {
         let instance = self.instance.take().expect("resumed twice with GPU already built");
         let gpu = Gpu::new(&instance, window.clone());
         let size = window.inner_size();
-        self.depth_view = Some(depth::create_depth_view(&gpu.device, size.width, size.height));
+        let (depth_tex, depth_view) =
+            depth::create_depth_texture(&gpu.device, size.width, size.height);
+        let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
+            aspect: wgpu::TextureAspect::DepthOnly,
+            ..Default::default()
+        });
+        self.depth_texture = Some(depth_tex);
+        self.depth_view = Some(depth_view);
+        self.depth_sample_view = Some(depth_sample_view);
 
         // Watchers first: their baseline mtime must predate the source reads,
         // so a save landing in between is detected as a change instead of missed.
@@ -827,6 +883,7 @@ impl ApplicationHandler for App {
         shaders.watch("sky", shader_path("sky.wgsl"));
         shaders.watch("bloom", shader_path("bloom.wgsl"));
         shaders.watch("exposure", shader_path("exposure.wgsl"));
+        shaders.watch("taa", shader_path("taa.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -872,7 +929,7 @@ impl ApplicationHandler for App {
             std::fs::read_to_string(shader_path("exposure.wgsl")).expect("exposure.wgsl missing");
         self.exposure = Some(crate::render::exposure::ExposurePass::new(
             &gpu.device,
-            &targets.hdr_view,
+            &targets.resolved_view, // reads the TAA-resolved stable frame
             &exposure_src,
         ));
 
@@ -882,10 +939,20 @@ impl ApplicationHandler for App {
         self.post = Some(crate::render::post::PostPass::new(
             &gpu.device,
             gpu.config.format,
-            &targets.hdr_view,
+            &targets.resolved_view, // reads the TAA-resolved stable frame
             &targets.bloom_views[0],
             exposure_buf,
             &post_src,
+        ));
+
+        let taa_src =
+            std::fs::read_to_string(shader_path("taa.wgsl")).expect("taa.wgsl missing");
+        let depth_sample_view_ref = self.depth_sample_view.as_ref().unwrap();
+        self.taa = Some(crate::render::taa::TaaPass::new(
+            &gpu.device,
+            &targets,
+            depth_sample_view_ref,
+            &taa_src,
         ));
         self.targets = Some(targets);
 
@@ -934,18 +1001,27 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = self.gpu.as_mut() {
                     gpu.resize(size.width, size.height);
-                    self.depth_view =
-                        Some(depth::create_depth_view(&gpu.device, size.width, size.height));
+                    let (depth_tex, depth_view) =
+                        depth::create_depth_texture(&gpu.device, size.width, size.height);
+                    let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
+                        aspect: wgpu::TextureAspect::DepthOnly,
+                        ..Default::default()
+                    });
+                    self.depth_texture = Some(depth_tex);
+                    self.depth_view = Some(depth_view);
+                    self.depth_sample_view = Some(depth_sample_view);
                     self.targets = Some(crate::render::targets::RenderTargets::new(
                         &gpu.device,
                         size.width,
                         size.height,
                     ));
-                    // Task 2 will route bloom/exposure/post through resolved_view and
-                    // ping-pong history_views. Referenced here to satisfy the dead_code
-                    // lint until that wiring lands.
-                    if let Some(targets) = self.targets.as_ref() {
-                        let _ = (&targets.resolved_view, &targets.history_views);
+                    // History is now stale; discard it on the next frame.
+                    self.taa_valid = 0.0;
+                    // Rebuild TAA bind groups (samples new targets + depth sample view).
+                    if let (Some(taa), Some(targets), Some(depth_sv)) =
+                        (self.taa.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+                    {
+                        taa.rebuild_bind_groups(&gpu.device, targets, depth_sv);
                     }
                     if let (Some(bloom), Some(targets)) =
                         (self.bloom.as_mut(), self.targets.as_ref())
@@ -955,7 +1031,8 @@ impl ApplicationHandler for App {
                     if let (Some(exposure), Some(targets)) =
                         (self.exposure.as_mut(), self.targets.as_ref())
                     {
-                        exposure.set_input(&gpu.device, &targets.hdr_view);
+                        // Read the TAA-resolved stable frame, not raw HDR.
+                        exposure.set_input(&gpu.device, &targets.resolved_view);
                     }
                     if let (Some(post), Some(targets)) =
                         (self.post.as_mut(), self.targets.as_ref())
@@ -965,7 +1042,7 @@ impl ApplicationHandler for App {
                         if let Some(exposure_buf) = exposure_buf {
                             post.set_input(
                                 &gpu.device,
-                                &targets.hdr_view,
+                                &targets.resolved_view,
                                 &targets.bloom_views[0],
                                 exposure_buf,
                             );
