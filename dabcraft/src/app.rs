@@ -68,6 +68,22 @@ fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Offscreen target size for a swapchain size and render scale, clamped to >= 1.
+fn render_dims(width: u32, height: u32, scale: f32) -> (u32, u32) {
+    (((width as f32 * scale) as u32).max(1), ((height as f32 * scale) as u32).max(1))
+}
+
+/// Cycle the render scale: 1.0 → 0.75 → 0.5 → 1.0 (the §11 fallback ladder).
+fn next_render_scale(scale: f32) -> f32 {
+    if scale > 0.9 {
+        0.75
+    } else if scale > 0.6 {
+        0.5
+    } else {
+        1.0
+    }
+}
+
 /// Sections are drawn within this column radius: 12 × 32 = 384 blocks (spec §1).
 const RENDER_RADIUS: i32 = 12;
 /// Columns are generated one ring wider: meshing needs a full 3×3 neighborhood.
@@ -160,6 +176,9 @@ pub struct App {
     cave_culling: bool,
     gtao_debug: bool,
     vol_debug: bool,
+    /// Offscreen render scale (§11 safety valve): all HDR passes run at
+    /// scale×swapchain; the post pass upscales by sampling the resolved target.
+    render_scale: f32,
     stats: FrameStats,
 }
 
@@ -217,7 +236,73 @@ impl App {
             cave_culling: true,
             gtao_debug: false,
             vol_debug: false,
+            render_scale: 1.0,
             stats: FrameStats::default(),
+        }
+    }
+
+    /// Recreate the offscreen depth + render targets at `rw×rh` and rebuild every
+    /// pass bind group that samples them. Shared by window resize and render-scale
+    /// changes; the swapchain itself is resized separately (always full size).
+    fn rebuild_offscreen(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rw: u32,
+        rh: u32,
+    ) {
+        let (depth_tex, depth_view) = depth::create_depth_texture(device, rw, rh);
+        let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
+            aspect: wgpu::TextureAspect::DepthOnly,
+            ..Default::default()
+        });
+        self.depth_texture = Some(depth_tex);
+        self.depth_view = Some(depth_view);
+        self.depth_sample_view = Some(depth_sample_view);
+        self.targets = Some(crate::render::targets::RenderTargets::new(device, rw, rh));
+        // History is now stale; discard it on the next frame.
+        self.taa_valid = 0.0;
+        if let (Some(taa), Some(targets), Some(depth_sv)) =
+            (self.taa.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+        {
+            taa.rebuild_bind_groups(device, targets, depth_sv);
+        }
+        if let (Some(gtao), Some(targets), Some(depth_sv)) =
+            (self.gtao.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+        {
+            gtao.rebuild_bind_group(device, depth_sv, &targets.gbuf_view);
+        }
+        if let (Some(blur), Some(targets), Some(depth_sv)) =
+            (self.blur.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+        {
+            blur.rebuild_bind_group(device, &targets.ao_raw_view, depth_sv);
+        }
+        if let (Some(composite), Some(targets), Some(vol), Some(depth_sv)) = (
+            self.composite.as_mut(),
+            self.targets.as_ref(),
+            self.volumetric.as_ref(),
+            self.depth_sample_view.as_ref(),
+        ) {
+            composite.rebuild_bind_group(
+                device,
+                &targets.hdr_view,
+                &targets.gbuf_view,
+                &targets.ao_blur_view,
+                vol.integrated_view(),
+                depth_sv,
+            );
+        }
+        if let (Some(bloom), Some(targets)) = (self.bloom.as_mut(), self.targets.as_ref()) {
+            bloom.set_targets(device, queue, targets);
+        }
+        if let (Some(exposure), Some(targets)) = (self.exposure.as_mut(), self.targets.as_ref()) {
+            // Read the TAA-resolved stable frame, not raw HDR.
+            exposure.set_input(device, &targets.resolved_view);
+        }
+        if let (Some(post), Some(targets)) = (self.post.as_mut(), self.targets.as_ref())
+            && let Some(exposure_buf) = self.exposure.as_ref().map(|e| e.result_buffer())
+        {
+            post.set_input(device, &targets.resolved_view, &targets.bloom_views[0], exposure_buf);
         }
     }
 
@@ -603,11 +688,14 @@ impl App {
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
         let view_proj = self.camera.view_proj(aspect); // unjittered — used for cull/shadows/reprojection
+        // Offscreen render resolution (render-scale safety valve); the swapchain
+        // stays full size and the post pass upscales the resolved target.
+        let (rw, rh) = render_dims(gpu.config.width, gpu.config.height, self.render_scale);
 
         // Compute the sub-pixel jitter for this frame.
         self.frame_index += 1;
         let (jx, jy) = crate::render::taa::jitter_offset(self.frame_index);
-        let (w, h) = (gpu.config.width as f32, gpu.config.height as f32);
+        let (w, h) = (rw as f32, rh as f32);
         // NDC sub-pixel offset (one pixel = 2/size in NDC).
         let jitter = glam::Mat4::from_translation(glam::vec3(2.0 * jx / w, 2.0 * jy / h, 0.0));
         let jittered_vp = jitter * view_proj;
@@ -650,7 +738,7 @@ impl App {
                     light_dir,
                     light_is_sun,
                     light_color,
-                    viewport: (gpu.config.width, gpu.config.height),
+                    viewport: (rw, rh),
                 },
             );
             let stats = terrain.prepare(&gpu.queue, &frustum, visible.as_ref());
@@ -704,7 +792,7 @@ impl App {
 
         // Prepare GTAO uniform: jittered inv_view_proj for consistent depth reconstruction.
         if let Some(gtao) = self.gtao.as_ref() {
-            let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
+            let (hw, hh) = crate::render::gtao::half_res(rw, rh);
             gtao.prepare(
                 &gpu.queue,
                 &crate::render::gtao::GtaoUniform {
@@ -715,7 +803,7 @@ impl App {
             );
         }
         if let Some(blur) = self.blur.as_ref() {
-            let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
+            let (hw, hh) = crate::render::gtao::half_res(rw, rh);
             blur.prepare(&gpu.queue, [hw as f32, hh as f32, GTAO_BLUR_DEPTH_SIGMA, 0.0]);
         }
         if let Some(composite) = self.composite.as_ref() {
@@ -873,7 +961,7 @@ impl App {
         // Exposure histogram + resolve: runs after bloom, before post.
         let exp_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_EXPOSURE));
         if let Some(exposure) = self.exposure.as_ref() {
-            exposure.encode(&mut encoder, gpu.config.width, gpu.config.height, exp_writes);
+            exposure.encode(&mut encoder, rw, rh, exp_writes);
         }
 
         // Post pass: blit resolved TAA target (with bloom mixed in, exposure applied) into swapchain.
@@ -934,6 +1022,9 @@ impl App {
         let hotbar_selected = self.hotbar.selected;
         let hud_visible = self.hud_visible;
         let paused = !self.cursor_grabbed;
+        let render_scale = self.render_scale;
+        let (render_w, render_h) =
+            render_dims(gpu.config.width, gpu.config.height, render_scale);
         let day_label = format!(
             "{:02}:{:02} (×{:.2})",
             ((self.day.time * 24.0 + 6.0) % 24.0) as u32,
@@ -979,6 +1070,7 @@ impl App {
                                     "Sections: {visible}/{resident} drawn/resident (cave-culled {cave_culled})"
                                 ));
                                 ui.label(format!("CaveCull: {}", if cave_cull_on { "on (V)" } else { "OFF (V)" }));
+                                ui.label(format!("Scale:    {render_scale:.2} → {render_w}×{render_h} (R)"));
                                 ui.label(format!("Quads:    {quads}"));
                                 ui.label(format!("Jobs:     gen {gen_q}  mesh {mesh_q}  upload {uploads}"));
                                 ui.label(format!(
@@ -1033,8 +1125,8 @@ impl ApplicationHandler for App {
         let instance = self.instance.take().expect("resumed twice with GPU already built");
         let gpu = Gpu::new(&instance, window.clone());
         let size = window.inner_size();
-        let (depth_tex, depth_view) =
-            depth::create_depth_texture(&gpu.device, size.width, size.height);
+        let (rw, rh) = render_dims(size.width, size.height, self.render_scale);
+        let (depth_tex, depth_view) = depth::create_depth_texture(&gpu.device, rw, rh);
         let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
             aspect: wgpu::TextureAspect::DepthOnly,
             ..Default::default()
@@ -1062,8 +1154,8 @@ impl ApplicationHandler for App {
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
-        let targets =
-            crate::render::targets::RenderTargets::new(&gpu.device, size.width, size.height);
+        let (rw, rh) = render_dims(size.width, size.height, self.render_scale);
+        let targets = crate::render::targets::RenderTargets::new(&gpu.device, rw, rh);
 
         let hdr_format = crate::render::targets::HDR_FORMAT;
         let terrain_src =
@@ -1219,80 +1311,15 @@ impl ApplicationHandler for App {
                 return;
             }
             WindowEvent::Resized(size) => {
-                if let Some(gpu) = self.gpu.as_mut() {
+                // Clone the Arc-backed device/queue so the offscreen rebuild can
+                // borrow self mutably without holding a borrow on self.gpu.
+                let handles = self.gpu.as_mut().map(|gpu| {
                     gpu.resize(size.width, size.height);
-                    let (depth_tex, depth_view) =
-                        depth::create_depth_texture(&gpu.device, size.width, size.height);
-                    let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
-                        aspect: wgpu::TextureAspect::DepthOnly,
-                        ..Default::default()
-                    });
-                    self.depth_texture = Some(depth_tex);
-                    self.depth_view = Some(depth_view);
-                    self.depth_sample_view = Some(depth_sample_view);
-                    self.targets = Some(crate::render::targets::RenderTargets::new(
-                        &gpu.device,
-                        size.width,
-                        size.height,
-                    ));
-                    // History is now stale; discard it on the next frame.
-                    self.taa_valid = 0.0;
-                    // Rebuild TAA bind groups (samples new targets + depth sample view).
-                    if let (Some(taa), Some(targets), Some(depth_sv)) =
-                        (self.taa.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-                    {
-                        taa.rebuild_bind_groups(&gpu.device, targets, depth_sv);
-                    }
-                    if let (Some(gtao), Some(targets), Some(depth_sv)) =
-                        (self.gtao.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-                    {
-                        gtao.rebuild_bind_group(&gpu.device, depth_sv, &targets.gbuf_view);
-                    }
-                    if let (Some(blur), Some(targets), Some(depth_sv)) =
-                        (self.blur.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-                    {
-                        blur.rebuild_bind_group(&gpu.device, &targets.ao_raw_view, depth_sv);
-                    }
-                    if let (Some(composite), Some(targets), Some(vol), Some(depth_sv)) = (
-                        self.composite.as_mut(),
-                        self.targets.as_ref(),
-                        self.volumetric.as_ref(),
-                        self.depth_sample_view.as_ref(),
-                    ) {
-                        composite.rebuild_bind_group(
-                            &gpu.device,
-                            &targets.hdr_view,
-                            &targets.gbuf_view,
-                            &targets.ao_blur_view,
-                            vol.integrated_view(),
-                            depth_sv,
-                        );
-                    }
-                    if let (Some(bloom), Some(targets)) =
-                        (self.bloom.as_mut(), self.targets.as_ref())
-                    {
-                        bloom.set_targets(&gpu.device, &gpu.queue, targets);
-                    }
-                    if let (Some(exposure), Some(targets)) =
-                        (self.exposure.as_mut(), self.targets.as_ref())
-                    {
-                        // Read the TAA-resolved stable frame, not raw HDR.
-                        exposure.set_input(&gpu.device, &targets.resolved_view);
-                    }
-                    if let (Some(post), Some(targets)) =
-                        (self.post.as_mut(), self.targets.as_ref())
-                    {
-                        let exposure_buf =
-                            self.exposure.as_ref().map(|e| e.result_buffer());
-                        if let Some(exposure_buf) = exposure_buf {
-                            post.set_input(
-                                &gpu.device,
-                                &targets.resolved_view,
-                                &targets.bloom_views[0],
-                                exposure_buf,
-                            );
-                        }
-                    }
+                    (gpu.device.clone(), gpu.queue.clone())
+                });
+                if let Some((device, queue)) = handles {
+                    let (rw, rh) = render_dims(size.width, size.height, self.render_scale);
+                    self.rebuild_offscreen(&device, &queue, rw, rh);
                 }
                 return;
             }
@@ -1308,6 +1335,22 @@ impl ApplicationHandler for App {
                     // shortcuts (F3 = Mission Control), so F3 needs Fn held.
                     PhysicalKey::Code(KeyCode::F3) | PhysicalKey::Code(KeyCode::KeyH) => {
                         self.hud_visible = !self.hud_visible;
+                        return;
+                    }
+                    // R cycles the render scale (1.0 → 0.75 → 0.5): the §11
+                    // performance safety valve. Rebuilds the offscreen chain.
+                    PhysicalKey::Code(KeyCode::KeyR) => {
+                        self.render_scale = next_render_scale(self.render_scale);
+                        let handles = self.gpu.as_ref().map(|gpu| {
+                            (
+                                gpu.device.clone(),
+                                gpu.queue.clone(),
+                                render_dims(gpu.config.width, gpu.config.height, self.render_scale),
+                            )
+                        });
+                        if let Some((device, queue, (rw, rh))) = handles {
+                            self.rebuild_offscreen(&device, &queue, rw, rh);
+                        }
                         return;
                     }
                     _ => {}
