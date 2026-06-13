@@ -156,7 +156,8 @@ impl BloomPass {
         queue: &wgpu::Queue,
         targets: &RenderTargets,
     ) {
-        let mut views: Vec<&wgpu::TextureView> = vec![&targets.hdr_view];
+        // Source [0] is the TAA-resolved texture (stable, not the jittered raw HDR).
+        let mut views: Vec<&wgpu::TextureView> = vec![&targets.resolved_view];
         views.extend(targets.bloom_views.iter());
         self.src_groups = views
             .iter()
