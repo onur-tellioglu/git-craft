@@ -91,9 +91,12 @@ pub fn fit_light_matrix(corners: &[Vec3; 8], light_dir: Vec3, resolution: u32) -
 /// Update cadence (spec §6: far cascades every 2–4 frames).
 pub fn cascade_due(frame: u64, cascade: usize) -> bool {
     match cascade {
-        0 => true,
-        1 => frame.is_multiple_of(2),
-        _ => frame.is_multiple_of(4),
+        // Near and mid cascades refit every frame: cadencing them makes
+        // their shadows lag-and-pop visibly while the camera moves. Only the
+        // far cascade (small on screen, expensive to redraw) is cadenced, and
+        // even it every other frame to keep the pop subtle.
+        0 | 1 => true,
+        _ => frame.is_multiple_of(2),
     }
 }
 
@@ -495,12 +498,13 @@ mod tests {
 
     #[test]
     fn cascade_cadence_matches_the_spec() {
-        // Spec §6: near cascade every frame, far cascades every 2–4 frames.
+        // Near + mid cascades refit every frame (no lag-and-pop); the far
+        // cascade refits every other frame.
         for f in 1..=8u64 {
             assert!(cascade_due(f, 0));
+            assert!(cascade_due(f, 1));
         }
-        assert!(cascade_due(2, 1) && !cascade_due(3, 1));
-        assert!(cascade_due(4, 2) && !cascade_due(5, 2) && !cascade_due(6, 2) && !cascade_due(7, 2));
+        assert!(cascade_due(2, 2) && !cascade_due(3, 2) && cascade_due(4, 2) && !cascade_due(5, 2));
     }
 
     #[test]
