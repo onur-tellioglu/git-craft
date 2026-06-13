@@ -94,8 +94,6 @@ impl GpuTimer {
 
     /// Begin-only / end-only writes: one timing slot spanning a chain of
     /// passes (first pass gets begin, last pass gets end — used by bloom).
-    // Expected to be dead until bloom passes are added in later M5 tasks.
-    #[expect(dead_code)]
     pub fn render_writes_begin(&self, pass: usize) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.query_set_for(pass).map(|qs| wgpu::RenderPassTimestampWrites {
             query_set: qs,
@@ -104,8 +102,6 @@ impl GpuTimer {
         })
     }
 
-    // Expected to be dead until bloom passes are added in later M5 tasks.
-    #[expect(dead_code)]
     pub fn render_writes_end(&self, pass: usize) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         self.query_set_for(pass).map(|qs| wgpu::RenderPassTimestampWrites {
             query_set: qs,

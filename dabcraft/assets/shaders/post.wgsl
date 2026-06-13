@@ -5,6 +5,9 @@
 
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_samp: sampler;
+@group(0) @binding(2) var bloom_tex: texture_2d<f32>;
+
+const BLOOM_STRENGTH: f32 = 0.06;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -24,5 +27,7 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let hdr = textureSampleLevel(hdr_tex, hdr_samp, in.uv, 0.0).rgb;
-    return vec4(hdr, 1.0);
+    let bloom = textureSampleLevel(bloom_tex, hdr_samp, in.uv, 0.0).rgb;
+    let color = mix(hdr, bloom, BLOOM_STRENGTH);
+    return vec4(color, 1.0);
 }

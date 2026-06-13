@@ -17,11 +17,13 @@ use crate::render::timestamps::GpuTimer;
 
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
-const PASS_LABELS: &[&str] = &["luts", "shadow0", "shadow1", "shadow2", "main", "post"];
+const PASS_LABELS: &[&str] =
+    &["luts", "shadow0", "shadow1", "shadow2", "main", "bloom", "post"];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
-const PASS_POST: usize = 5;
+const PASS_BLOOM: usize = 5;
+const PASS_POST: usize = 6;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -70,6 +72,7 @@ pub struct App {
     shadow: Option<crate::render::shadow::ShadowRenderer>,
     sky_luts: Option<crate::render::atmosphere::SkyLuts>,
     sky_pass: Option<crate::render::atmosphere::SkyPass>,
+    bloom: Option<crate::render::bloom::BloomPass>,
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
@@ -116,6 +119,7 @@ impl App {
             shadow: None,
             sky_luts: None,
             sky_pass: None,
+            bloom: None,
             shaders: None,
             targets: None,
             post: None,
@@ -391,6 +395,11 @@ impl App {
                             s.swap_shader(&gpu.device, t.camera_layout(), &source);
                         }
                     }
+                    "bloom" => {
+                        if let Some(b) = self.bloom.as_mut() {
+                            b.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -625,7 +634,12 @@ impl App {
             }
         }
 
-        // Post pass: blit HDR target into the swapchain view.
+        // Bloom down/up chain: runs after the main pass, before post.
+        if let (Some(bloom), Some(targets)) = (self.bloom.as_ref(), self.targets.as_ref()) {
+            bloom.encode(&mut encoder, targets, self.timer.as_ref(), PASS_BLOOM);
+        }
+
+        // Post pass: blit HDR target (with bloom mixed in) into the swapchain view.
         let post_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_POST));
         if let Some(post) = self.post.as_ref() {
             post.draw(&mut encoder, &view, post_writes);
@@ -788,6 +802,7 @@ impl ApplicationHandler for App {
         shaders.watch("shadow", shader_path("shadow.wgsl"));
         shaders.watch("sky_luts", shader_path("sky_luts.wgsl"));
         shaders.watch("sky", shader_path("sky.wgsl"));
+        shaders.watch("bloom", shader_path("bloom.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -820,12 +835,22 @@ impl ApplicationHandler for App {
             &outline_src,
         ));
 
+        let bloom_src =
+            std::fs::read_to_string(shader_path("bloom.wgsl")).expect("bloom.wgsl missing");
+        self.bloom = Some(crate::render::bloom::BloomPass::new(
+            &gpu.device,
+            &gpu.queue,
+            &targets,
+            &bloom_src,
+        ));
+
         let post_src =
             std::fs::read_to_string(shader_path("post.wgsl")).expect("post.wgsl missing");
         self.post = Some(crate::render::post::PostPass::new(
             &gpu.device,
             gpu.config.format,
             &targets.hdr_view,
+            &targets.bloom_views[0],
             &post_src,
         ));
         self.targets = Some(targets);
@@ -882,10 +907,15 @@ impl ApplicationHandler for App {
                         size.width,
                         size.height,
                     ));
+                    if let (Some(bloom), Some(targets)) =
+                        (self.bloom.as_mut(), self.targets.as_ref())
+                    {
+                        bloom.set_targets(&gpu.device, &gpu.queue, targets);
+                    }
                     if let (Some(post), Some(targets)) =
                         (self.post.as_mut(), self.targets.as_ref())
                     {
-                        post.set_input(&gpu.device, &targets.hdr_view);
+                        post.set_input(&gpu.device, &targets.hdr_view, &targets.bloom_views[0]);
                     }
                 }
                 return;
