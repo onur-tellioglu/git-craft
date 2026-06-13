@@ -18,6 +18,7 @@ struct AtmUniform {
 @group(1) @binding(0) var out_transmittance: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(1) var out_multiscatter: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(2) var out_skyview: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(3) var out_aerial: texture_storage_3d<rgba16float, write>;
 
 const GROUND_R: f32 = 6360.0;
 const TOP_R: f32 = 6460.0;
@@ -33,6 +34,9 @@ const PI: f32 = 3.14159265;
 
 const TRANSMITTANCE_SIZE = vec2(256.0, 64.0);
 const SKYVIEW_SIZE = vec2(192.0, 108.0);
+const AP_SIZE: f32 = 32.0;
+// Far froxel slice distance in km. terrain.wgsl divides by the same value.
+const AP_MAX_KM: f32 = 10.0;
 
 struct Media {
     rayleigh: vec3<f32>,   // scattering
@@ -207,4 +211,20 @@ fn cs_skyview(@builtin(global_invocation_id) id: vec3<u32>) {
     let pos = vec3(0.0, GROUND_R + max(atm.camera.w, 5e-4), 0.0);
     let result = march_scattering(pos, dir, atm.sun.xyz, 32u, -1.0);
     textureStore(out_skyview, vec2<i32>(id.xy), vec4(result.rgb * atm.sun_radiance.rgb, 1.0));
+}
+
+// Aerial-perspective froxels: in-scatter and transmittance from the camera
+// to 32 exaggerated view distances per screen cell.
+@compute @workgroup_size(4, 4, 4)
+fn cs_aerial(@builtin(global_invocation_id) id: vec3<u32>) {
+    if id.x >= 32u || id.y >= 32u || id.z >= 32u { return; }
+    let uv = (vec2<f32>(id.xy) + 0.5) / AP_SIZE;
+    let ndc = vec4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.5, 1.0);
+    let world = atm.inv_view_proj * ndc;
+    let dir = normalize(world.xyz / world.w - atm.camera.xyz);
+    // Atmosphere is horizontally homogeneous: only altitude matters.
+    let pos = vec3(0.0, GROUND_R + max(atm.camera.w, 5e-4), 0.0);
+    let t_end = (f32(id.z) + 1.0) / AP_SIZE * AP_MAX_KM;
+    let result = march_scattering(pos, dir, atm.sun.xyz, 16u, t_end);
+    textureStore(out_aerial, vec3<i32>(id), vec4(result.rgb * atm.sun_radiance.rgb, result.a));
 }

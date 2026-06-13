@@ -89,6 +89,9 @@ pub struct TerrainRenderer {
     shadow_layout: wgpu::BindGroupLayout,
     shadow_bind_group: Option<wgpu::BindGroup>,
     shadow_sampler: wgpu::Sampler,
+    aerial_layout: wgpu::BindGroupLayout,
+    aerial_bind_group: Option<wgpu::BindGroup>,
+    aerial_sampler: wgpu::Sampler,
     // The bind group references quads_buffer + section_info_buffer; both are
     // owned fields, so they outlive it by construction (M1's Option dance is
     // gone — all buffers are fixed-size and created once).
@@ -162,6 +165,38 @@ impl TerrainRenderer {
             ..Default::default()
         });
 
+        let aerial_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("terrain aerial"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let aerial_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("aerial lut"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+
         // Two read-only storage bindings in one layout: quads (0) + section info (1).
         let storage_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
@@ -226,7 +261,7 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let pipeline = Self::build_pipeline(device, surface_format, &camera_layout, &quads_layout, &shadow_layout, shader_source);
+        let pipeline = Self::build_pipeline(device, surface_format, &camera_layout, &quads_layout, &shadow_layout, &aerial_layout, shader_source);
 
         Self {
             pipeline,
@@ -237,6 +272,9 @@ impl TerrainRenderer {
             shadow_layout,
             shadow_bind_group: None,
             shadow_sampler,
+            aerial_layout,
+            aerial_bind_group: None,
+            aerial_sampler,
             quads_bind_group,
             quads_buffer,
             section_info_buffer,
@@ -256,6 +294,7 @@ impl TerrainRenderer {
         camera_layout: &wgpu::BindGroupLayout,
         quads_layout: &wgpu::BindGroupLayout,
         shadow_layout: &wgpu::BindGroupLayout,
+        aerial_layout: &wgpu::BindGroupLayout,
         shader_source: &str,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -264,7 +303,7 @@ impl TerrainRenderer {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain"),
-            bind_group_layouts: &[Some(camera_layout), Some(quads_layout), Some(shadow_layout)],
+            bind_group_layouts: &[Some(camera_layout), Some(quads_layout), Some(shadow_layout), Some(aerial_layout)],
             immediate_size: 0,
         });
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -305,10 +344,10 @@ impl TerrainRenderer {
         })
     }
 
-    /// Replace the pipeline with one built from new shader source (hot-reload, Task 9).
+    /// Replace the pipeline with one built from new shader source (hot-reload).
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
         self.pipeline = Self::build_pipeline(
-            device, self.surface_format, &self.camera_layout, &self.quads_layout, &self.shadow_layout, shader_source,
+            device, self.surface_format, &self.camera_layout, &self.quads_layout, &self.shadow_layout, &self.aerial_layout, shader_source,
         );
     }
 
@@ -320,7 +359,7 @@ impl TerrainRenderer {
             sky: [p.sky_color.x, p.sky_color.y, p.sky_color.z, p.day_factor],
             sun: [p.light_dir.x, p.light_dir.y, p.light_dir.z, p.light_is_sun as u32 as f32],
             sun_color: [p.light_color.x, p.light_color.y, p.light_color.z, 0.0],
-            params: [p.viewport.0 as f32, p.viewport.1 as f32, 0.0, 0.0], // z set in Task 9
+            params: [p.viewport.0 as f32, p.viewport.1 as f32, crate::render::atmosphere::AP_KM_PER_METER, 0.0],
         };
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
@@ -475,10 +514,24 @@ impl TerrainRenderer {
         }));
     }
 
+    /// Wire the aerial LUT into group 3. Called once from app after SkyLuts is built.
+    pub fn attach_aerial(&mut self, device: &wgpu::Device, lut: &wgpu::TextureView) {
+        self.aerial_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("terrain aerial"),
+            layout: &self.aerial_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(lut) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.aerial_sampler) },
+            ],
+        }));
+    }
+
     pub fn draw(&self, rpass: &mut wgpu::RenderPass<'_>) {
-        // Guard: shadow group must be wired before drawing; better one dark
-        // frame than a pipeline validation panic.
+        // Guard: shadow and aerial groups must be wired before drawing.
         let Some(shadow_bg) = &self.shadow_bind_group else {
+            return;
+        };
+        let Some(aerial_bg) = &self.aerial_bind_group else {
             return;
         };
         if self.visible_count == 0 {
@@ -488,6 +541,7 @@ impl TerrainRenderer {
         rpass.set_bind_group(0, &self.camera_bind_group, &[]);
         rpass.set_bind_group(1, &self.quads_bind_group, &[]);
         rpass.set_bind_group(2, shadow_bg, &[]);
+        rpass.set_bind_group(3, aerial_bg, &[]);
         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         for i in 0..self.visible_count {
             rpass.draw_indexed_indirect(&self.indirect_buffer, i as u64 * 20);
