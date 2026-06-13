@@ -381,6 +381,13 @@ impl BlurPass {
     }
 }
 
+/// Uniform for the composite pass. Controls debug visualization modes.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CompUniform {
+    pub flags: [f32; 4], // x: 1.0 = AO debug view, yzw reserved
+}
+
 /// Composites AO onto the HDR ambient term, writing a full-res composited target.
 /// TAA reads this instead of the raw hdr_view.
 pub struct CompositePass {
@@ -388,6 +395,7 @@ pub struct CompositePass {
     layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     sampler: wgpu::Sampler,
+    uniform: wgpu::Buffer,
 }
 
 impl CompositePass {
@@ -441,6 +449,17 @@ impl CompositePass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // 4: debug flags uniform
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -453,6 +472,12 @@ impl CompositePass {
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("composite uniform"),
+            size: std::mem::size_of::<CompUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let bind_group = Self::build_bind_group(
             device,
             &layout,
@@ -460,9 +485,10 @@ impl CompositePass {
             gbuf_view,
             ao_blur_view,
             &sampler,
+            &uniform,
         );
         let pipeline = Self::build_pipeline(device, &layout, shader_source);
-        Self { pipeline, layout, bind_group, sampler }
+        Self { pipeline, layout, bind_group, sampler, uniform }
     }
 
     fn build_bind_group(
@@ -472,6 +498,7 @@ impl CompositePass {
         gbuf_view: &wgpu::TextureView,
         ao_blur_view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
+        uniform: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("composite bg"),
@@ -493,6 +520,7 @@ impl CompositePass {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
+                wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
             ],
         })
     }
@@ -552,7 +580,14 @@ impl CompositePass {
             gbuf_view,
             ao_blur_view,
             &self.sampler,
+            &self.uniform,
         );
+    }
+
+    /// Write the debug flag to the GPU uniform. Call once per frame before encode.
+    pub fn set_debug(&self, queue: &wgpu::Queue, on: bool) {
+        let u = CompUniform { flags: [if on { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0] };
+        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&u));
     }
 
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
@@ -606,5 +641,10 @@ mod tests {
     #[test]
     fn blur_uniform_is_16_bytes() {
         assert_eq!(std::mem::size_of::<BlurUniform>(), 16);
+    }
+
+    #[test]
+    fn comp_uniform_is_16_bytes() {
+        assert_eq!(std::mem::size_of::<CompUniform>(), 16);
     }
 }

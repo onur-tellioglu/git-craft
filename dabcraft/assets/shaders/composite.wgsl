@@ -7,6 +7,11 @@
 @group(0) @binding(2) var ao_tex: texture_2d<f32>;
 @group(0) @binding(3) var samp: sampler;
 
+struct CompUniform {
+    flags: vec4<f32>, // x: 1.0 = AO debug view, yzw reserved
+}
+@group(0) @binding(4) var<uniform> c: CompUniform;
+
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -29,5 +34,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Half-res AO, bilinearly upsampled.
     let ao = textureSampleLevel(ao_tex, samp, in.uv, 0.0).r;
     let factor = 1.0 - ambient_weight * (1.0 - ao);
+    if c.flags.x > 0.5 {
+        return vec4(vec3(ao), 1.0); // AO debug view
+    }
     return vec4(hdr * factor, 1.0);
 }
