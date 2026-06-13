@@ -62,8 +62,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             hi = max(hi, c);
         }
     }
-    history = clamp(history, lo, hi);
-
-    let blend = u.params.z; // current contribution (~0.1)
-    return vec4(mix(history, current, blend), 1.0);
+    let clamped = clamp(history, lo, hi);
+    // When the clamp had to pull history a long way, this pixel was likely
+    // disoccluded/changed; lean on the current sample to avoid a trail.
+    let ghost = clamp(length(clamped - history) * 6.0, 0.0, 1.0);
+    let blend = mix(u.params.z, 1.0, ghost);
+    return vec4(mix(clamped, current, blend), 1.0);
 }
