@@ -116,7 +116,11 @@ mod tests {
                 checked += 1;
             }
         }
-        // terrain + outline + post at minimum; grows every rung.
-        assert!(checked >= 3, "expected >= 3 shaders, found {checked}");
+        // All M5a shaders: terrain, outline, post, shadow, sky_luts, sky,
+        // bloom, exposure. Catches an accidentally deleted file.
+        assert!(
+            checked >= 8,
+            "expected >= 8 shaders (terrain, outline, post, shadow, sky_luts, sky, bloom, exposure), found {checked}"
+        );
     }
 }
