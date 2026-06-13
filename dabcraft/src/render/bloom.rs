@@ -251,6 +251,10 @@ impl BloomPass {
             rpass.set_bind_group(0, &self.src_groups[src_group], &[(slot * SLOT) as u32]);
             rpass.draw(0..3, 0..1);
         };
+        // Timer slot brackets the whole chain: begin on the first down pass,
+        // end on the last up pass. If n == 1 (tiny window, no up passes) the
+        // end query is never written; pass_millis guards that with a stale
+        // HUD value, so it stays a display-only quirk, never a hang.
         for i in 0..n {
             let ts = if i == 0 {
                 timer.and_then(|t| t.render_writes_begin(pass_slot))
