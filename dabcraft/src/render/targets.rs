@@ -2,8 +2,23 @@
 /// The bloom mip chain joins in the bloom task; GTAO/normals arrive in M5b.
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+/// Mip count for the half-res bloom chain: down to ~8 px, capped at 6.
+pub fn bloom_mip_count(w: u32, h: u32) -> u32 {
+    let (mut w, mut h, mut n) = (w, h, 1);
+    while n < 6 && w >= 16 && h >= 16 {
+        w /= 2;
+        h /= 2;
+        n += 1;
+    }
+    n
+}
+
 pub struct RenderTargets {
     pub hdr_view: wgpu::TextureView,
+    pub bloom_views: Vec<wgpu::TextureView>, // one per mip
+    pub bloom_sizes: Vec<(u32, u32)>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl RenderTargets {
@@ -20,6 +35,51 @@ impl RenderTargets {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        Self { hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()) }
+
+        let half = ((width / 2).max(1), (height / 2).max(1));
+        let mips = bloom_mip_count(half.0, half.1);
+        let bloom = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("bloom chain"),
+            size: wgpu::Extent3d { width: half.0, height: half.1, depth_or_array_layers: 1 },
+            mip_level_count: mips,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let bloom_views = (0..mips)
+            .map(|i| {
+                bloom.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("bloom mip"),
+                    base_mip_level: i,
+                    mip_level_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let bloom_sizes = (0..mips)
+            .map(|i| ((half.0 >> i).max(1), (half.1 >> i).max(1)))
+            .collect();
+
+        Self {
+            hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()),
+            bloom_views,
+            bloom_sizes,
+            width,
+            height,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bloom_mip_count_scales_with_resolution() {
+        assert_eq!(bloom_mip_count(1512, 982), 6, "native half-res gets the full chain");
+        assert_eq!(bloom_mip_count(20, 20), 2);
+        assert_eq!(bloom_mip_count(8, 8), 1, "never zero mips");
     }
 }
