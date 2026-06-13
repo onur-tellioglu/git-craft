@@ -159,6 +159,7 @@ pub struct App {
     visibility_masks: HashMap<crate::world::chunks::SectionPos, u16>,
     cave_culling: bool,
     gtao_debug: bool,
+    vol_debug: bool,
     stats: FrameStats,
 }
 
@@ -215,6 +216,7 @@ impl App {
             visibility_masks: HashMap::new(),
             cave_culling: true,
             gtao_debug: false,
+            vol_debug: false,
             stats: FrameStats::default(),
         }
     }
@@ -534,6 +536,10 @@ impl App {
             if self.input.key_pressed(KeyCode::KeyG) {
                 self.gtao_debug = !self.gtao_debug;
             }
+            // B (V is taken by cave-culling): show the raw volumetric in-scatter.
+            if self.input.key_pressed(KeyCode::KeyB) {
+                self.vol_debug = !self.vol_debug;
+            }
             if self.input.key_pressed(KeyCode::Space) {
                 let now = std::time::Instant::now();
                 if self
@@ -717,7 +723,12 @@ impl App {
             composite.prepare(
                 &gpu.queue,
                 &crate::render::gtao::CompUniform {
-                    flags: [if self.gtao_debug { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+                    flags: [
+                        if self.gtao_debug { 1.0 } else { 0.0 },
+                        if self.vol_debug { 1.0 } else { 0.0 },
+                        0.0,
+                        0.0,
+                    ],
                     inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
                     camera: [self.camera.position.x, self.camera.position.y, self.camera.position.z, 0.0],
                     vol_params: [VOL_NEAR, VOL_FAR, VOL_D as f32, 0.0],
