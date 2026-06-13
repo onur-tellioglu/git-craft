@@ -47,6 +47,16 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let dir = normalize(world.xyz / world.w - frame.camera.xyz);
     var color = textureSampleLevel(skyview, sky_samp, skyview_uv(dir), 0.0).rgb;
 
+    // Soften the sub-horizon band: the sky-view LUT goes dark just below the
+    // horizon (ground-hitting rays carry no ground albedo). Fade those
+    // directions toward the bright horizon color so distant terrain melts into
+    // haze instead of a hard dark line. The blend saturates ~9 deg down, where
+    // terrain covers the sky anyway.
+    if dir.y < 0.0 {
+        let horizon = textureSampleLevel(skyview, sky_samp, skyview_uv(vec3(dir.x, 0.0, dir.z)), 0.0).rgb;
+        color = mix(color, horizon, clamp(-dir.y / 0.16, 0.0, 1.0));
+    }
+
     // Sun disc (real sun only — frame.sun is the moon at night), angular
     // radius ~0.27 deg with a soft limb; sun_color already carries the
     // atmospheric transmittance, so the disc reddens at sunset for free.
