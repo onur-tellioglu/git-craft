@@ -322,6 +322,136 @@ impl SkyLuts {
     }
 }
 
+/// Fullscreen sky background drawn inside the main pass (after terrain,
+/// before outline). Uses a fullscreen triangle at depth 1.0 with compare
+/// LessEqual and no depth write — hardware HSR kills every covered pixel.
+pub struct SkyPass {
+    pipeline: wgpu::RenderPipeline,
+    lut_layout: wgpu::BindGroupLayout,
+    lut_bind_group: wgpu::BindGroup,
+}
+
+impl SkyPass {
+    pub fn new(
+        device: &wgpu::Device,
+        camera_layout: &wgpu::BindGroupLayout,
+        skyview: &wgpu::TextureView,
+        shader_source: &str,
+    ) -> Self {
+        let lut_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        // Repeat on U: the azimuth seam at u = 0/1 must filter across.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("skyview"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+        let lut_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("sky"),
+            layout: &lut_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(skyview),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let pipeline = Self::build_pipeline(device, camera_layout, &lut_layout, shader_source);
+        Self { pipeline, lut_layout, lut_bind_group }
+    }
+
+    fn build_pipeline(
+        device: &wgpu::Device,
+        camera_layout: &wgpu::BindGroupLayout,
+        lut_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sky"),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("sky"),
+            bind_group_layouts: &[Some(camera_layout), Some(lut_layout)],
+            immediate_size: 0,
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sky"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: crate::render::depth::DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::render::targets::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+
+    pub fn swap_shader(
+        &mut self,
+        device: &wgpu::Device,
+        camera_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) {
+        self.pipeline =
+            Self::build_pipeline(device, camera_layout, &self.lut_layout, shader_source);
+    }
+
+    pub fn draw(&self, rpass: &mut wgpu::RenderPass<'_>, camera_bind_group: &wgpu::BindGroup) {
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_bind_group(0, camera_bind_group, &[]);
+        rpass.set_bind_group(1, &self.lut_bind_group, &[]);
+        rpass.draw(0..3, 0..1);
+    }
+}
+
 /// Earth-like atmosphere (Hillaire 2020 parameterization).
 /// Distances in km, coefficients per km. The WGSL in sky_luts.wgsl mirrors
 /// these constants — change BOTH or the sky stops matching the sun color.
