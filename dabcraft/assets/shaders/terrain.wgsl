@@ -24,6 +24,8 @@ struct ShadowUniform {
 @group(2) @binding(0) var<uniform> shadow: ShadowUniform;
 @group(2) @binding(1) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(2) var shadow_samp: sampler_comparison;
+@group(3) @binding(0) var aerial_lut: texture_3d<f32>;
+@group(3) @binding(1) var aerial_samp: sampler;
 
 // Per-face: origin offset (added to voxel pos), U axis, V axis.
 // Face order matches Rust: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
@@ -164,6 +166,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let direct = frame.sun_color.rgb * ndotl * min(shadow_f, guard);
     let ambient = frame.sky.rgb * pow(in.light.x, 1.8) * FACE_SHADE[in.face] * ao;
     let torch = TORCH_COLOR * 1.4 * pow(in.light.y, 1.6) * FACE_SHADE[in.face] * ao;
-    let color = in.albedo * (direct + ambient + torch);
-    return vec4(color, 1.0);
+    let lit = in.albedo * (direct + ambient + torch);
+    // Aerial perspective: froxel slice indexed by exaggerated view distance.
+    // 10.0 = AP_MAX_KM in sky_luts.wgsl.
+    let screen_uv = in.clip.xy / frame.params.xy;
+    let slice = clamp(view_dist * frame.params.z / 10.0, 0.0, 1.0);
+    let ap = textureSampleLevel(aerial_lut, aerial_samp, vec3(screen_uv, slice), 0.0);
+    return vec4(lit * ap.a + ap.rgb, 1.0);
 }

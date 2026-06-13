@@ -834,6 +834,11 @@ impl ApplicationHandler for App {
             std::fs::read_to_string(shader_path("sky_luts.wgsl")).expect("sky_luts.wgsl missing");
         self.sky_luts = Some(crate::render::atmosphere::SkyLuts::new(&gpu.device, &luts_src));
 
+        // Wire aerial LUT into terrain group 3.
+        if let (Some(terrain), Some(luts)) = (self.terrain.as_mut(), self.sky_luts.as_ref()) {
+            terrain.attach_aerial(&gpu.device, &luts.aerial_view);
+        }
+
         let sky_src =
             std::fs::read_to_string(shader_path("sky.wgsl")).expect("sky.wgsl missing");
         let terrain_ref = self.terrain.as_ref().unwrap();

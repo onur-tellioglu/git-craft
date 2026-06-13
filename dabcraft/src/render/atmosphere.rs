@@ -90,10 +90,11 @@ struct LutPass {
 pub struct SkyLuts {
     uniform: wgpu::Buffer,
     pub skyview_view: wgpu::TextureView,
+    pub aerial_view: wgpu::TextureView,
     transmittance_view: wgpu::TextureView,
     multiscatter_view: wgpu::TextureView,
     sampler: wgpu::Sampler,
-    passes: Vec<LutPass>, // [transmittance, multiscatter, skyview]
+    passes: Vec<LutPass>, // [transmittance, multiscatter, skyview, aerial]
     statics_done: bool,
 }
 
@@ -108,6 +109,17 @@ impl SkyLuts {
         let transmittance_view = lut_texture(device, "transmittance lut", 256, 64);
         let multiscatter_view = lut_texture(device, "multiscatter lut", 32, 32);
         let skyview_view = lut_texture(device, "skyview lut", 192, 108);
+        let aerial = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("aerial lut"),
+            size: wgpu::Extent3d { width: 32, height: 32, depth_or_array_layers: 32 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: LUT_FORMAT,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let aerial_view = aerial.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("lut"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -119,6 +131,7 @@ impl SkyLuts {
         let mut luts = Self {
             uniform,
             skyview_view,
+            aerial_view,
             transmittance_view,
             multiscatter_view,
             sampler,
@@ -271,6 +284,56 @@ impl SkyLuts {
             cache: None,
         });
 
+        // aerial: uniform(0), transmittance sampled(1), multiscatter sampled(2), sampler(3)
+        let in_layout_ap = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_aerial in"),
+            entries: &[uniform_entry(0), sampled_entry(1), sampled_entry(2), sampler_entry(3)],
+        });
+        let out_layout_ap = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cs_aerial out"),
+            entries: &[storage_entry(3, wgpu::TextureViewDimension::D3)],
+        });
+        let in_group_ap = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_aerial in"),
+            layout: &in_layout_ap,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.multiscatter_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let out_group_ap = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cs_aerial out"),
+            layout: &out_layout_ap,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&self.aerial_view),
+            }],
+        });
+        let layout_ap = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cs_aerial"),
+            bind_group_layouts: &[Some(&in_layout_ap), Some(&out_layout_ap)],
+            immediate_size: 0,
+        });
+        let pipeline_ap = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("cs_aerial"),
+            layout: Some(&layout_ap),
+            module: &shader,
+            entry_point: Some("cs_aerial"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
         self.passes = vec![
             LutPass {
                 pipeline: pipeline_tr,
@@ -289,6 +352,12 @@ impl SkyLuts {
                 in_group: in_group_sv,
                 out_group: out_group_sv,
                 workgroups: (192 / 8, 108_u32.div_ceil(8), 1),
+            },
+            LutPass {
+                pipeline: pipeline_ap,
+                in_group: in_group_ap,
+                out_group: out_group_ap,
+                workgroups: (32 / 4, 32 / 4, 32 / 4),
             },
         ];
     }
@@ -484,6 +553,12 @@ impl Default for Atmosphere {
         }
     }
 }
+
+/// Artistic fog-distance scale: world meters × this = atmosphere km marched.
+/// Physically 0.001; 0.02 marches 20× the air so the 384-block render
+/// distance picks up shader-pack-grade aerial perspective. Tune live by
+/// editing AP_MAX_KM / this pair (hot-reload + restart respectively).
+pub const AP_KM_PER_METER: f32 = 0.02;
 
 /// Top-of-atmosphere sun radiance. Tuned so the pre-exposure scene sits near
 /// 1.0; auto-exposure (Task 11) makes the absolute scale uncritical.
