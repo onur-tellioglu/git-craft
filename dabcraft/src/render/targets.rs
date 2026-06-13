@@ -7,6 +7,15 @@ pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// fraction that 2-bit RGB10A2 alpha cannot; render-attachment-capable.
 pub const GBUF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
+/// Single-channel AO at half resolution. R8Unorm is render-attachment-capable
+/// (unlike r8unorm storage), so GTAO runs as a fullscreen render pass.
+pub const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+
+/// Half resolution used by GTAO (and later volumetrics), clamped to >= 1.
+pub fn half_size(width: u32, height: u32) -> (u32, u32) {
+    ((width / 2).max(1), (height / 2).max(1))
+}
+
 /// Mip count for the half-res bloom chain: down to ~8 px, capped at 6.
 pub fn bloom_mip_count(w: u32, h: u32) -> u32 {
     let (mut w, mut h, mut n) = (w, h, 1);
@@ -22,6 +31,11 @@ pub struct RenderTargets {
     pub hdr_view: wgpu::TextureView,
     /// G-buffer (normal + ambient weight), written by the main pass alongside HDR.
     pub gbuf_view: wgpu::TextureView,
+    /// Raw half-res GTAO output (before the bilateral blur).
+    pub ao_raw_view: wgpu::TextureView,
+    /// Blurred half-res GTAO output (read by the composite pass).
+    #[allow(dead_code)] // Task 3 (blur + composite) reads this
+    pub ao_blur_view: wgpu::TextureView,
     pub bloom_views: Vec<wgpu::TextureView>, // one per mip
     pub bloom_sizes: Vec<(u32, u32)>,
     pub width: u32,
@@ -62,6 +76,24 @@ impl RenderTargets {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
+
+        let (hw, hh) = half_size(width, height);
+        let make_ao = |label| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d { width: hw, height: hh, depth_or_array_layers: 1 },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: AO_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let ao_raw_view = make_ao("gtao raw");
+        let ao_blur_view = make_ao("gtao blur");
 
         let half = ((width / 2).max(1), (height / 2).max(1));
         let mips = bloom_mip_count(half.0, half.1);
@@ -132,6 +164,8 @@ impl RenderTargets {
         Self {
             hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()),
             gbuf_view: gbuf.create_view(&wgpu::TextureViewDescriptor::default()),
+            ao_raw_view,
+            ao_blur_view,
             bloom_views,
             bloom_sizes,
             width,
@@ -147,6 +181,13 @@ impl RenderTargets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn half_size_clamps_to_one() {
+        assert_eq!(half_size(1512, 982), (756, 491));
+        assert_eq!(half_size(1, 1), (1, 1));
+        assert_eq!(half_size(0, 0), (1, 1), "never zero");
+    }
 
     #[test]
     fn bloom_mip_count_scales_with_resolution() {

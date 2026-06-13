@@ -17,15 +17,20 @@ use crate::render::timestamps::GpuTimer;
 
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
-const PASS_LABELS: &[&str] =
-    &["luts", "shadow0", "shadow1", "shadow2", "main", "taa", "bloom", "exposure", "post"];
+const PASS_LABELS: &[&str] = &[
+    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "composite", "taa", "bloom",
+    "exposure", "post",
+];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
-const PASS_TAA: usize = 5;
-const PASS_BLOOM: usize = 6;
-const PASS_EXPOSURE: usize = 7;
-const PASS_POST: usize = 8;
+const PASS_GTAO: usize = 5;
+#[allow(dead_code)] // Task 3 removes this allow when composite pass is encoded
+const PASS_COMPOSITE: usize = 6;
+const PASS_TAA: usize = 7;
+const PASS_BLOOM: usize = 8;
+const PASS_EXPOSURE: usize = 9;
+const PASS_POST: usize = 10;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -83,6 +88,7 @@ pub struct App {
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
     taa: Option<crate::render::taa::TaaPass>,
+    gtao: Option<crate::render::gtao::GtaoPass>,
     /// Previous frame's UNJITTERED view_proj (for TAA reprojection).
     prev_view_proj: glam::Mat4,
     /// Ping-pong index: which history_views slot is read this frame (0 or 1).
@@ -142,6 +148,7 @@ impl App {
             targets: None,
             post: None,
             taa: None,
+            gtao: None,
             prev_view_proj: glam::Mat4::IDENTITY,
             taa_history_idx: 0,
             frame_index: 0,
@@ -433,6 +440,11 @@ impl App {
                             t.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "gtao" => {
+                        if let Some(g) = self.gtao.as_mut() {
+                            g.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -626,6 +638,19 @@ impl App {
             taa.prepare(&gpu.queue, &taa_uniform);
         }
 
+        // Prepare GTAO uniform: jittered inv_view_proj for consistent depth reconstruction.
+        if let Some(gtao) = self.gtao.as_ref() {
+            let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
+            gtao.prepare(
+                &gpu.queue,
+                &crate::render::gtao::GtaoUniform {
+                    inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
+                    params: [hw as f32, hh as f32, 1.5, self.frame_index as f32],
+                    tune: [1.4, 0.02, 48.0, 1.5],
+                },
+            );
+        }
+
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
             // even when the swapchain frame is dropped, or a click would fire
@@ -698,6 +723,12 @@ impl App {
             if let Some(outline) = self.outline.as_ref() {
                 outline.draw(&mut rpass);
             }
+        }
+
+        // GTAO: half-res horizon AO from depth + g-buffer normals.
+        let gtao_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_GTAO));
+        if let (Some(gtao), Some(targets)) = (self.gtao.as_ref(), self.targets.as_ref()) {
+            gtao.encode(&mut encoder, &targets.ao_raw_view, gtao_writes);
         }
 
         // TAA resolve: reproject + neighborhood clamp + blend; writes resolved_view.
@@ -896,6 +927,7 @@ impl ApplicationHandler for App {
         shaders.watch("bloom", shader_path("bloom.wgsl"));
         shaders.watch("exposure", shader_path("exposure.wgsl"));
         shaders.watch("taa", shader_path("taa.wgsl"));
+        shaders.watch("gtao", shader_path("gtao.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -966,6 +998,16 @@ impl ApplicationHandler for App {
             depth_sample_view_ref,
             &taa_src,
         ));
+
+        let gtao_src =
+            std::fs::read_to_string(shader_path("gtao.wgsl")).expect("gtao.wgsl missing");
+        self.gtao = Some(crate::render::gtao::GtaoPass::new(
+            &gpu.device,
+            depth_sample_view_ref,
+            &targets.gbuf_view,
+            &gtao_src,
+        ));
+
         self.targets = Some(targets);
 
         let luts_src =
@@ -1034,6 +1076,11 @@ impl ApplicationHandler for App {
                         (self.taa.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
                     {
                         taa.rebuild_bind_groups(&gpu.device, targets, depth_sv);
+                    }
+                    if let (Some(gtao), Some(targets), Some(depth_sv)) =
+                        (self.gtao.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+                    {
+                        gtao.rebuild_bind_group(&gpu.device, depth_sv, &targets.gbuf_view);
                     }
                     if let (Some(bloom), Some(targets)) =
                         (self.bloom.as_mut(), self.targets.as_ref())
