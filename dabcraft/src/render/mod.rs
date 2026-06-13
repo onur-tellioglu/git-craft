@@ -1,4 +1,5 @@
 pub mod arena;
+pub mod gtao;
 pub mod atmosphere;
 pub mod bloom;
 pub mod exposure;
