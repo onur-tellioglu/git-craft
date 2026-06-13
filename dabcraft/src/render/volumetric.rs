@@ -80,23 +80,26 @@ fn froxel_texture(device: &wgpu::Device, label: &str) -> wgpu::TextureView {
         .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-struct PassUnit {
-    pipeline: wgpu::ComputePipeline,
-    in_group: wgpu::BindGroup,
-    out_group: wgpu::BindGroup,
-    workgroups: (u32, u32, u32),
-}
-
 pub struct VolumetricPass {
     uniform: wgpu::Buffer,
-    scatter_view: wgpu::TextureView,
+    /// Ping-pong scatter grids: cs_inscatter reads [1-p] (last frame) and writes
+    /// [p]; cs_integrate reads [p]. Parity p = frame index & 1.
+    scatter_views: [wgpu::TextureView; 2],
     integrated_view: wgpu::TextureView,
-    sampler: wgpu::Sampler,
+    cmp_sampler: wgpu::Sampler, // CSM comparison
+    lin_sampler: wgpu::Sampler, // prev-scatter bilinear reprojection
     // Cloned (Arc-backed) shadow handles so swap_shader can rebuild without the
     // caller re-threading them; both are fixed-size and stable across resize.
     shadow_uniform: wgpu::Buffer,
     shadow_array: wgpu::TextureView,
-    passes: Vec<PassUnit>, // [inscatter, integrate]
+    inscatter_pipeline: wgpu::ComputePipeline,
+    integrate_pipeline: wgpu::ComputePipeline,
+    inscatter_in: [wgpu::BindGroup; 2],  // group0: reads prev = scatter[1-p]
+    inscatter_out: [wgpu::BindGroup; 2], // group1: writes scatter[p]
+    integrate_in: [wgpu::BindGroup; 2],  // group0: reads scatter[p]
+    integrate_out: wgpu::BindGroup,      // group1: writes integrated
+    is_wg: (u32, u32, u32),
+    in_wg: (u32, u32, u32),
 }
 
 impl VolumetricPass {
@@ -112,10 +115,11 @@ impl VolumetricPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let scatter_view = froxel_texture(device, "froxel scatter");
+        let scatter_views =
+            [froxel_texture(device, "froxel scatter 0"), froxel_texture(device, "froxel scatter 1")];
         let integrated_view = froxel_texture(device, "froxel integrated");
         // Comparison sampler for the CSM (mirrors terrain's shadow sampler).
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let cmp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("vol shadow compare"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -124,14 +128,33 @@ impl VolumetricPass {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
+        let lin_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("vol reproject"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+        // Placeholders replaced by build_passes (pipelines/bind groups need the
+        // shader module). Built immediately below.
         let mut pass = Self {
             uniform,
-            scatter_view,
+            scatter_views,
             integrated_view,
-            sampler,
+            cmp_sampler,
+            lin_sampler,
             shadow_uniform: shadow_uniform.clone(),
             shadow_array: shadow_array.clone(),
-            passes: Vec::new(),
+            inscatter_pipeline: dummy_pipeline(device),
+            integrate_pipeline: dummy_pipeline(device),
+            inscatter_in: [dummy_bind_group(device), dummy_bind_group(device)],
+            inscatter_out: [dummy_bind_group(device), dummy_bind_group(device)],
+            integrate_in: [dummy_bind_group(device), dummy_bind_group(device)],
+            integrate_out: dummy_bind_group(device),
+            is_wg: (VOL_W.div_ceil(4), VOL_H.div_ceil(4), VOL_D.div_ceil(4)),
+            in_wg: (VOL_W.div_ceil(8), VOL_H.div_ceil(8), 1),
         };
         pass.build_passes(device, shader_source);
         pass
@@ -149,7 +172,8 @@ impl VolumetricPass {
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
-        // --- cs_inscatter: group0 = vol/shadow/CSM, group1 = out_scatter(0).
+        // --- cs_inscatter: group0 = vol(0)/shadow(1)/CSM(2,3)/prev-scatter(5)/
+        //     lin-samp(6); group1 = out_scatter(0).
         let in_layout_is = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("vol inscatter in"),
             entries: &[
@@ -157,45 +181,59 @@ impl VolumetricPass {
                 uniform_entry(1),
                 depth_array_entry(2),
                 comparison_sampler_entry(3),
+                float3d_entry(5),
+                filtering_sampler_entry(6),
             ],
         });
         let out_layout_is = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("vol inscatter out"),
             entries: &[storage3d_entry(0)],
         });
-        let in_group_is = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vol inscatter in"),
-            layout: &in_layout_is,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.shadow_uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&self.shadow_array),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-            ],
+        let inscatter_in = std::array::from_fn(|p| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vol inscatter in"),
+                layout: &in_layout_is,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.shadow_uniform.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&self.shadow_array),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.cmp_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(&self.scatter_views[1 - p]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::Sampler(&self.lin_sampler),
+                    },
+                ],
+            })
         });
-        let out_group_is = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vol inscatter out"),
-            layout: &out_layout_is,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&self.scatter_view),
-            }],
+        let inscatter_out = std::array::from_fn(|p| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vol inscatter out"),
+                layout: &out_layout_is,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.scatter_views[p]),
+                }],
+            })
         });
         let layout_is = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("vol inscatter"),
             bind_group_layouts: &[Some(&in_layout_is), Some(&out_layout_is)],
             immediate_size: 0,
         });
-        let pipeline_is = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        self.inscatter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("vol inscatter"),
             layout: Some(&layout_is),
             module: &shader,
@@ -213,15 +251,17 @@ impl VolumetricPass {
             label: Some("vol integrate out"),
             entries: &[storage3d_entry(1)],
         });
-        let in_group_in = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("vol integrate in"),
-            layout: &in_layout_in,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 4,
-                resource: wgpu::BindingResource::TextureView(&self.scatter_view),
-            }],
+        let integrate_in = std::array::from_fn(|p| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("vol integrate in"),
+                layout: &in_layout_in,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.scatter_views[p]),
+                }],
+            })
         });
-        let out_group_in = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let integrate_out = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("vol integrate out"),
             layout: &out_layout_in,
             entries: &[wgpu::BindGroupEntry {
@@ -234,7 +274,7 @@ impl VolumetricPass {
             bind_group_layouts: &[Some(&in_layout_in), Some(&out_layout_in)],
             immediate_size: 0,
         });
-        let pipeline_in = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        self.integrate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("vol integrate"),
             layout: Some(&layout_in),
             module: &shader,
@@ -243,20 +283,10 @@ impl VolumetricPass {
             cache: None,
         });
 
-        self.passes = vec![
-            PassUnit {
-                pipeline: pipeline_is,
-                in_group: in_group_is,
-                out_group: out_group_is,
-                workgroups: (VOL_W.div_ceil(4), VOL_H.div_ceil(4), VOL_D.div_ceil(4)),
-            },
-            PassUnit {
-                pipeline: pipeline_in,
-                in_group: in_group_in,
-                out_group: out_group_in,
-                workgroups: (VOL_W.div_ceil(8), VOL_H.div_ceil(8), 1),
-            },
-        ];
+        self.inscatter_in = inscatter_in;
+        self.inscatter_out = inscatter_out;
+        self.integrate_in = integrate_in;
+        self.integrate_out = integrate_out;
     }
 
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
@@ -267,21 +297,28 @@ impl VolumetricPass {
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(u));
     }
 
+    /// `parity` (frame index & 1) selects the ping-pong slot: inscatter reads the
+    /// other slot (last frame) and writes this one; integrate reads this one.
     pub fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
+        parity: usize,
         timestamp_writes: Option<wgpu::ComputePassTimestampWrites<'_>>,
     ) {
+        let p = parity & 1;
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("volumetric"),
             timestamp_writes,
         });
-        for unit in &self.passes {
-            cpass.set_pipeline(&unit.pipeline);
-            cpass.set_bind_group(0, &unit.in_group, &[]);
-            cpass.set_bind_group(1, &unit.out_group, &[]);
-            cpass.dispatch_workgroups(unit.workgroups.0, unit.workgroups.1, unit.workgroups.2);
-        }
+        cpass.set_pipeline(&self.inscatter_pipeline);
+        cpass.set_bind_group(0, &self.inscatter_in[p], &[]);
+        cpass.set_bind_group(1, &self.inscatter_out[p], &[]);
+        cpass.dispatch_workgroups(self.is_wg.0, self.is_wg.1, self.is_wg.2);
+
+        cpass.set_pipeline(&self.integrate_pipeline);
+        cpass.set_bind_group(0, &self.integrate_in[p], &[]);
+        cpass.set_bind_group(1, &self.integrate_out, &[]);
+        cpass.dispatch_workgroups(self.in_wg.0, self.in_wg.1, self.in_wg.2);
     }
 }
 
@@ -344,6 +381,44 @@ fn storage3d_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         },
         count: None,
     }
+}
+
+fn filtering_sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
+}
+
+// Placeholder pipeline/bind-group so VolumetricPass fields are non-Option before
+// build_passes (which needs &self for the ping-pong views) runs. Never executed.
+fn dummy_pipeline(device: &wgpu::Device) -> wgpu::ComputePipeline {
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("vol dummy"),
+        source: wgpu::ShaderSource::Wgsl("@compute @workgroup_size(1) fn main() {}".into()),
+    });
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("vol dummy"),
+        layout: None,
+        module: &module,
+        entry_point: Some("main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    })
+}
+
+fn dummy_bind_group(device: &wgpu::Device) -> wgpu::BindGroup {
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("vol dummy"),
+        entries: &[],
+    });
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("vol dummy"),
+        layout: &layout,
+        entries: &[],
+    })
 }
 
 #[cfg(test)]
