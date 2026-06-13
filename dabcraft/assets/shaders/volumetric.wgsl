@@ -29,7 +29,9 @@ struct ShadowUniform {
 @group(0) @binding(1) var<uniform> shadow: ShadowUniform;
 @group(0) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(0) @binding(3) var shadow_samp: sampler_comparison;
-@group(0) @binding(4) var in_scatter: texture_3d<f32>; // cs_integrate reads this
+@group(0) @binding(4) var in_scatter: texture_3d<f32>;   // cs_integrate reads this
+@group(0) @binding(5) var prev_scatter: texture_3d<f32>; // cs_inscatter reprojects from this
+@group(0) @binding(6) var lin_samp: sampler;             // bilinear, for prev_scatter
 
 @group(1) @binding(0) var out_scatter: texture_storage_3d<rgba16float, write>;    // cs_inscatter writes
 @group(1) @binding(1) var out_integrated: texture_storage_3d<rgba16float, write>; // cs_integrate writes
@@ -44,6 +46,11 @@ const PI: f32 = 3.14159265;
 // Front edge of slice z (z may be fractional after jitter), in world meters.
 fn slice_to_view_dist(z: f32) -> f32 {
     return VOL_NEAR * pow(VOL_FAR / VOL_NEAR, z / f32(VOL_D));
+}
+
+// Inverse: the (fractional) slice a view distance maps to. Mirrors volumetric.rs.
+fn view_dist_to_slice(d: f32) -> f32 {
+    return f32(VOL_D) * log(max(d, VOL_NEAR) / VOL_NEAR) / log(VOL_FAR / VOL_NEAR);
 }
 
 // Interleaved gradient noise (Jiménez 2014), animated per frame: a cheap
@@ -106,7 +113,24 @@ fn cs_inscatter(@builtin(global_invocation_id) id: vec3<u32>) {
     var scatter = sigma_s * (sun_in + amb_in);
 
     // Temporal reprojection: blend against last frame's grid at this froxel's
-    // world position. M5c Task 3 fills this in (vol.sky.w = history valid).
+    // world position (vol.sky.w = history valid; vol.tune.w = blend weight). The
+    // single-sample-per-froxel estimate is noisy; reprojection + TAA denoise it.
+    let alpha = select(1.0, vol.tune.w, vol.sky.w > 0.5);
+    if alpha < 1.0 {
+        let prev_clip = vol.prev_view_proj * vec4(world_pos, 1.0);
+        if prev_clip.w > 0.0 {
+            let prev_ndc = prev_clip.xyz / prev_clip.w;
+            let prev_uv = vec2(prev_ndc.x * 0.5 + 0.5, 0.5 - prev_ndc.y * 0.5);
+            // Camera barely moves per frame, so reuse this froxel's view distance
+            // for the depth slice; the XY reprojection captures the real motion.
+            let prev_w = clamp(view_dist_to_slice(view_dist) / f32(VOL_D), 0.0, 1.0);
+            let inside = all(prev_uv >= vec2(0.0)) && all(prev_uv <= vec2(1.0));
+            if inside {
+                let hist = textureSampleLevel(prev_scatter, lin_samp, vec3(prev_uv, prev_w), 0.0);
+                scatter = mix(hist.rgb, scatter, alpha);
+            }
+        }
+    }
 
     textureStore(out_scatter, vec3<i32>(id), vec4(scatter, sigma_e));
 }

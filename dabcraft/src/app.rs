@@ -839,7 +839,7 @@ impl App {
         // front-to-back integrate. Composite samples the integrated grid next.
         let vol_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_VOLUMETRIC));
         if let Some(vol) = self.volumetric.as_ref() {
-            vol.encode(&mut encoder, vol_writes);
+            vol.encode(&mut encoder, (self.frame_index & 1) as usize, vol_writes);
         }
 
         // Composite: apply blurred AO to the HDR ambient term; TAA reads composited_view.
