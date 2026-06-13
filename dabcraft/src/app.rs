@@ -688,7 +688,7 @@ impl App {
             }
         }
 
-        // TAA resolve: passthrough this task; routes jittered HDR → resolved_view.
+        // TAA resolve: reproject + neighborhood clamp + blend; writes resolved_view.
         let taa_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_TAA));
         if let (Some(taa), Some(targets)) = (self.taa.as_ref(), self.targets.as_ref()) {
             taa.encode(&mut encoder, targets, self.taa_history_idx, taa_writes);
