@@ -1,5 +1,5 @@
 /// Full-screen post pass: blits the HDR offscreen target into the swapchain.
-/// M5 rung 0: plain blit. Rung 3 mixes bloom in; later rungs add exposure and ACES.
+/// M5 rung 0: plain blit. Rung 3 mixes bloom in and multiplies by auto-exposure.
 pub struct PostPass {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -14,6 +14,7 @@ impl PostPass {
         surface_format: wgpu::TextureFormat,
         hdr_view: &wgpu::TextureView,
         bloom_view: &wgpu::TextureView,
+        exposure: &wgpu::Buffer,
         shader_source: &str,
     ) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -45,6 +46,16 @@ impl PostPass {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -58,7 +69,7 @@ impl PostPass {
             ..Default::default()
         });
         let bind_group =
-            Self::build_bind_group(device, &layout, hdr_view, bloom_view, &sampler);
+            Self::build_bind_group(device, &layout, hdr_view, bloom_view, exposure, &sampler);
         let pipeline = Self::build_pipeline(device, surface_format, &layout, shader_source);
         Self { pipeline, layout, bind_group, sampler, surface_format }
     }
@@ -68,6 +79,7 @@ impl PostPass {
         layout: &wgpu::BindGroupLayout,
         hdr_view: &wgpu::TextureView,
         bloom_view: &wgpu::TextureView,
+        exposure: &wgpu::Buffer,
         sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -85,6 +97,10 @@ impl PostPass {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(bloom_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: exposure.as_entire_binding(),
                 },
             ],
         })
@@ -138,9 +154,16 @@ impl PostPass {
         device: &wgpu::Device,
         hdr_view: &wgpu::TextureView,
         bloom_view: &wgpu::TextureView,
+        exposure: &wgpu::Buffer,
     ) {
-        self.bind_group =
-            Self::build_bind_group(device, &self.layout, hdr_view, bloom_view, &self.sampler);
+        self.bind_group = Self::build_bind_group(
+            device,
+            &self.layout,
+            hdr_view,
+            bloom_view,
+            exposure,
+            &self.sampler,
+        );
     }
 
     /// Rebuild the pipeline after a hot-reload of the shader source.
