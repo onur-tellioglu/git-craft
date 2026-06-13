@@ -25,7 +25,6 @@ const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
 const PASS_GTAO: usize = 5;
-#[allow(dead_code)] // Task 3 removes this allow when composite pass is encoded
 const PASS_COMPOSITE: usize = 6;
 const PASS_TAA: usize = 7;
 const PASS_BLOOM: usize = 8;
@@ -89,6 +88,8 @@ pub struct App {
     post: Option<crate::render::post::PostPass>,
     taa: Option<crate::render::taa::TaaPass>,
     gtao: Option<crate::render::gtao::GtaoPass>,
+    blur: Option<crate::render::gtao::BlurPass>,
+    composite: Option<crate::render::gtao::CompositePass>,
     /// Previous frame's UNJITTERED view_proj (for TAA reprojection).
     prev_view_proj: glam::Mat4,
     /// Ping-pong index: which history_views slot is read this frame (0 or 1).
@@ -149,6 +150,8 @@ impl App {
             post: None,
             taa: None,
             gtao: None,
+            blur: None,
+            composite: None,
             prev_view_proj: glam::Mat4::IDENTITY,
             taa_history_idx: 0,
             frame_index: 0,
@@ -445,6 +448,16 @@ impl App {
                             g.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "gtao_blur" => {
+                        if let Some(b) = self.blur.as_mut() {
+                            b.swap_shader(&gpu.device, &source);
+                        }
+                    }
+                    "composite" => {
+                        if let Some(c) = self.composite.as_mut() {
+                            c.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -650,6 +663,10 @@ impl App {
                 },
             );
         }
+        if let Some(blur) = self.blur.as_ref() {
+            let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
+            blur.prepare(&gpu.queue, [hw as f32, hh as f32, 0.0015, 0.0]);
+        }
 
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
@@ -729,6 +746,17 @@ impl App {
         let gtao_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_GTAO));
         if let (Some(gtao), Some(targets)) = (self.gtao.as_ref(), self.targets.as_ref()) {
             gtao.encode(&mut encoder, &targets.ao_raw_view, gtao_writes);
+        }
+
+        // Blur: depth-aware bilateral blur of raw AO (untimed, shares GTAO budget).
+        if let (Some(blur), Some(targets)) = (self.blur.as_ref(), self.targets.as_ref()) {
+            blur.encode(&mut encoder, &targets.ao_blur_view, None);
+        }
+
+        // Composite: apply blurred AO to the HDR ambient term; TAA reads composited_view.
+        let comp_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_COMPOSITE));
+        if let (Some(composite), Some(targets)) = (self.composite.as_ref(), self.targets.as_ref()) {
+            composite.encode(&mut encoder, &targets.composited_view, comp_writes);
         }
 
         // TAA resolve: reproject + neighborhood clamp + blend; writes resolved_view.
@@ -928,6 +956,8 @@ impl ApplicationHandler for App {
         shaders.watch("exposure", shader_path("exposure.wgsl"));
         shaders.watch("taa", shader_path("taa.wgsl"));
         shaders.watch("gtao", shader_path("gtao.wgsl"));
+        shaders.watch("gtao_blur", shader_path("gtao_blur.wgsl"));
+        shaders.watch("composite", shader_path("composite.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -1008,6 +1038,25 @@ impl ApplicationHandler for App {
             &gtao_src,
         ));
 
+        let blur_src =
+            std::fs::read_to_string(shader_path("gtao_blur.wgsl")).expect("gtao_blur.wgsl missing");
+        self.blur = Some(crate::render::gtao::BlurPass::new(
+            &gpu.device,
+            &targets.ao_raw_view,
+            depth_sample_view_ref,
+            &blur_src,
+        ));
+
+        let composite_src =
+            std::fs::read_to_string(shader_path("composite.wgsl")).expect("composite.wgsl missing");
+        self.composite = Some(crate::render::gtao::CompositePass::new(
+            &gpu.device,
+            &targets.hdr_view,
+            &targets.gbuf_view,
+            &targets.ao_blur_view,
+            &composite_src,
+        ));
+
         self.targets = Some(targets);
 
         let luts_src =
@@ -1081,6 +1130,21 @@ impl ApplicationHandler for App {
                         (self.gtao.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
                     {
                         gtao.rebuild_bind_group(&gpu.device, depth_sv, &targets.gbuf_view);
+                    }
+                    if let (Some(blur), Some(targets), Some(depth_sv)) =
+                        (self.blur.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+                    {
+                        blur.rebuild_bind_group(&gpu.device, &targets.ao_raw_view, depth_sv);
+                    }
+                    if let (Some(composite), Some(targets)) =
+                        (self.composite.as_mut(), self.targets.as_ref())
+                    {
+                        composite.rebuild_bind_group(
+                            &gpu.device,
+                            &targets.hdr_view,
+                            &targets.gbuf_view,
+                            &targets.ao_blur_view,
+                        );
                     }
                     if let (Some(bloom), Some(targets)) =
                         (self.bloom.as_mut(), self.targets.as_ref())

@@ -11,8 +11,7 @@ struct GtaoUniform {
 
 @group(0) @binding(0) var depth_tex: texture_2d<f32>;
 @group(0) @binding(1) var gbuf_tex: texture_2d<f32>;
-@group(0) @binding(2) var samp: sampler;
-@group(0) @binding(3) var<uniform> u: GtaoUniform;
+@group(0) @binding(2) var<uniform> u: GtaoUniform;
 
 const NUM_DIRS: i32 = 4;
 const NUM_STEPS: i32 = 6;
@@ -51,8 +50,6 @@ fn ign(px: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) f32 {
-    // samp is declared for layout compatibility (future filtering use).
-    let _samp_ref = samp;
     let px = vec2<i32>(in.pos.xy);
     let depth = textureLoad(depth_tex, vec2<i32>(in.uv * u.params.xy * 2.0), 0).r;
     if depth >= 1.0 {

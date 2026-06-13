@@ -44,11 +44,12 @@ pub struct TaaUniform {
 
 /// Fullscreen TAA resolve pass.
 ///
+/// Reads the AO-composited HDR (`targets.composited_view`) as the current frame.
 /// Reprojects each pixel via depth + the jittered inverse-view-proj to world
 /// space, looks up the history sample via the previous frame's unjittered
 /// view-proj, clamps history to the current 3×3 neighborhood AABB (kills
 /// ghosting), and blends current↔history with a disocclusion-bias guard.
-/// Writes `targets.resolved_view`; bloom/exposure/post read it.
+/// Sitting downstream of the composite pass, TAA stabilizes the AO noise for free.
 ///
 /// Writes to `targets.resolved_view`. Downstream (bloom/exposure/post) read it.
 pub struct TaaPass {
@@ -87,7 +88,7 @@ impl TaaPass {
         let bg0 = Self::build_bind_group(
             device,
             &layout,
-            &targets.hdr_view,
+            &targets.composited_view,
             &targets.history_views[0],
             depth_view,
             &sampler,
@@ -96,7 +97,7 @@ impl TaaPass {
         let bg1 = Self::build_bind_group(
             device,
             &layout,
-            &targets.hdr_view,
+            &targets.composited_view,
             &targets.history_views[1],
             depth_view,
             &sampler,
@@ -259,7 +260,7 @@ impl TaaPass {
             Self::build_bind_group(
                 device,
                 &self.layout,
-                &targets.hdr_view,
+                &targets.composited_view,
                 &targets.history_views[0],
                 depth_view,
                 &self.sampler,
@@ -268,7 +269,7 @@ impl TaaPass {
             Self::build_bind_group(
                 device,
                 &self.layout,
-                &targets.hdr_view,
+                &targets.composited_view,
                 &targets.history_views[1],
                 depth_view,
                 &self.sampler,
