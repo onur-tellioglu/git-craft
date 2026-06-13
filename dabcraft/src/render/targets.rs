@@ -19,6 +19,12 @@ pub struct RenderTargets {
     pub bloom_sizes: Vec<(u32, u32)>,
     pub width: u32,
     pub height: u32,
+    /// TAA resolved output: read by bloom/exposure/post after the TAA pass.
+    /// COPY_SRC so the TAA pass can copy resolved → history each frame.
+    pub resolved_view: wgpu::TextureView,
+    /// TAA history ping-pong pair: [read_idx] is sampled this frame,
+    /// [1-read_idx] receives the copy of resolved for next frame. COPY_DST.
+    pub history_views: [wgpu::TextureView; 2],
 }
 
 impl RenderTargets {
@@ -62,12 +68,54 @@ impl RenderTargets {
             .map(|i| ((half.0 >> i).max(1), (half.1 >> i).max(1)))
             .collect();
 
+        let resolved = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("taa resolved"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let history0 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("taa history 0"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let history1 = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("taa history 1"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
         Self {
             hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()),
             bloom_views,
             bloom_sizes,
             width,
             height,
+            resolved_view: resolved.create_view(&wgpu::TextureViewDescriptor::default()),
+            history_views: [
+                history0.create_view(&wgpu::TextureViewDescriptor::default()),
+                history1.create_view(&wgpu::TextureViewDescriptor::default()),
+            ],
         }
     }
 }

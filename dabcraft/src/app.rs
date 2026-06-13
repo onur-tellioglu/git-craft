@@ -503,6 +503,12 @@ impl App {
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
         let view_proj = self.camera.view_proj(aspect);
 
+        // Task 2 will apply this jitter to the main-pass projection; referenced
+        // here so the dead_code lint does not fire on the infrastructure added in
+        // Task 1 before it is wired in.
+        let _taa_jitter = crate::render::taa::jitter_offset(0);
+        let _taa_period = crate::render::taa::JITTER_PERIOD;
+
         // Compute cave-culling visible set BEFORE borrowing terrain mutably.
         // Capture only the fields we need so the closure stays disjoint from
         // the mutable terrain borrow below.
@@ -625,7 +631,7 @@ impl App {
                     view: depth_view_ref,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Discard, // TBDR: not sampled later on M1
+                        store: wgpu::StoreOp::Store, // TAA resolve samples depth for reprojection
                     }),
                     stencil_ops: None,
                 }),
@@ -935,6 +941,12 @@ impl ApplicationHandler for App {
                         size.width,
                         size.height,
                     ));
+                    // Task 2 will route bloom/exposure/post through resolved_view and
+                    // ping-pong history_views. Referenced here to satisfy the dead_code
+                    // lint until that wiring lands.
+                    if let Some(targets) = self.targets.as_ref() {
+                        let _ = (&targets.resolved_view, &targets.history_views);
+                    }
                     if let (Some(bloom), Some(targets)) =
                         (self.bloom.as_mut(), self.targets.as_ref())
                     {

@@ -4,6 +4,7 @@ pub mod bloom;
 pub mod exposure;
 pub mod shadow;
 pub mod depth;
+pub mod taa;
 pub mod frustum;
 pub mod egui_layer;
 pub mod game_ui;

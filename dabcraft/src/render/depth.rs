@@ -8,7 +8,8 @@ pub fn create_depth_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: DEPTH_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        // TEXTURE_BINDING so the TAA resolve can sample depth for reprojection.
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
     texture.create_view(&wgpu::TextureViewDescriptor::default())
