@@ -23,6 +23,10 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
     return out;
 }
 
+// Depth for a half-res texel: read the top-left full-res texel of its 2x2 block
+// (`px * 2`). Center and every neighbor use the same convention, so the edge-stop
+// compares consistent per-texel depths — only a sub-texel bias, harmless at half
+// res with TAA downstream.
 fn center_depth(px: vec2<i32>) -> f32 {
     return textureLoad(depth_tex, px * 2, 0).r;
 }
