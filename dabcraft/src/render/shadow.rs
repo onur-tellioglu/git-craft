@@ -292,8 +292,11 @@ impl ShadowRenderer {
                 depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 2.0,
+                    // Slope-scaled against acne on grazing-lit faces (the main
+                    // source of self-shadow flicker under camera motion). The
+                    // normal-offset in terrain.wgsl handles the rest.
+                    constant: 3,
+                    slope_scale: 3.0,
                     clamp: 0.0,
                 },
             }),
