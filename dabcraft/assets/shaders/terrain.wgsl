@@ -151,8 +151,13 @@ fn shadow_factor(world_pos: vec3<f32>, normal: vec3<f32>, view_dist: f32) -> f32
     return sum / 25.0;
 }
 
+struct FragOut {
+    @location(0) color: vec4<f32>,
+    @location(1) gbuf: vec4<f32>, // rgb = normal*0.5+0.5, a = ambient weight
+}
+
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VsOut) -> FragOut {
     let normal = FACE_NORMAL[in.face];
     let view_dist = length(in.world_pos - frame.camera.xyz);
     let ndotl = max(dot(normal, frame.sun.xyz), 0.0);
@@ -176,5 +181,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let screen_uv = in.clip.xy / frame.params.xy;
     let slice = clamp(view_dist * frame.params.z / 10.0, 0.0, 1.0);
     let ap = textureSampleLevel(aerial_lut, aerial_samp, vec3(screen_uv, slice), 0.0);
-    return vec4(lit * ap.a + ap.rgb, 1.0);
+    let color = lit * ap.a + ap.rgb;
+
+    // Ambient weight = how much of the on-screen brightness is the sky-ambient
+    // term (the only term GTAO attenuates). Direct sun + torch are excluded so
+    // AO never smudges lit faces or torch-lit caves.
+    let LUMA = vec3(0.2126, 0.7152, 0.0722);
+    let amb_lum = dot(in.albedo * ambient * ap.a, LUMA);
+    let tot_lum = dot(color, LUMA) + 1e-4;
+    let ambient_weight = clamp(amb_lum / tot_lum, 0.0, 1.0);
+
+    var out: FragOut;
+    out.color = vec4(color, 1.0);
+    out.gbuf = vec4(normal * 0.5 + 0.5, ambient_weight);
+    return out;
 }

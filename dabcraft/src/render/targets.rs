@@ -2,6 +2,11 @@
 /// The bloom mip chain joins in the bloom task; GTAO/normals arrive in M5b.
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
+/// G-buffer: rgb = world normal (*0.5+0.5), a = ambient brightness fraction.
+/// Rgba8Unorm (not the spec's RGB10A2): 8-bit alpha holds a continuous ambient
+/// fraction that 2-bit RGB10A2 alpha cannot; render-attachment-capable.
+pub const GBUF_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
 /// Mip count for the half-res bloom chain: down to ~8 px, capped at 6.
 pub fn bloom_mip_count(w: u32, h: u32) -> u32 {
     let (mut w, mut h, mut n) = (w, h, 1);
@@ -15,6 +20,8 @@ pub fn bloom_mip_count(w: u32, h: u32) -> u32 {
 
 pub struct RenderTargets {
     pub hdr_view: wgpu::TextureView,
+    /// G-buffer (normal + ambient weight), written by the main pass alongside HDR.
+    pub gbuf_view: wgpu::TextureView,
     pub bloom_views: Vec<wgpu::TextureView>, // one per mip
     pub bloom_sizes: Vec<(u32, u32)>,
     pub width: u32,
@@ -42,6 +49,16 @@ impl RenderTargets {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let gbuf = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("gbuffer normal+ambient"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: GBUF_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -114,6 +131,7 @@ impl RenderTargets {
         let resolved_view = resolved.create_view(&wgpu::TextureViewDescriptor::default());
         Self {
             hdr_view: hdr.create_view(&wgpu::TextureViewDescriptor::default()),
+            gbuf_view: gbuf.create_view(&wgpu::TextureViewDescriptor::default()),
             bloom_views,
             bloom_sizes,
             width,
