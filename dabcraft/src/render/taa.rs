@@ -42,8 +42,13 @@ pub struct TaaUniform {
     pub params: [f32; 4],
 }
 
-/// Fullscreen TAA resolve pass. Task 2: passthrough (output = current).
-/// Task 3 fills in reprojection + neighborhood clamp + blend.
+/// Fullscreen TAA resolve pass.
+///
+/// Reprojects each pixel via depth + the jittered inverse-view-proj to world
+/// space, looks up the history sample via the previous frame's unjittered
+/// view-proj, clamps history to the current 3×3 neighborhood AABB (kills
+/// ghosting), and blends current↔history with a disocclusion-bias guard.
+/// Writes `targets.resolved_view`; bloom/exposure/post read it.
 ///
 /// Writes to `targets.resolved_view`. Downstream (bloom/exposure/post) read it.
 pub struct TaaPass {
