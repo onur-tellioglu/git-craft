@@ -31,6 +31,20 @@ const PASS_BLOOM: usize = 8;
 const PASS_EXPOSURE: usize = 9;
 const PASS_POST: usize = 10;
 
+/// GTAO tuning (one place to tweak the look; see the M5b GTAO plan).
+/// World-space sample radius in blocks (1 block = 1 m).
+const GTAO_RADIUS: f32 = 1.5;
+/// Occlusion intensity multiplier (higher = darker contact shadows).
+const GTAO_INTENSITY: f32 = 1.4;
+/// Horizon bias subtracted before accumulating, to suppress self-occlusion.
+const GTAO_BIAS: f32 = 0.02;
+/// Max screen-space march radius in half-res pixels (caps the sample spread).
+const GTAO_MAX_RADIUS_PX: f32 = 48.0;
+/// Contrast power applied to the final visibility.
+const GTAO_POWER: f32 = 1.5;
+/// Bilateral-blur edge-stop sigma, in NDC depth units: smaller = sharper edges.
+const GTAO_BLUR_DEPTH_SIGMA: f32 = 0.0015;
+
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
 }
@@ -663,14 +677,14 @@ impl App {
                 &gpu.queue,
                 &crate::render::gtao::GtaoUniform {
                     inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
-                    params: [hw as f32, hh as f32, 1.5, self.frame_index as f32],
-                    tune: [1.4, 0.02, 48.0, 1.5],
+                    params: [hw as f32, hh as f32, GTAO_RADIUS, self.frame_index as f32],
+                    tune: [GTAO_INTENSITY, GTAO_BIAS, GTAO_MAX_RADIUS_PX, GTAO_POWER],
                 },
             );
         }
         if let Some(blur) = self.blur.as_ref() {
             let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
-            blur.prepare(&gpu.queue, [hw as f32, hh as f32, 0.0015, 0.0]);
+            blur.prepare(&gpu.queue, [hw as f32, hh as f32, GTAO_BLUR_DEPTH_SIGMA, 0.0]);
         }
         if let Some(composite) = self.composite.as_ref() {
             composite.set_debug(&gpu.queue, self.gtao_debug);
