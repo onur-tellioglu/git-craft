@@ -24,7 +24,15 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
     return u.view_proj * vec4(pos, 1.0);
 }
 
+struct FragOut {
+    @location(0) color: vec4<f32>,
+    @location(1) gbuf: vec4<f32>,
+}
+
 @fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return vec4(0.05, 0.05, 0.05, 1.0);
+fn fs_main() -> FragOut {
+    var out: FragOut;
+    out.color = vec4(0.05, 0.05, 0.05, 1.0);
+    out.gbuf = vec4<f32>(0.0);
+    return out;
 }

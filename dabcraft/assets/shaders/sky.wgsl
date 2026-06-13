@@ -40,8 +40,13 @@ fn skyview_uv(dir: vec3<f32>) -> vec2<f32> {
     return vec2(azimuth / (2.0 * PI) + 0.5, c * 0.5 + 0.5);
 }
 
+struct FragOut {
+    @location(0) color: vec4<f32>,
+    @location(1) gbuf: vec4<f32>,
+}
+
 @fragment
-fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VsOut) -> FragOut {
     let ndc = vec4(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, 1.0, 1.0);
     let world = frame.inv_view_proj * ndc;
     let dir = normalize(world.xyz / world.w - frame.camera.xyz);
@@ -65,5 +70,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let disc = smoothstep(cos(0.0055), cos(0.0035), d);
         color += frame.sun_color.rgb * 40.0 * disc;
     }
-    return vec4(color, 1.0);
+    var out: FragOut;
+    out.color = vec4(color, 1.0);
+    out.gbuf = vec4<f32>(0.0);
+    return out;
 }
