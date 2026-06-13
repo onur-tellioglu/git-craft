@@ -34,8 +34,9 @@ pub struct RenderTargets {
     /// Raw half-res GTAO output (before the bilateral blur).
     pub ao_raw_view: wgpu::TextureView,
     /// Blurred half-res GTAO output (read by the composite pass).
-    #[allow(dead_code)] // Task 3 (blur + composite) reads this
     pub ao_blur_view: wgpu::TextureView,
+    /// AO-composited HDR (main color × ambient-occlusion factor). TAA reads this.
+    pub composited_view: wgpu::TextureView,
     pub bloom_views: Vec<wgpu::TextureView>, // one per mip
     pub bloom_sizes: Vec<(u32, u32)>,
     pub width: u32,
@@ -158,6 +159,17 @@ impl RenderTargets {
             view_formats: &[],
         });
 
+        let composited = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ao composited hdr"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
         let history0_view = history0.create_view(&wgpu::TextureViewDescriptor::default());
         let history1_view = history1.create_view(&wgpu::TextureViewDescriptor::default());
         let resolved_view = resolved.create_view(&wgpu::TextureViewDescriptor::default());
@@ -166,6 +178,7 @@ impl RenderTargets {
             gbuf_view: gbuf.create_view(&wgpu::TextureViewDescriptor::default()),
             ao_raw_view,
             ao_blur_view,
+            composited_view: composited.create_view(&wgpu::TextureViewDescriptor::default()),
             bloom_views,
             bloom_sizes,
             width,
