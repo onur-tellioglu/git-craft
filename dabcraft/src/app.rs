@@ -18,12 +18,13 @@ use crate::render::timestamps::GpuTimer;
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
 const PASS_LABELS: &[&str] =
-    &["luts", "shadow0", "shadow1", "shadow2", "main", "bloom", "post"];
+    &["luts", "shadow0", "shadow1", "shadow2", "main", "bloom", "exposure", "post"];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
 const PASS_BLOOM: usize = 5;
-const PASS_POST: usize = 6;
+const PASS_EXPOSURE: usize = 6;
+const PASS_POST: usize = 7;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -73,6 +74,7 @@ pub struct App {
     sky_luts: Option<crate::render::atmosphere::SkyLuts>,
     sky_pass: Option<crate::render::atmosphere::SkyPass>,
     bloom: Option<crate::render::bloom::BloomPass>,
+    exposure: Option<crate::render::exposure::ExposurePass>,
     shaders: Option<crate::render::hot_reload::ShaderSet>,
     targets: Option<crate::render::targets::RenderTargets>,
     post: Option<crate::render::post::PostPass>,
@@ -120,6 +122,7 @@ impl App {
             sky_luts: None,
             sky_pass: None,
             bloom: None,
+            exposure: None,
             shaders: None,
             targets: None,
             post: None,
@@ -400,6 +403,11 @@ impl App {
                             b.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "exposure" => {
+                        if let Some(e) = self.exposure.as_mut() {
+                            e.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -571,6 +579,9 @@ impl App {
                 ],
             });
         }
+        if let Some(exposure) = self.exposure.as_ref() {
+            exposure.prepare(&gpu.queue, dt);
+        }
 
         let Some(frame) = gpu.acquire() else {
             // Press edges were consumed by this frame's logic above; clear them
@@ -639,7 +650,13 @@ impl App {
             bloom.encode(&mut encoder, targets, self.timer.as_ref(), PASS_BLOOM);
         }
 
-        // Post pass: blit HDR target (with bloom mixed in) into the swapchain view.
+        // Exposure histogram + resolve: runs after bloom, before post.
+        let exp_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_EXPOSURE));
+        if let Some(exposure) = self.exposure.as_ref() {
+            exposure.encode(&mut encoder, gpu.config.width, gpu.config.height, exp_writes);
+        }
+
+        // Post pass: blit HDR target (with bloom mixed in, exposure applied) into swapchain.
         let post_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_POST));
         if let Some(post) = self.post.as_ref() {
             post.draw(&mut encoder, &view, post_writes);
@@ -803,6 +820,7 @@ impl ApplicationHandler for App {
         shaders.watch("sky_luts", shader_path("sky_luts.wgsl"));
         shaders.watch("sky", shader_path("sky.wgsl"));
         shaders.watch("bloom", shader_path("bloom.wgsl"));
+        shaders.watch("exposure", shader_path("exposure.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -844,13 +862,23 @@ impl ApplicationHandler for App {
             &bloom_src,
         ));
 
+        let exposure_src =
+            std::fs::read_to_string(shader_path("exposure.wgsl")).expect("exposure.wgsl missing");
+        self.exposure = Some(crate::render::exposure::ExposurePass::new(
+            &gpu.device,
+            &targets.hdr_view,
+            &exposure_src,
+        ));
+
         let post_src =
             std::fs::read_to_string(shader_path("post.wgsl")).expect("post.wgsl missing");
+        let exposure_buf = self.exposure.as_ref().unwrap().result_buffer();
         self.post = Some(crate::render::post::PostPass::new(
             &gpu.device,
             gpu.config.format,
             &targets.hdr_view,
             &targets.bloom_views[0],
+            exposure_buf,
             &post_src,
         ));
         self.targets = Some(targets);
@@ -912,10 +940,24 @@ impl ApplicationHandler for App {
                     {
                         bloom.set_targets(&gpu.device, &gpu.queue, targets);
                     }
+                    if let (Some(exposure), Some(targets)) =
+                        (self.exposure.as_mut(), self.targets.as_ref())
+                    {
+                        exposure.set_input(&gpu.device, &targets.hdr_view);
+                    }
                     if let (Some(post), Some(targets)) =
                         (self.post.as_mut(), self.targets.as_ref())
                     {
-                        post.set_input(&gpu.device, &targets.hdr_view, &targets.bloom_views[0]);
+                        let exposure_buf =
+                            self.exposure.as_ref().map(|e| e.result_buffer());
+                        if let Some(exposure_buf) = exposure_buf {
+                            post.set_input(
+                                &gpu.device,
+                                &targets.hdr_view,
+                                &targets.bloom_views[0],
+                                exposure_buf,
+                            );
+                        }
                     }
                 }
                 return;

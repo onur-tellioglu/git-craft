@@ -1,6 +1,7 @@
 pub mod arena;
 pub mod atmosphere;
 pub mod bloom;
+pub mod exposure;
 pub mod shadow;
 pub mod depth;
 pub mod frustum;
