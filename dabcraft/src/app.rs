@@ -124,6 +124,7 @@ pub struct App {
     /// Face-connectivity mask per meshed section (cave culling, spec §6).
     visibility_masks: HashMap<crate::world::chunks::SectionPos, u16>,
     cave_culling: bool,
+    gtao_debug: bool,
     stats: FrameStats,
 }
 
@@ -178,6 +179,7 @@ impl App {
             mesh_versions: HashMap::new(),
             visibility_masks: HashMap::new(),
             cave_culling: true,
+            gtao_debug: false,
             stats: FrameStats::default(),
         }
     }
@@ -489,6 +491,9 @@ impl App {
             if self.input.key_pressed(KeyCode::KeyV) {
                 self.cave_culling = !self.cave_culling;
             }
+            if self.input.key_pressed(KeyCode::KeyG) {
+                self.gtao_debug = !self.gtao_debug;
+            }
             if self.input.key_pressed(KeyCode::Space) {
                 let now = std::time::Instant::now();
                 if self
@@ -666,6 +671,9 @@ impl App {
         if let Some(blur) = self.blur.as_ref() {
             let (hw, hh) = crate::render::gtao::half_res(gpu.config.width, gpu.config.height);
             blur.prepare(&gpu.queue, [hw as f32, hh as f32, 0.0015, 0.0]);
+        }
+        if let Some(composite) = self.composite.as_ref() {
+            composite.set_debug(&gpu.queue, self.gtao_debug);
         }
 
         let Some(frame) = gpu.acquire() else {
