@@ -18,18 +18,19 @@ use crate::render::timestamps::GpuTimer;
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
 const PASS_LABELS: &[&str] = &[
-    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "composite", "taa", "bloom",
-    "exposure", "post",
+    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "volumetric", "composite", "taa",
+    "bloom", "exposure", "post",
 ];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
 const PASS_MAIN: usize = 4;
 const PASS_GTAO: usize = 5;
-const PASS_COMPOSITE: usize = 6;
-const PASS_TAA: usize = 7;
-const PASS_BLOOM: usize = 8;
-const PASS_EXPOSURE: usize = 9;
-const PASS_POST: usize = 10;
+const PASS_VOLUMETRIC: usize = 6;
+const PASS_COMPOSITE: usize = 7;
+const PASS_TAA: usize = 8;
+const PASS_BLOOM: usize = 9;
+const PASS_EXPOSURE: usize = 10;
+const PASS_POST: usize = 11;
 
 /// GTAO tuning (one place to tweak the look; see the M5b GTAO plan).
 /// World-space sample radius in blocks (1 block = 1 m).
@@ -44,6 +45,24 @@ const GTAO_MAX_RADIUS_PX: f32 = 48.0;
 const GTAO_POWER: f32 = 1.5;
 /// Bilateral-blur edge-stop sigma, in NDC depth units: smaller = sharper edges.
 const GTAO_BLUR_DEPTH_SIGMA: f32 = 0.0015;
+
+/// Volumetric fog/god-ray tuning (one place to tweak the look; see the M5c plan).
+/// Base scattering coefficient per meter (scaled by the height/haze profile).
+const VOL_DENSITY: f32 = 0.006;
+/// Uniform haze floor added to the height term (keeps far air slightly milky).
+const VOL_HAZE: f32 = 0.1;
+/// Fog base altitude (blocks): fog is full-strength at/below this y, thinning above.
+const VOL_FOG_Y0: f32 = 64.0;
+/// Fog scale height (blocks): larger = fog reaches higher.
+const VOL_FOG_H: f32 = 30.0;
+/// Absorption as a fraction of scattering (mostly-scattering fog stays bright).
+const VOL_ABSORB: f32 = 0.1;
+/// Henyey-Greenstein anisotropy: >0 forward-scatters into a sun halo.
+const VOL_HG_G: f32 = 0.6;
+/// Isotropic ambient in-scatter strength (sky color fills shadowed fog).
+const VOL_AMBIENT: f32 = 0.4;
+/// Temporal reprojection blend (M5c Task 3): fraction of the new estimate kept.
+const VOL_TAA_ALPHA: f32 = 0.05;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -104,6 +123,7 @@ pub struct App {
     gtao: Option<crate::render::gtao::GtaoPass>,
     blur: Option<crate::render::gtao::BlurPass>,
     composite: Option<crate::render::gtao::CompositePass>,
+    volumetric: Option<crate::render::volumetric::VolumetricPass>,
     /// Previous frame's UNJITTERED view_proj (for TAA reprojection).
     prev_view_proj: glam::Mat4,
     /// Ping-pong index: which history_views slot is read this frame (0 or 1).
@@ -167,6 +187,7 @@ impl App {
             gtao: None,
             blur: None,
             composite: None,
+            volumetric: None,
             prev_view_proj: glam::Mat4::IDENTITY,
             taa_history_idx: 0,
             frame_index: 0,
@@ -474,6 +495,11 @@ impl App {
                             c.swap_shader(&gpu.device, &source);
                         }
                     }
+                    "volumetric" => {
+                        if let Some(v) = self.volumetric.as_mut() {
+                            v.swap_shader(&gpu.device, &source);
+                        }
+                    }
                     // outline has no swap_shader yet; restart to pick it up.
                     _ => {}
                 }
@@ -687,7 +713,41 @@ impl App {
             blur.prepare(&gpu.queue, [hw as f32, hh as f32, GTAO_BLUR_DEPTH_SIGMA, 0.0]);
         }
         if let Some(composite) = self.composite.as_ref() {
-            composite.set_debug(&gpu.queue, self.gtao_debug);
+            use crate::render::volumetric::{VOL_D, VOL_FAR, VOL_NEAR};
+            composite.prepare(
+                &gpu.queue,
+                &crate::render::gtao::CompUniform {
+                    flags: [if self.gtao_debug { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+                    inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
+                    camera: [self.camera.position.x, self.camera.position.y, self.camera.position.z, 0.0],
+                    vol_params: [VOL_NEAR, VOL_FAR, VOL_D as f32, 0.0],
+                },
+            );
+        }
+
+        // Volumetric froxel grid: world-space, so it uses the UNJITTERED VP
+        // (the grid stays jitter-free like the sky/aerial LUTs; the composite
+        // pass samples it with jittered depth for the per-pixel world position).
+        if let Some(vol) = self.volumetric.as_ref() {
+            let sky = self.day.sky_color();
+            vol.prepare(
+                &gpu.queue,
+                &crate::render::volumetric::VolUniform {
+                    inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+                    prev_view_proj: self.prev_view_proj.to_cols_array_2d(),
+                    camera: [
+                        self.camera.position.x,
+                        self.camera.position.y,
+                        self.camera.position.z,
+                        self.frame_index as f32,
+                    ],
+                    sun: [light_dir.x, light_dir.y, light_dir.z, if light_is_sun { 1.0 } else { 0.0 }],
+                    sun_color: [light_color.x, light_color.y, light_color.z, 0.0],
+                    sky: [sky.x, sky.y, sky.z, self.taa_valid],
+                    fog: [VOL_DENSITY, VOL_HAZE, VOL_FOG_Y0, VOL_FOG_H],
+                    tune: [VOL_ABSORB, VOL_HG_G, VOL_AMBIENT, VOL_TAA_ALPHA],
+                },
+            );
         }
 
         let Some(frame) = gpu.acquire() else {
@@ -773,6 +833,13 @@ impl App {
         // Blur: depth-aware bilateral blur of raw AO (untimed, shares GTAO budget).
         if let (Some(blur), Some(targets)) = (self.blur.as_ref(), self.targets.as_ref()) {
             blur.encode(&mut encoder, &targets.ao_blur_view, None);
+        }
+
+        // Volumetric froxel grid: in-scatter (CSM god rays + height fog) then
+        // front-to-back integrate. Composite samples the integrated grid next.
+        let vol_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_VOLUMETRIC));
+        if let Some(vol) = self.volumetric.as_ref() {
+            vol.encode(&mut encoder, vol_writes);
         }
 
         // Composite: apply blurred AO to the HDR ambient term; TAA reads composited_view.
@@ -980,6 +1047,7 @@ impl ApplicationHandler for App {
         shaders.watch("gtao", shader_path("gtao.wgsl"));
         shaders.watch("gtao_blur", shader_path("gtao_blur.wgsl"));
         shaders.watch("composite", shader_path("composite.wgsl"));
+        shaders.watch("volumetric", shader_path("volumetric.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -1002,6 +1070,19 @@ impl ApplicationHandler for App {
         // Wire shadow resources into terrain group 2 (after both exist).
         if let (Some(terrain), Some(shadow)) = (self.terrain.as_mut(), self.shadow.as_ref()) {
             terrain.attach_shadow(&gpu.device, shadow.uniform_buffer(), shadow.array_view());
+        }
+
+        // Volumetric froxel grid: samples the CSM for god rays. Owns its own
+        // fixed-size 3D textures (resize never touches them), like the sky LUTs.
+        let volumetric_src = std::fs::read_to_string(shader_path("volumetric.wgsl"))
+            .expect("volumetric.wgsl missing");
+        if let Some(shadow) = self.shadow.as_ref() {
+            self.volumetric = Some(crate::render::volumetric::VolumetricPass::new(
+                &gpu.device,
+                shadow.uniform_buffer(),
+                shadow.array_view(),
+                &volumetric_src,
+            ));
         }
 
         let outline_src =
@@ -1071,11 +1152,14 @@ impl ApplicationHandler for App {
 
         let composite_src =
             std::fs::read_to_string(shader_path("composite.wgsl")).expect("composite.wgsl missing");
+        let froxel_view = self.volumetric.as_ref().unwrap().integrated_view();
         self.composite = Some(crate::render::gtao::CompositePass::new(
             &gpu.device,
             &targets.hdr_view,
             &targets.gbuf_view,
             &targets.ao_blur_view,
+            froxel_view,
+            depth_sample_view_ref,
             &composite_src,
         ));
 
@@ -1158,14 +1242,19 @@ impl ApplicationHandler for App {
                     {
                         blur.rebuild_bind_group(&gpu.device, &targets.ao_raw_view, depth_sv);
                     }
-                    if let (Some(composite), Some(targets)) =
-                        (self.composite.as_mut(), self.targets.as_ref())
-                    {
+                    if let (Some(composite), Some(targets), Some(vol), Some(depth_sv)) = (
+                        self.composite.as_mut(),
+                        self.targets.as_ref(),
+                        self.volumetric.as_ref(),
+                        self.depth_sample_view.as_ref(),
+                    ) {
                         composite.rebuild_bind_group(
                             &gpu.device,
                             &targets.hdr_view,
                             &targets.gbuf_view,
                             &targets.ao_blur_view,
+                            vol.integrated_view(),
+                            depth_sv,
                         );
                     }
                     if let (Some(bloom), Some(targets)) =

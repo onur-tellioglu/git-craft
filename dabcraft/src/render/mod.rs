@@ -17,3 +17,4 @@ pub mod targets;
 pub mod terrain;
 pub mod timestamps;
 pub mod visibility;
+pub mod volumetric;

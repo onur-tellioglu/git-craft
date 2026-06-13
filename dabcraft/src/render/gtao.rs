@@ -381,11 +381,19 @@ impl BlurPass {
     }
 }
 
-/// Uniform for the composite pass. Controls debug visualization modes.
+/// Uniform for the composite pass: debug flags + the volumetric reconstruction
+/// data (jittered inv_view_proj, camera, froxel slice params). 112 B.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct CompUniform {
-    pub flags: [f32; 4], // x: 1.0 = AO debug view, yzw reserved
+    /// x: AO debug view, y: volumetric in-scatter debug view, zw reserved.
+    pub flags: [f32; 4],
+    /// Jittered inv_view_proj (matches the depth buffer) for view-dist reconstruction.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// xyz world camera pos.
+    pub camera: [f32; 4],
+    /// x VOL_NEAR, y VOL_FAR, z VOL_D (froxel slice mapping); w unused.
+    pub vol_params: [f32; 4],
 }
 
 /// Composites AO onto the HDR ambient term, writing a full-res composited target.
@@ -399,11 +407,14 @@ pub struct CompositePass {
 }
 
 impl CompositePass {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &wgpu::Device,
         hdr_view: &wgpu::TextureView,
         gbuf_view: &wgpu::TextureView,
         ao_blur_view: &wgpu::TextureView,
+        froxel_view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
         shader_source: &str,
     ) -> Self {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -449,7 +460,7 @@ impl CompositePass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                // 4: debug flags uniform
+                // 4: debug flags + volumetric reconstruction uniform
                 wgpu::BindGroupLayoutEntry {
                     binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -457,6 +468,28 @@ impl CompositePass {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // 5: integrated froxel grid (3D, bilinear sampled for the fog slice)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // 6: scene depth (DepthOnly view bound as float; textureLoad'd)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
                     count: None,
                 },
@@ -484,6 +517,8 @@ impl CompositePass {
             hdr_view,
             gbuf_view,
             ao_blur_view,
+            froxel_view,
+            depth_view,
             &sampler,
             &uniform,
         );
@@ -491,12 +526,15 @@ impl CompositePass {
         Self { pipeline, layout, bind_group, sampler, uniform }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn build_bind_group(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         hdr_view: &wgpu::TextureView,
         gbuf_view: &wgpu::TextureView,
         ao_blur_view: &wgpu::TextureView,
+        froxel_view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         uniform: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
@@ -521,6 +559,14 @@ impl CompositePass {
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
                 wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(froxel_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(depth_view),
+                },
             ],
         })
     }
@@ -566,12 +612,15 @@ impl CompositePass {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn rebuild_bind_group(
         &mut self,
         device: &wgpu::Device,
         hdr_view: &wgpu::TextureView,
         gbuf_view: &wgpu::TextureView,
         ao_blur_view: &wgpu::TextureView,
+        froxel_view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
     ) {
         self.bind_group = Self::build_bind_group(
             device,
@@ -579,15 +628,17 @@ impl CompositePass {
             hdr_view,
             gbuf_view,
             ao_blur_view,
+            froxel_view,
+            depth_view,
             &self.sampler,
             &self.uniform,
         );
     }
 
-    /// Write the debug flag to the GPU uniform. Call once per frame before encode.
-    pub fn set_debug(&self, queue: &wgpu::Queue, on: bool) {
-        let u = CompUniform { flags: [if on { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0] };
-        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&u));
+    /// Write the full composite uniform (debug flags + volumetric reconstruction
+    /// data). Call once per frame before encode.
+    pub fn prepare(&self, queue: &wgpu::Queue, u: &CompUniform) {
+        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(u));
     }
 
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
@@ -644,7 +695,10 @@ mod tests {
     }
 
     #[test]
-    fn comp_uniform_is_16_bytes() {
-        assert_eq!(std::mem::size_of::<CompUniform>(), 16);
+    fn comp_uniform_is_112_bytes() {
+        assert_eq!(std::mem::size_of::<CompUniform>(), 112);
+        assert_eq!(std::mem::offset_of!(CompUniform, inv_view_proj), 16);
+        assert_eq!(std::mem::offset_of!(CompUniform, camera), 80);
+        assert_eq!(std::mem::offset_of!(CompUniform, vol_params), 96);
     }
 }
