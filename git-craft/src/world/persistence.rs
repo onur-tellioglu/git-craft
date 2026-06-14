@@ -20,7 +20,7 @@ use crate::world::light::{LightData, light_new_column};
 use crate::world::region::{RegionStore, deserialize_column, serialize_column};
 use crate::world::section::Section;
 
-/// A finished load, drained by the main loop.
+/// A finished load or save acknowledgement, drained by the main loop.
 pub enum Loaded {
     Column {
         pos: ColumnPos,
@@ -29,6 +29,12 @@ pub enum Loaded {
     },
     /// Disk error or corrupt payload — the caller regenerates instead.
     Failed { pos: ColumnPos },
+    /// The worker successfully wrote the column to disk. The caller may now
+    /// move the column into `saved_columns`.
+    SaveOk { pos: ColumnPos },
+    /// The worker failed to write the column (disk full, permission error, …).
+    /// The caller should log a visible error and not mark the column as saved.
+    SaveFailed { pos: ColumnPos },
 }
 
 enum Req {
@@ -80,11 +86,18 @@ impl Persistence {
         let _ = self.tx.send(Req::Save(pos, sections));
     }
 
-    /// Non-blocking: every load finished since the last call.
+    /// Non-blocking: every finished load or save acknowledgement since the
+    /// last call. Only load results count against `load_in_flight`; save acks
+    /// (`SaveOk` / `SaveFailed`) do not.
     pub fn drain_loaded(&mut self) -> Vec<Loaded> {
         let mut out = Vec::new();
         while let Ok(r) = self.rx.try_recv() {
-            self.load_in_flight = self.load_in_flight.saturating_sub(1);
+            match &r {
+                Loaded::Column { .. } | Loaded::Failed { .. } => {
+                    self.load_in_flight = self.load_in_flight.saturating_sub(1);
+                }
+                Loaded::SaveOk { .. } | Loaded::SaveFailed { .. } => {}
+            }
             out.push(r);
         }
         out
@@ -119,9 +132,14 @@ fn worker(store: RegionStore, req_rx: Receiver<Req>, res_tx: Sender<Loaded>) {
                 let _ = res_tx.send(loaded);
             }
             Req::Save(pos, sections) => {
-                if let Err(e) = store.save_column(pos, serialize_column(&sections)) {
-                    log::warn!("failed to save column {pos:?}: {e}");
-                }
+                let ack = match store.save_column(pos, serialize_column(&sections)) {
+                    Ok(()) => Loaded::SaveOk { pos },
+                    Err(e) => {
+                        log::error!("failed to save column {pos:?}: {e}");
+                        Loaded::SaveFailed { pos }
+                    }
+                };
+                let _ = res_tx.send(ack);
             }
             Req::Shutdown => break,
         }
@@ -140,16 +158,22 @@ mod tests {
         dir
     }
 
-    /// Block on the worker for one finished load (~5 s budget), like the
-    /// `jobs` test polls its channel.
+    /// Block on the worker for one finished *load* result (~5 s budget).
+    /// Save acknowledgements (SaveOk / SaveFailed) are drained but skipped
+    /// so tests that mix saves and loads get the load result they expect.
     fn poll_one(p: &mut Persistence) -> Loaded {
         for _ in 0..500 {
-            if let Some(first) = p.drain_loaded().into_iter().next() {
-                return first;
+            for item in p.drain_loaded() {
+                match item {
+                    Loaded::SaveOk { .. } | Loaded::SaveFailed { .. } => {
+                        // skip save acks; keep polling for the load result
+                    }
+                    other => return other,
+                }
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-        panic!("worker produced no result within the time budget");
+        panic!("worker produced no load result within the time budget");
     }
 
     #[test]
@@ -181,6 +205,10 @@ mod tests {
                 assert_eq!(data.sections[1].get(1, 2, 3), STONE);
             }
             Loaded::Failed { .. } => panic!("expected a loaded column, got Failed"),
+            // poll_one skips save acks; these arms are unreachable in practice.
+            Loaded::SaveOk { .. } | Loaded::SaveFailed { .. } => {
+                unreachable!("poll_one filters out save acks")
+            }
         }
         assert_eq!(p.load_in_flight, 0);
         p.shutdown();
@@ -285,6 +313,10 @@ mod tests {
                 assert_eq!(data.sections[3].get(7, 8, 9), STONE, "edit must survive");
             }
             Loaded::Failed { .. } => panic!("expected the reopened column to load"),
+            // poll_one skips save acks; these arms are unreachable in practice.
+            Loaded::SaveOk { .. } | Loaded::SaveFailed { .. } => {
+                unreachable!("poll_one filters out save acks")
+            }
         }
         p.shutdown();
     }
