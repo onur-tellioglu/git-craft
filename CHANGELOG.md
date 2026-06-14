@@ -4,24 +4,15 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-While the project is on `0.x`, breaking changes may occur between minor versions.
+While the project is on `0.x`, breaking changes may occur between minor versions. The
+minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to milestone M5);
+`1.0` lands once the planned milestones are complete.
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-06-14
+## [0.5.0] - 2026-06-14
 
-### Added
-
-- Open-source release: dual MIT/Apache-2.0 license, README, VISION, CONTRIBUTING,
-  CODE_OF_CONDUCT, SECURITY, AGENTS guide, issue/PR templates, and CI.
-
-### Fixed
-
-- Shader loading resolves `assets/shaders` relative to the executable, so a shipped
-  binary with `assets/` bundled alongside runs outside the build tree. The compile-time
-  `CARGO_MANIFEST_DIR` path stays the preferred dev/hot-reload location.
-
-## [0.1.0] - 2026-06-14
+First public release, at milestone M5 (the full shader ladder).
 
 ### Added
 
@@ -32,3 +23,11 @@ While the project is on `0.x`, breaking changes may occur between minor versions
 - Water: transparent refraction with screen-space reflections and a sky-LUT fallback.
 - Performance tooling: F3 debug HUD with per-pass GPU timestamps, render-scale safety
   valve, `--bench` percentile reporting.
+- Open-source release: dual MIT/Apache-2.0 license, README, VISION, CONTRIBUTING,
+  CODE_OF_CONDUCT, SECURITY, AGENTS guide, issue/PR templates, and CI.
+
+### Fixed
+
+- Shader loading resolves `assets/shaders` relative to the executable, so a shipped
+  binary with `assets/` bundled alongside runs outside the build tree. The compile-time
+  `CARGO_MANIFEST_DIR` path stays the preferred dev/hot-reload location.
