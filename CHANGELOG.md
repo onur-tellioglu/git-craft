@@ -10,6 +10,10 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-14
+
+Milestone M6: region persistence, procedural material textures, and a measurable --bench harness.
+
 ### Added
 
 - `--bench` performance harness (M6a): a deterministic fixed-vantage flythrough at the
@@ -47,12 +51,12 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 - Save errors on column eviction were silently treated as success: the worker now sends
   `SaveOk`/`SaveFailed` acknowledgements over the result channel, and `saved_columns` is
   only updated once the worker confirms the write.
-- `Persistence` field is now `Option<Persistence>` so bench mode (M6a) can pass `None`
-  without region files polluting benchmark reproducibility.
-- Normal mapping no longer leaks diffuse/specular light onto geometrically back-facing surfaces
-  (dark side of walls near the sun terminator was incorrectly lit). A geometric back-face guard
-  (`ndotl_geo = dot(geo_normal, sun)`) now gates the entire direct + specular contribution so
-  back faces receive only ambient light.
+- Persistence worker is now disabled in `--bench` mode so benchmark flights do not write
+  to `saves/region/` and skew reproducibility.
+- Normal mapping no longer leaks diffuse/specular light onto geometrically back-facing
+  surfaces (dark side of walls near the sun terminator was incorrectly lit). A geometric
+  back-face guard (`ndotl_geo = dot(geo_normal, sun)`) now gates the entire direct +
+  specular contribution so back faces receive only ambient light.
 
 ### Changed
 
