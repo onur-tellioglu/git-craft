@@ -8,6 +8,8 @@ While the project is on `0.x`, breaking changes may occur between minor versions
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-14
+
 ### Added
 
 - Open-source release: dual MIT/Apache-2.0 license, README, VISION, CONTRIBUTING,
