@@ -9,7 +9,10 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    pub fn new(instance: &wgpu::Instance, window: Arc<Window>) -> Self {
+    /// `prefer_uncapped` (bench mode) selects `Immediate` present when the
+    /// surface offers it, so frame-to-frame timing reflects render cost rather
+    /// than the display's vsync cadence; it falls back to `Fifo` otherwise.
+    pub fn new(instance: &wgpu::Instance, window: Arc<Window>, prefer_uncapped: bool) -> Self {
         let size = window.inner_size();
         let surface = instance.create_surface(window).unwrap();
 
@@ -56,12 +59,21 @@ impl Gpu {
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
 
+        // Fifo is the universal default (Mailbox panics on Metal). Bench mode
+        // prefers Immediate to uncap frame pacing when the surface supports it.
+        let present_mode =
+            if prefer_uncapped && caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
+                wgpu::PresentMode::Immediate
+            } else {
+                wgpu::PresentMode::Fifo
+            };
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::Fifo, // Mailbox panics on Metal
+            present_mode,
             desired_maximum_frame_latency: 2,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],

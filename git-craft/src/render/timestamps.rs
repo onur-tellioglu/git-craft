@@ -72,6 +72,13 @@ impl GpuTimer {
         self.labels
     }
 
+    /// Returns true when TIMESTAMP_QUERY is available and the query set was
+    /// successfully created. This is the canonical ground truth for whether GPU
+    /// timestamps are enabled — prefer it over heuristics like `total_ms() > 0`.
+    pub fn timestamps_enabled(&self) -> bool {
+        self.query_set.is_some()
+    }
+
     pub fn total_ms(&self) -> f32 {
         self.pass_ms.iter().sum()
     }

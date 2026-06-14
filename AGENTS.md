@@ -15,7 +15,8 @@ visuals at a 384-block render distance / 120 fps on Apple M4. Single binary crat
 ```bash
 cd git-craft
 cargo run --release                          # play (release only — debug is too slow)
-cargo run --release -- --bench               # benchmark; prints frame-time percentiles
+cargo run --release -- --bench               # benchmark: fixed-route flythrough, frame-time/GPU percentiles + 120fps verdict
+cargo run --release -- --bench --bench-frames 300  # ... recording a custom number of frames (default 600)
 cargo test                                   # unit tests for the engine core
 cargo clippy --all-targets -- -D warnings    # lints (must be clean)
 cargo fmt                                     # format (CI checks with --check)
