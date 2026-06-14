@@ -1,15 +1,15 @@
 ---
-title: dabcraft M5d — Reflective/refractive water (SSR)
+title: git-craft M5d — Reflective/refractive water (SSR)
 date: 2026-06-13
 domain: render-layer
 type: enhancement
 priority: high
 breaking: false
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
-touched-files: [dabcraft/src/mesh/greedy.rs, dabcraft/src/world/jobs.rs, dabcraft/src/render/terrain.rs, dabcraft/src/render/water.rs, dabcraft/src/render/targets.rs, dabcraft/src/app.rs, dabcraft/assets/shaders/water.wgsl]
+touched-files: [git-craft/src/mesh/greedy.rs, git-craft/src/world/jobs.rs, git-craft/src/render/terrain.rs, git-craft/src/render/water.rs, git-craft/src/render/targets.rs, git-craft/src/app.rs, git-craft/assets/shaders/water.wgsl]
 ---
 
-# dabcraft M5d — Water SSR Implementation Plan
+# git-craft M5d — Water SSR Implementation Plan
 
 **Goal:** The final M5 ladder rung — turn water from an opaque blue solid into a transparent surface with **refraction** (the seafloor seen through the surface), **reflection** (screen-space ray-marched terrain reflections with a sky-view LUT fallback), **fresnel** blend, and depth-based water fog. Rendered in a dedicated transparent pass after the opaque/composited scene, fed through TAA.
 
@@ -25,7 +25,7 @@ touched-files: [dabcraft/src/mesh/greedy.rs, dabcraft/src/world/jobs.rs, dabcraf
 
 **Validation:** mesher split is unit-tested (water separated; seafloor emitted; existing tests intact); rendering via F3 HUD timers + visual. Gates: `cargo test` + `cargo clippy --all-targets -D warnings`.
 
-**Environment:** `export PATH="$HOME/.cargo/bin:$PATH"`; `--manifest-path dabcraft/Cargo.toml`; branch `feat/m5-shaders` (no merge to main this rung); no git remote.
+**Environment:** `export PATH="$HOME/.cargo/bin:$PATH"`; `--manifest-path git-craft/Cargo.toml`; branch `feat/m5-shaders` (no merge to main this rung); no git remote.
 
 ---
 

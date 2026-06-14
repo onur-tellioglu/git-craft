@@ -1,5 +1,5 @@
 ---
-title: dabcraft M5a — Shader Ladder Core (HDR, CSM, Hillaire Sky, Bloom + ACES)
+title: git-craft M5a — Shader Ladder Core (HDR, CSM, Hillaire Sky, Bloom + ACES)
 date: 2026-06-12
 domain: world-layer
 type: enhancement
@@ -10,30 +10,30 @@ rls-affecting: false
 slice: 5
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
 touched-files:
-  - dabcraft/src/render/timestamps.rs
-  - dabcraft/src/render/targets.rs
-  - dabcraft/src/render/post.rs
-  - dabcraft/src/render/shadow.rs
-  - dabcraft/src/render/atmosphere.rs
-  - dabcraft/src/render/bloom.rs
-  - dabcraft/src/render/exposure.rs
-  - dabcraft/src/render/terrain.rs
-  - dabcraft/src/render/outline.rs
-  - dabcraft/src/render/hot_reload.rs
-  - dabcraft/src/render/mod.rs
-  - dabcraft/src/app.rs
-  - dabcraft/assets/shaders/terrain.wgsl
-  - dabcraft/assets/shaders/post.wgsl
-  - dabcraft/assets/shaders/shadow.wgsl
-  - dabcraft/assets/shaders/sky_luts.wgsl
-  - dabcraft/assets/shaders/sky.wgsl
-  - dabcraft/assets/shaders/bloom.wgsl
-  - dabcraft/assets/shaders/exposure.wgsl
+  - git-craft/src/render/timestamps.rs
+  - git-craft/src/render/targets.rs
+  - git-craft/src/render/post.rs
+  - git-craft/src/render/shadow.rs
+  - git-craft/src/render/atmosphere.rs
+  - git-craft/src/render/bloom.rs
+  - git-craft/src/render/exposure.rs
+  - git-craft/src/render/terrain.rs
+  - git-craft/src/render/outline.rs
+  - git-craft/src/render/hot_reload.rs
+  - git-craft/src/render/mod.rs
+  - git-craft/src/app.rs
+  - git-craft/assets/shaders/terrain.wgsl
+  - git-craft/assets/shaders/post.wgsl
+  - git-craft/assets/shaders/shadow.wgsl
+  - git-craft/assets/shaders/sky_luts.wgsl
+  - git-craft/assets/shaders/sky.wgsl
+  - git-craft/assets/shaders/bloom.wgsl
+  - git-craft/assets/shaders/exposure.wgsl
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M5a — Shader Ladder Core Implementation Plan
+# git-craft M5a — Shader Ladder Core Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -51,13 +51,13 @@ shared-modules-touched: []
 
 **Commit granularity:** the spec says "one rung per commit"; M4 shipped 13 commits and the subagent workflow amends per task. Resolution: commit per task (as in M1–M4); each commit message carries its rung in the subject suffix (`… (m5 rung N)`), and the last task of a rung states the rung is complete. The rung ordering itself is strict — a rung's tasks all land before the next rung starts.
 
-**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root (`~/Github/Minecraft`) with `--manifest-path dabcraft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill. `cargo fmt` is NOT a gate (waived deliberately; codebase is not rustfmt-formatted). Quality gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`.
+**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root (`~/Github/Minecraft`) with `--manifest-path git-craft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill. `cargo fmt` is NOT a gate (waived deliberately; codebase is not rustfmt-formatted). Quality gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`.
 
 ---
 
 ## Context primer (read before Task 1)
 
-Key existing code you will build on (all paths under `dabcraft/`):
+Key existing code you will build on (all paths under `git-craft/`):
 
 - `render/terrain.rs` — `TerrainRenderer`: vertex-pulled quads from a storage-buffer arena (`quads` group 1: binding 0 quad array, binding 1 per-section origins), one `draw_indexed_indirect` per visible section (slot rides in `first_instance`), `FrameUniform { view_proj, sky, sun }` at group 0 binding 0 (96 bytes, layout-asserted by test `frame_uniform_layout_matches_wgsl`). `prepare()` frustum-culls and writes indirect args; `draw()` replays them. `swap_shader()` rebuilds the pipeline for hot-reload. **You will extend FrameUniform once (Task 5, final 208-byte layout) and add bind groups 2 (shadow) and 3 (aerial LUT).**
 - `assets/shaders/terrain.wgsl` — all lighting currently per-vertex (`vs_main` computes final color). The `PALETTE` const table is parsed by the Rust test `block.rs::colors_match_the_shader_palette` — **keep the table text intact** when rewriting the shader.
@@ -78,10 +78,10 @@ Commands:
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --manifest-path dabcraft/Cargo.toml                  # all tests
-cargo test --manifest-path dabcraft/Cargo.toml shadow::         # one module
-cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml         # play (debug too slow)
+cargo test --manifest-path git-craft/Cargo.toml                  # all tests
+cargo test --manifest-path git-craft/Cargo.toml shadow::         # one module
+cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml         # play (debug too slow)
 ```
 
 ## File structure
@@ -123,8 +123,8 @@ cargo run --release --manifest-path dabcraft/Cargo.toml         # play (debug to
 ### Task 1: Multi-pass GPU timer (rung 0)
 
 **Files:**
-- Rewrite: `dabcraft/src/render/timestamps.rs`
-- Modify: `dabcraft/src/app.rs` (timer construction, pass writes, HUD)
+- Rewrite: `git-craft/src/render/timestamps.rs`
+- Modify: `git-craft/src/app.rs` (timer construction, pass writes, HUD)
 
 The M1 `GpuTimer` measures exactly one render pass. M5 needs one timing slot per pass (spec §8: per-pass GPU times in the HUD). Keep the proven async-readback skeleton (pending gate, map_done/map_ok atomics, invalid-sample guard); generalize to N labeled slots, 2 queries each.
 
@@ -170,7 +170,7 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml timestamps::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml timestamps::`
 Expected: FAIL — `pass_millis` not found.
 
 - [ ] **Step 4: Rewrite `timestamps.rs`**
@@ -404,13 +404,13 @@ for (label, ms) in &pass_ms {
 
 - [ ] **Step 6: Run tests and clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: all tests PASS (3 new in `timestamps::tests`), clippy clean.
 
 - [ ] **Step 7: Smoke-run**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 20 && kill $APP_PID
 ```
 Expected: window opens, HUD shows `main` pass time ≈ previous GPU ms reading, no panics in the log.
@@ -418,7 +418,7 @@ Expected: window opens, HUD shows `main` pass time ≈ previous GPU ms reading, 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src/render/timestamps.rs dabcraft/src/app.rs
+git add git-craft/src/render/timestamps.rs git-craft/src/app.rs
 git commit -m "feat: time GPU passes with a labeled multi-pass timer (m5 rung 0)"
 ```
 
@@ -427,11 +427,11 @@ git commit -m "feat: time GPU passes with a labeled multi-pass timer (m5 rung 0)
 ### Task 2: HDR offscreen target + post pass + multi-shader hot-reload (completes rung 0)
 
 **Files:**
-- Create: `dabcraft/src/render/targets.rs`
-- Create: `dabcraft/src/render/post.rs`
-- Create: `dabcraft/assets/shaders/post.wgsl`
-- Modify: `dabcraft/src/render/hot_reload.rs` (ShaderSet + glob test)
-- Modify: `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/targets.rs`
+- Create: `git-craft/src/render/post.rs`
+- Create: `git-craft/assets/shaders/post.wgsl`
+- Modify: `git-craft/src/render/hot_reload.rs` (ShaderSet + glob test)
+- Modify: `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 The main pass stops rendering to the swapchain: terrain + outline draw into an RGBA16F HDR texture, and a new post pass blits it to the swapchain with a fullscreen triangle (the rung-3 tonemap lands in this same shader later). The swapchain format is sRGB, so the post shader outputs linear and the hardware encodes. Hot-reload generalizes from one hardcoded watcher to a named set.
 
@@ -461,7 +461,7 @@ In `hot_reload.rs` tests, REPLACE `shipped_terrain_shader_is_valid` with a glob 
 
 - [ ] **Step 2: Run tests to verify the failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml hot_reload::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml hot_reload::`
 Expected: FAIL — `checked` is 2 (post.wgsl doesn't exist yet).
 
 - [ ] **Step 3: Create `assets/shaders/post.wgsl`**
@@ -811,13 +811,13 @@ if let (Some(post), Some(targets)) = (self.post.as_mut(), self.targets.as_ref())
 
 - [ ] **Step 9: Run tests and clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS, including `all_shipped_shaders_are_valid` (3 shaders found).
 
 - [ ] **Step 10: Smoke-run**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 20 && kill $APP_PID
 ```
 Expected: image identical to before (blit is a no-op visually), HUD now lists `main` and `post` pass times. Resize the window during the run — no crash, image stays correct.
@@ -825,8 +825,8 @@ Expected: image identical to before (blit is a no-op visually), HUD now lists `m
 - [ ] **Step 11: Commit (rung 0 complete)**
 
 ```bash
-git add dabcraft/src/render/targets.rs dabcraft/src/render/post.rs dabcraft/assets/shaders/post.wgsl \
-        dabcraft/src/render/hot_reload.rs dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/targets.rs git-craft/src/render/post.rs git-craft/assets/shaders/post.wgsl \
+        git-craft/src/render/hot_reload.rs git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: render through an HDR offscreen target with a post pass (m5 rung 0)"
 ```
 
@@ -835,8 +835,8 @@ git commit -m "feat: render through an HDR offscreen target with a post pass (m5
 ### Task 3: Cascade split and light-matrix math (rung 1)
 
 **Files:**
-- Create: `dabcraft/src/render/shadow.rs` (pure math half; the GPU half is Task 4)
-- Modify: `dabcraft/src/render/mod.rs`
+- Create: `git-craft/src/render/shadow.rs` (pure math half; the GPU half is Task 4)
+- Modify: `git-craft/src/render/mod.rs`
 
 Pure functions, TDD. Fitting strategy: each cascade wraps its frustum slice's bounding **sphere** (radius is rotation-invariant, so the ortho box never changes size as the camera turns), and the light matrix's XY translation is snapped to shadow-map texels (so a moving camera doesn't make shadow edges shimmer). Light-space up is `Vec3::Z` — safe because `DayCycle::sun_dir()` always carries a fixed +Z tilt (≈0.119 after normalize) and is therefore never parallel to ±Z, for the moon (`-sun_dir`) too.
 
@@ -954,7 +954,7 @@ Register the module: add `pub mod shadow;` to `src/render/mod.rs`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml shadow::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml shadow::`
 Expected: FAIL — none of the functions exist.
 
 - [ ] **Step 3: Implement the math**
@@ -1055,13 +1055,13 @@ pub fn cascade_due(frame: u64, cascade: usize) -> bool {
 
 - [ ] **Step 4: Run tests and clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml shadow:: && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml shadow:: && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: 7 tests PASS, clippy clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/src/render/shadow.rs dabcraft/src/render/mod.rs
+git add git-craft/src/render/shadow.rs git-craft/src/render/mod.rs
 git commit -m "feat: add CSM split and texel-snapped light-matrix fitting (m5 rung 1)"
 ```
 
@@ -1070,10 +1070,10 @@ git commit -m "feat: add CSM split and texel-snapped light-matrix fitting (m5 ru
 ### Task 4: Shadow map renderer — three cascaded depth passes (rung 1)
 
 **Files:**
-- Modify: `dabcraft/src/render/shadow.rs` (GPU half)
-- Create: `dabcraft/assets/shaders/shadow.wgsl`
-- Modify: `dabcraft/src/render/terrain.rs` (accessors + shadow indirect-args helper)
-- Modify: `dabcraft/src/app.rs`
+- Modify: `git-craft/src/render/shadow.rs` (GPU half)
+- Create: `git-craft/assets/shaders/shadow.wgsl`
+- Modify: `git-craft/src/render/terrain.rs` (accessors + shadow indirect-args helper)
+- Modify: `git-craft/src/app.rs`
 
 The cascades render into a 3-layer 2048² `Depth32Float` array via a depth-only pipeline that reuses the terrain's quad/section storage buffers (group 1) with a per-cascade matrix in a dynamic-offset uniform (group 0). Terrain doesn't sample them until Task 5 — this task lands the passes and their HUD timings. Critical invariant: **a cascade's uniform matrix and its rendered depth content must always match**, so skipped (cadenced) cascades keep their cached `CascadeFit` and the terrain-facing uniform is written from the cache every frame.
 
@@ -1091,7 +1091,7 @@ Append to `shadow.rs` tests:
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml shadow::` — FAIL (no `ShadowUniform`).
+Run: `cargo test --manifest-path git-craft/Cargo.toml shadow::` — FAIL (no `ShadowUniform`).
 
 - [ ] **Step 2: Create `assets/shaders/shadow.wgsl`**
 
@@ -1551,13 +1551,13 @@ if let (Some(shadow), Some(terrain)) = (self.shadow.as_mut(), self.terrain.as_re
 
 - [ ] **Step 6: Run tests and clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS (including the new `shadow_uniform_layout_matches_wgsl` and the shader glob test now covering `shadow.wgsl`), clippy clean.
 
 - [ ] **Step 7: Smoke-run**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 20 && kill $APP_PID
 ```
 Expected: image unchanged (nothing samples the maps yet); HUD shows `shadow0` every frame and `shadow1`/`shadow2` ticking at their cadence; combined shadow time in the ~1 ms ballpark (spec budget 1.2 ms).
@@ -1565,8 +1565,8 @@ Expected: image unchanged (nothing samples the maps yet); HUD shows `shadow0` ev
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src/render/shadow.rs dabcraft/assets/shaders/shadow.wgsl \
-        dabcraft/src/render/terrain.rs dabcraft/src/app.rs
+git add git-craft/src/render/shadow.rs git-craft/assets/shaders/shadow.wgsl \
+        git-craft/src/render/terrain.rs git-craft/src/app.rs
 git commit -m "feat: render three cadenced shadow-cascade depth passes (m5 rung 1)"
 ```
 
@@ -1575,9 +1575,9 @@ git commit -m "feat: render three cadenced shadow-cascade depth passes (m5 rung 
 ### Task 5: Per-fragment terrain lighting with PCF shadows (completes rung 1)
 
 **Files:**
-- Modify: `dabcraft/src/render/terrain.rs` (FrameUniform v2, shadow bind group, FrameParams)
-- Rewrite: `dabcraft/assets/shaders/terrain.wgsl`
-- Modify: `dabcraft/src/app.rs`
+- Modify: `git-craft/src/render/terrain.rs` (FrameUniform v2, shadow bind group, FrameParams)
+- Rewrite: `git-craft/assets/shaders/terrain.wgsl`
+- Modify: `git-craft/src/app.rs`
 
 Terrain lighting moves from the vertex to the fragment stage and becomes the spec §6 model: `albedo · (direct·min(shadow, skylightGuard) + ambient + torch)`. The `FrameUniform` is extended ONCE to its final M5a layout (208 bytes — includes the `inv_view_proj`/`camera`/`params` fields that Tasks 7–9 consume, so the struct never churns again). **Keep the `PALETTE` table text byte-identical** — `block.rs::colors_match_the_shader_palette` parses it.
 
@@ -1599,7 +1599,7 @@ Replace `frame_uniform_layout_matches_wgsl` in `terrain.rs`:
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml terrain::` — FAIL.
+Run: `cargo test --manifest-path git-craft/Cargo.toml terrain::` — FAIL.
 
 - [ ] **Step 2: Extend `FrameUniform` and add `FrameParams`**
 
@@ -1947,13 +1947,13 @@ if let (Some(terrain), Some(shadow)) = (self.terrain.as_mut(), self.shadow.as_re
 
 - [ ] **Step 6: Run tests and clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS — including `block.rs::colors_match_the_shader_palette` (palette text unchanged) and the WGSL glob test on the rewritten terrain shader.
 
 - [ ] **Step 7: Smoke-run and visual check**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected (eyeball + HUD): terrain casts real shadows (trees onto ground, mountains across valleys); shadow edges are soft (PCF) and don't crawl when moving; caves stay pitch dark at noon (guard); no acne on flat sunlit ground; `main` pass time roughly unchanged, `shadow*` ≈ 1 ms combined. Walk to a shadow boundary at dawn/dusk — no flicker between cascades.
@@ -1961,7 +1961,7 @@ Expected (eyeball + HUD): terrain casts real shadows (trees onto ground, mountai
 - [ ] **Step 8: Commit (rung 1 complete)**
 
 ```bash
-git add dabcraft/src/render/terrain.rs dabcraft/assets/shaders/terrain.wgsl dabcraft/src/app.rs
+git add git-craft/src/render/terrain.rs git-craft/assets/shaders/terrain.wgsl git-craft/src/app.rs
 git commit -m "feat: light terrain per-fragment with PCF cascaded shadows (m5 rung 1)"
 ```
 
@@ -1970,8 +1970,8 @@ git commit -m "feat: light terrain per-fragment with PCF cascaded shadows (m5 ru
 ### Task 6: CPU atmosphere — transmittance and sun/moon light color (rung 2)
 
 **Files:**
-- Create: `dabcraft/src/render/atmosphere.rs` (pure CPU half; GPU halves are Tasks 7–9)
-- Modify: `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/atmosphere.rs` (pure CPU half; GPU halves are Tasks 7–9)
+- Modify: `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 One parameter set, two implementations: this pure-Rust transmittance ray-marcher feeds the CPU (CSM light color, sunset reddening of the sun disc) and Task 7's WGSL mirrors it for the LUTs. Constants are Hillaire 2020's Earth values, distances in km, coefficients per km. TDD throughout.
 
@@ -2060,7 +2060,7 @@ Register `pub mod atmosphere;` in `src/render/mod.rs`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml atmosphere::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml atmosphere::`
 Expected: FAIL — nothing implemented.
 
 - [ ] **Step 3: Implement**
@@ -2183,7 +2183,7 @@ pub fn dominant_light(atm: &Atmosphere, sun_dir: Vec3, altitude_km: f32) -> (Vec
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml atmosphere::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml atmosphere::`
 Expected: 6 tests PASS. If `horizon_sun_is_strongly_red` is off, check the ozone tent term and the 40-step march first — both dominate the horizon path.
 
 - [ ] **Step 5: Wire `app.rs`**
@@ -2204,8 +2204,8 @@ and pass `light_is_sun` / `light_color` into `FrameParams` (the `shadow.prepare`
 - [ ] **Step 6: Run all tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected: direct light visibly warms toward sunset and cools/weakens to bluish moonlight at night; moon shadows point opposite the daytime sun.
@@ -2213,7 +2213,7 @@ Expected: direct light visibly warms toward sunset and cools/weakens to bluish m
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src/render/atmosphere.rs dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/atmosphere.rs git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: derive sun and moon light color from CPU atmospheric transmittance (m5 rung 2)"
 ```
 
@@ -2222,8 +2222,8 @@ git commit -m "feat: derive sun and moon light color from CPU atmospheric transm
 ### Task 7: Hillaire LUT compute passes (rung 2)
 
 **Files:**
-- Create: `dabcraft/assets/shaders/sky_luts.wgsl`
-- Modify: `dabcraft/src/render/atmosphere.rs` (add `SkyLuts`), `dabcraft/src/app.rs`
+- Create: `git-craft/assets/shaders/sky_luts.wgsl`
+- Modify: `git-craft/src/render/atmosphere.rs` (add `SkyLuts`), `git-craft/src/app.rs`
 
 Three LUTs this task (the aerial-perspective froxel LUT is Task 9): transmittance 256×64 and multi-scatter 32×32 (computed once, and again after a hot-reload of the shader), sky-view 192×108 (every frame — it depends on sun direction and camera altitude). All `Rgba16Float`, written as storage textures, sampled with one linear clamp sampler (the sky-view's azimuth seam gets `AddressMode::Repeat` on U in Task 8's *sampling* of it — the LUT-internal sampler here stays clamp).
 
@@ -2250,7 +2250,7 @@ Append to `atmosphere.rs` tests:
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml atmosphere::` — FAIL.
+Run: `cargo test --manifest-path git-craft/Cargo.toml atmosphere::` — FAIL.
 
 - [ ] **Step 2: Create `assets/shaders/sky_luts.wgsl`**
 
@@ -2771,8 +2771,8 @@ if let Some(luts) = self.sky_luts.as_mut() {
 - [ ] **Step 5: Run tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 20 && kill $APP_PID
 ```
 Expected: no visual change yet (nothing samples the LUTs); HUD shows a `luts` entry — large on the first timed frame (static LUTs), then well under 0.1 ms.
@@ -2780,7 +2780,7 @@ Expected: no visual change yet (nothing samples the LUTs); HUD shows a `luts` en
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dabcraft/assets/shaders/sky_luts.wgsl dabcraft/src/render/atmosphere.rs dabcraft/src/app.rs
+git add git-craft/assets/shaders/sky_luts.wgsl git-craft/src/render/atmosphere.rs git-craft/src/app.rs
 git commit -m "feat: compute Hillaire transmittance, multi-scatter, and sky-view LUTs (m5 rung 2)"
 ```
 
@@ -2789,8 +2789,8 @@ git commit -m "feat: compute Hillaire transmittance, multi-scatter, and sky-view
 ### Task 8: Sky background from the sky-view LUT (rung 2)
 
 **Files:**
-- Create: `dabcraft/assets/shaders/sky.wgsl`
-- Modify: `dabcraft/src/render/atmosphere.rs` (add `SkyPass`), `dabcraft/src/render/terrain.rs` (one accessor), `dabcraft/src/app.rs`
+- Create: `git-craft/assets/shaders/sky.wgsl`
+- Modify: `git-craft/src/render/atmosphere.rs` (add `SkyPass`), `git-craft/src/render/terrain.rs` (one accessor), `git-craft/src/app.rs`
 
 The flat `DayCycle::sky_color()` clear is replaced by a real sky: a fullscreen triangle at depth 1.0 drawn inside the main pass after terrain (compare LessEqual, no depth write — HSR kills every covered pixel), sampling the sky-view LUT plus a sun disc. The main pass clear becomes black. `DayCycle::sky_color()` survives as the terrain *ambient* term only.
 
@@ -3033,8 +3033,8 @@ if let (Some(sky), Some(terrain)) = (self.sky_pass.as_ref(), self.terrain.as_ref
 - [ ] **Step 4: Run tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected: blue gradient sky with a bright horizon band; visible sun disc that travels; at sunset (`T` is not bound — wait through a cycle or temporarily set `DayCycle::new` time near 0.45) the horizon goes orange→red with proper twilight after sundown; night sky is near-black, no seam looking north (azimuth wrap), no tearing at the horizon when pitching.
@@ -3042,8 +3042,8 @@ Expected: blue gradient sky with a bright horizon band; visible sun disc that tr
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/assets/shaders/sky.wgsl dabcraft/src/render/atmosphere.rs \
-        dabcraft/src/render/terrain.rs dabcraft/src/app.rs
+git add git-craft/assets/shaders/sky.wgsl git-craft/src/render/atmosphere.rs \
+        git-craft/src/render/terrain.rs git-craft/src/app.rs
 git commit -m "feat: draw the sky from the sky-view LUT with a sun disc (m5 rung 2)"
 ```
 
@@ -3052,7 +3052,7 @@ git commit -m "feat: draw the sky from the sky-view LUT with a sun disc (m5 rung
 ### Task 9: Aerial-perspective fog on terrain (completes rung 2)
 
 **Files:**
-- Modify: `dabcraft/assets/shaders/sky_luts.wgsl` (aerial froxel entry), `dabcraft/src/render/atmosphere.rs` (4th pass + 3D LUT), `dabcraft/src/render/terrain.rs` (bind group 3), `dabcraft/assets/shaders/terrain.wgsl` (apply fog), `dabcraft/src/app.rs`
+- Modify: `git-craft/assets/shaders/sky_luts.wgsl` (aerial froxel entry), `git-craft/src/render/atmosphere.rs` (4th pass + 3D LUT), `git-craft/src/render/terrain.rs` (bind group 3), `git-craft/assets/shaders/terrain.wgsl` (apply fog), `git-craft/src/app.rs`
 
 A 32×32×32 froxel LUT: each XY texel is a screen direction, each Z slice an exaggerated view distance; the cell stores accumulated in-scatter (rgb) and mean transmittance (a). Terrain composites `color * ap.a + ap.rgb`. Real aerial perspective over 384 m is invisible — the spec wants shader-pack fog, so distance is scaled by an artistic constant.
 
@@ -3197,8 +3197,8 @@ if let (Some(terrain), Some(luts)) = (self.terrain.as_mut(), self.sky_luts.as_re
 - [ ] **Step 5: Run tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected: distant terrain haze-blues into the sky and the horizon line melts into the fog instead of cutting; near geometry unchanged; fog tint follows time of day (warm at sunset). HUD `luts` still < 0.2 ms.
@@ -3206,8 +3206,8 @@ Expected: distant terrain haze-blues into the sky and the horizon line melts int
 - [ ] **Step 6: Commit (rung 2 complete)**
 
 ```bash
-git add dabcraft/assets/shaders/sky_luts.wgsl dabcraft/assets/shaders/terrain.wgsl \
-        dabcraft/src/render/atmosphere.rs dabcraft/src/render/terrain.rs dabcraft/src/app.rs
+git add git-craft/assets/shaders/sky_luts.wgsl git-craft/assets/shaders/terrain.wgsl \
+        git-craft/src/render/atmosphere.rs git-craft/src/render/terrain.rs git-craft/src/app.rs
 git commit -m "feat: apply aerial-perspective fog from a froxel LUT (m5 rung 2)"
 ```
 
@@ -3216,8 +3216,8 @@ git commit -m "feat: apply aerial-perspective fog from a froxel LUT (m5 rung 2)"
 ### Task 10: Bloom down/up chain (rung 3)
 
 **Files:**
-- Create: `dabcraft/src/render/bloom.rs`, `dabcraft/assets/shaders/bloom.wgsl`
-- Modify: `dabcraft/src/render/targets.rs` (bloom mip chain), `dabcraft/src/render/post.rs` + `dabcraft/assets/shaders/post.wgsl` (bloom mix), `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/bloom.rs`, `git-craft/assets/shaders/bloom.wgsl`
+- Modify: `git-craft/src/render/targets.rs` (bloom mip chain), `git-craft/src/render/post.rs` + `git-craft/assets/shaders/post.wgsl` (bloom mix), `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 Jimenez 2014 bloom: 13-tap downsample (Karis average on the first level to kill fireflies) through a half-res mip chain, then 3×3 tent upsample drawn **additively** back up; post mixes mip 0 into the HDR color. No threshold — energy-based, shader-pack style. The whole chain is one timer slot (`render_writes_begin` on the first pass, `_end` on the last — Task 1 built exactly this API).
 
@@ -3249,7 +3249,7 @@ In `bloom.rs` (new file, tests at bottom):
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml bloom` — FAIL.
+Run: `cargo test --manifest-path git-craft/Cargo.toml bloom` — FAIL.
 
 - [ ] **Step 2: Extend `targets.rs`**
 
@@ -3684,8 +3684,8 @@ Resize: `bloom.set_targets(&gpu.device, &gpu.queue, targets)` next to `post.set_
 - [ ] **Step 7: Run tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected: sun disc and sunset horizon glow softly; torch-lit areas at night bleed warm light; no flicker from fireflies; image not washed out (strength 0.06 is subtle). HUD `bloom` ≈ 0.4 ms (spec budget).
@@ -3693,8 +3693,8 @@ Expected: sun disc and sunset horizon glow softly; torch-lit areas at night blee
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src/render/bloom.rs dabcraft/assets/shaders/bloom.wgsl dabcraft/src/render/targets.rs \
-        dabcraft/src/render/post.rs dabcraft/assets/shaders/post.wgsl dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/bloom.rs git-craft/assets/shaders/bloom.wgsl git-craft/src/render/targets.rs \
+        git-craft/src/render/post.rs git-craft/assets/shaders/post.wgsl git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: add a 13-tap bloom downsample/upsample chain (m5 rung 3)"
 ```
 
@@ -3703,8 +3703,8 @@ git commit -m "feat: add a 13-tap bloom downsample/upsample chain (m5 rung 3)"
 ### Task 11: Histogram auto-exposure (rung 3)
 
 **Files:**
-- Create: `dabcraft/src/render/exposure.rs`, `dabcraft/assets/shaders/exposure.wgsl`
-- Modify: `dabcraft/src/render/post.rs` + `dabcraft/assets/shaders/post.wgsl`, `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/exposure.rs`, `git-craft/assets/shaders/exposure.wgsl`
+- Modify: `git-craft/src/render/post.rs` + `git-craft/assets/shaders/post.wgsl`, `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 Spec §6 pass 1's auto-exposure histogram: a 256-bin log-luminance histogram over the HDR target (stride 2), a single-workgroup resolve that computes the mean log-luminance, derives a target exposure, and adapts toward it over time. **No CPU readback** — the result lives in a 16-byte storage buffer the post pass reads directly; adaptation state stays on the GPU.
 
@@ -3720,7 +3720,7 @@ In `exposure.rs` (new file, tests at bottom):
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml exposure::` — FAIL.
+Run: `cargo test --manifest-path git-craft/Cargo.toml exposure::` — FAIL.
 
 - [ ] **Step 2: Create `assets/shaders/exposure.wgsl`**
 
@@ -4039,8 +4039,8 @@ Resize: `exposure.set_input(&gpu.device, &targets.hdr_view)`.
 - [ ] **Step 6: Run tests, clippy, smoke-run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 30 && kill $APP_PID
 ```
 Expected: walking into a cave brightens the view over ~a second; stepping back into daylight briefly over-brightens then settles (darkening adapts faster); night is moody but readable. No oscillation when looking at the sun.
@@ -4048,8 +4048,8 @@ Expected: walking into a cave brightens the view over ~a second; stepping back i
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src/render/exposure.rs dabcraft/assets/shaders/exposure.wgsl \
-        dabcraft/src/render/post.rs dabcraft/assets/shaders/post.wgsl dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/exposure.rs git-craft/assets/shaders/exposure.wgsl \
+        git-craft/src/render/post.rs git-craft/assets/shaders/post.wgsl git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: adapt exposure from a log-luminance histogram (m5 rung 3)"
 ```
 
@@ -4058,7 +4058,7 @@ git commit -m "feat: adapt exposure from a log-luminance histogram (m5 rung 3)"
 ### Task 12: ACES tonemap + budget check (completes rung 3)
 
 **Files:**
-- Modify: `dabcraft/assets/shaders/post.wgsl`
+- Modify: `git-craft/assets/shaders/post.wgsl`
 - Modify (if tuning needed): shader constants only
 
 - [ ] **Step 1: Add ACES to `post.wgsl`**
@@ -4102,14 +4102,14 @@ and the fragment's return becomes:
 - [ ] **Step 2: Validate, gates**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
 ```
 Expected: PASS (the WGSL glob test re-validates post.wgsl).
 
 - [ ] **Step 3: Visual + budget check**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 60 && kill $APP_PID
 ```
 Checks while it runs (F3/H HUD):
@@ -4120,7 +4120,7 @@ Checks while it runs (F3/H HUD):
 - [ ] **Step 4: Commit (rung 3 complete)**
 
 ```bash
-git add dabcraft/assets/shaders/post.wgsl dabcraft/assets/shaders/exposure.wgsl
+git add git-craft/assets/shaders/post.wgsl git-craft/assets/shaders/exposure.wgsl
 git commit -m "feat: tonemap with ACES, completing the M5a post chain (m5 rung 3)"
 ```
 
@@ -4134,14 +4134,14 @@ git commit -m "feat: tonemap with ACES, completing the M5a post chain (m5 rung 3
 
 ```bash
 git status --short   # must be empty
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
 ```
 
 - [ ] **Step 2: Long smoke-run**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml & APP_PID=$!
+cargo run --release --manifest-path git-craft/Cargo.toml & APP_PID=$!
 sleep 90 && kill $APP_PID
 ```
 Watch the log for warnings (arena full, map failed, shader errors) — there must be none.

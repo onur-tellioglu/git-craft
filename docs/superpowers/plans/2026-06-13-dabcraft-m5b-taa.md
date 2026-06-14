@@ -1,5 +1,5 @@
 ---
-title: dabcraft M5b — TAA (Temporal Anti-Aliasing)
+title: git-craft M5b — TAA (Temporal Anti-Aliasing)
 date: 2026-06-13
 domain: world-layer
 type: enhancement
@@ -10,20 +10,20 @@ rls-affecting: false
 slice: 5
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
 touched-files:
-  - dabcraft/src/render/taa.rs
-  - dabcraft/src/render/targets.rs
-  - dabcraft/src/render/depth.rs
-  - dabcraft/src/render/post.rs
-  - dabcraft/src/render/bloom.rs
-  - dabcraft/src/render/exposure.rs
-  - dabcraft/src/render/mod.rs
-  - dabcraft/src/app.rs
-  - dabcraft/assets/shaders/taa.wgsl
+  - git-craft/src/render/taa.rs
+  - git-craft/src/render/targets.rs
+  - git-craft/src/render/depth.rs
+  - git-craft/src/render/post.rs
+  - git-craft/src/render/bloom.rs
+  - git-craft/src/render/exposure.rs
+  - git-craft/src/render/mod.rs
+  - git-craft/src/app.rs
+  - git-craft/assets/shaders/taa.wgsl
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M5b — TAA Implementation Plan
+# git-craft M5b — TAA Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
@@ -37,19 +37,19 @@ shared-modules-touched: []
 
 **No git remote** — commit locally on the existing `feat/m5-shaders` branch (M5a is unmerged; TAA continues the same branch). Skip push/PR/issue.
 
-**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"`. Run cargo from repo root with `--manifest-path dabcraft/Cargo.toml`. Gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`. `cargo fmt` is NOT a gate. macOS has no `timeout`; smoke-test with background-run + kill. Commit `type: what and why` (m5 suffix), English, no co-author trailers.
+**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"`. Run cargo from repo root with `--manifest-path git-craft/Cargo.toml`. Gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`. `cargo fmt` is NOT a gate. macOS has no `timeout`; smoke-test with background-run + kill. Commit `type: what and why` (m5 suffix), English, no co-author trailers.
 
 ---
 
 ## Context primer (read before Task 1)
 
-- `dabcraft/src/app.rs` `render()`: computes `let view_proj = self.camera.view_proj(aspect);` once, uses it for the frustum, terrain `write_frame` (FrameParams), shadow `prepare`, sky LUTs, and outline. The encoder runs: sky_luts.encode (compute) → shadow.encode → main render pass (terrain.draw + sky.draw + outline.draw into the HDR target `targets.hdr_view`, depth attachment `depth_view_ref` with `StoreOp::Discard`) → bloom.encode → exposure.encode → post.draw (to swapchain) → egui. Pass labels `["luts","shadow0","shadow1","shadow2","main","bloom","exposure","post"]`.
-- `dabcraft/src/render/targets.rs` `RenderTargets { hdr_view, bloom_views, bloom_sizes, width, height }`, recreated on resize. `HDR_FORMAT = Rgba16Float`.
-- `dabcraft/src/render/depth.rs` `create_depth_view(device, w, h)` builds a `Depth32Float` texture with usage `RENDER_ATTACHMENT` only and returns just the view. TAA must SAMPLE depth, so it needs `TEXTURE_BINDING` too and the pass must `Store`.
-- `dabcraft/src/render/post.rs` `PostPass::new(device, surface_format, hdr_view, bloom_view, exposure, src)` and `set_input(device, hdr_view, bloom_view, exposure)`; samples HDR at binding 0. After TAA, post's HDR input becomes the **resolved** texture, not `targets.hdr_view`.
-- `dabcraft/src/render/bloom.rs` `BloomPass::set_targets(device, queue, &targets)` builds its source bind groups with `[0]=targets.hdr_view, [i>=1]=bloom mip i-1`. After TAA, bloom's full-res source `[0]` must become the **resolved** texture (bloom should bloom the stable image, not the jittered raw one).
-- `dabcraft/src/render/exposure.rs` `ExposurePass::set_input(device, hdr_view)` samples the HDR target for the histogram. After TAA, it should read the **resolved** texture (stable luminance).
-- `dabcraft/src/game/camera.rs` `view_proj(aspect)` = `perspective_rh(fov_y, aspect, 0.1, 800.0) * look_to_rh(...)`, wgpu depth 0..1.
+- `git-craft/src/app.rs` `render()`: computes `let view_proj = self.camera.view_proj(aspect);` once, uses it for the frustum, terrain `write_frame` (FrameParams), shadow `prepare`, sky LUTs, and outline. The encoder runs: sky_luts.encode (compute) → shadow.encode → main render pass (terrain.draw + sky.draw + outline.draw into the HDR target `targets.hdr_view`, depth attachment `depth_view_ref` with `StoreOp::Discard`) → bloom.encode → exposure.encode → post.draw (to swapchain) → egui. Pass labels `["luts","shadow0","shadow1","shadow2","main","bloom","exposure","post"]`.
+- `git-craft/src/render/targets.rs` `RenderTargets { hdr_view, bloom_views, bloom_sizes, width, height }`, recreated on resize. `HDR_FORMAT = Rgba16Float`.
+- `git-craft/src/render/depth.rs` `create_depth_view(device, w, h)` builds a `Depth32Float` texture with usage `RENDER_ATTACHMENT` only and returns just the view. TAA must SAMPLE depth, so it needs `TEXTURE_BINDING` too and the pass must `Store`.
+- `git-craft/src/render/post.rs` `PostPass::new(device, surface_format, hdr_view, bloom_view, exposure, src)` and `set_input(device, hdr_view, bloom_view, exposure)`; samples HDR at binding 0. After TAA, post's HDR input becomes the **resolved** texture, not `targets.hdr_view`.
+- `git-craft/src/render/bloom.rs` `BloomPass::set_targets(device, queue, &targets)` builds its source bind groups with `[0]=targets.hdr_view, [i>=1]=bloom mip i-1`. After TAA, bloom's full-res source `[0]` must become the **resolved** texture (bloom should bloom the stable image, not the jittered raw one).
+- `git-craft/src/render/exposure.rs` `ExposurePass::set_input(device, hdr_view)` samples the HDR target for the histogram. After TAA, it should read the **resolved** texture (stable luminance).
+- `git-craft/src/game/camera.rs` `view_proj(aspect)` = `perspective_rh(fov_y, aspect, 0.1, 800.0) * look_to_rh(...)`, wgpu depth 0..1.
 - `FrameUniform` (terrain.rs, 208 B) holds `view_proj`, `inv_view_proj`, `camera`, `sky`, `sun`, `sun_color`, `params(xy=viewport, z=AP_KM_PER_METER)`. `FrameParams` feeds it. The terrain/sky main pass reads `view_proj` for rasterization and `inv_view_proj` (sky) — both must become the **jittered** matrices so the rasterized image is sub-pixel offset. Shadows sample by world position (jitter-independent); the frustum cull uses the unjittered matrix (cull must not wobble).
 - wgpu 29: `immediate_size: 0` on pipeline layouts; `depth_slice: None` on colour attachments; `multiview_mask: None`; compute/render timestamp_writes optional.
 
@@ -88,13 +88,13 @@ New pass label `taa` is inserted between `main` and `bloom`.
 
 ### Task 1: Halton jitter sequence + sampleable depth + history/resolved targets
 
-**Files:** create `dabcraft/src/render/taa.rs` (jitter half only); modify `dabcraft/src/render/depth.rs`, `dabcraft/src/render/targets.rs`, `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`.
+**Files:** create `git-craft/src/render/taa.rs` (jitter half only); modify `git-craft/src/render/depth.rs`, `git-craft/src/render/targets.rs`, `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`.
 
 No behaviour change this task — the jitter values exist but are not yet applied; the new textures exist but are not yet sampled. Verify the app still renders identically.
 
 - [ ] **Step 1: Failing tests for the jitter sequence**
 
-Create `dabcraft/src/render/taa.rs` with only:
+Create `git-craft/src/render/taa.rs` with only:
 
 ```rust
 //! Temporal anti-aliasing: sub-pixel jitter sequence and the resolve pass.
@@ -154,13 +154,13 @@ mod tests {
 
 Register `pub mod taa;` in `src/render/mod.rs`.
 
-- [ ] **Step 2: Run — expect FAIL** (`cargo test --manifest-path dabcraft/Cargo.toml taa::`).
+- [ ] **Step 2: Run — expect FAIL** (`cargo test --manifest-path git-craft/Cargo.toml taa::`).
 
 - [ ] **Step 3: The implementation is already in Step 1's non-test code** (halton, jitter_offset). Fix the placeholder typos, run the tests green.
 
 - [ ] **Step 4: Make depth sampleable**
 
-Rewrite `dabcraft/src/render/depth.rs` so the texture carries `TEXTURE_BINDING` and the function returns both the texture and the view (the texture must outlive the view for a second sampling view; returning the view alone is fine if we keep usage). Minimal change — keep the single-view return but add the usage:
+Rewrite `git-craft/src/render/depth.rs` so the texture carries `TEXTURE_BINDING` and the function returns both the texture and the view (the texture must outlive the view for a second sampling view; returning the view alone is fine if we keep usage). Minimal change — keep the single-view return but add the usage:
 
 ```rust
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
@@ -194,7 +194,7 @@ In `targets.rs` add to `RenderTargets`: `pub resolved_view: wgpu::TextureView` a
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src/render/taa.rs dabcraft/src/render/depth.rs dabcraft/src/render/targets.rs dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/taa.rs git-craft/src/render/depth.rs git-craft/src/render/targets.rs git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: add jitter sequence, sampleable depth, and history targets for TAA (m5)"
 ```
 
@@ -307,7 +307,7 @@ Use **`jittered_vp`** for `terrain.write_frame` (FrameParams.view_proj) and anyt
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src/render/taa.rs dabcraft/assets/shaders/taa.wgsl dabcraft/src/render/post.rs dabcraft/src/render/bloom.rs dabcraft/src/render/exposure.rs dabcraft/src/render/targets.rs dabcraft/src/render/mod.rs dabcraft/src/app.rs
+git add git-craft/src/render/taa.rs git-craft/assets/shaders/taa.wgsl git-craft/src/render/post.rs git-craft/src/render/bloom.rs git-craft/src/render/exposure.rs git-craft/src/render/targets.rs git-craft/src/render/mod.rs git-craft/src/app.rs
 git commit -m "feat: jitter the main pass and route it through a passthrough TAA resolve (m5)"
 ```
 
@@ -371,7 +371,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 - [ ] **Step 4: Commit**
 
 ```bash
-git add dabcraft/assets/shaders/taa.wgsl
+git add git-craft/assets/shaders/taa.wgsl
 git commit -m "feat: accumulate TAA history with reprojection and neighborhood clamp (m5)"
 ```
 

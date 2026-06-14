@@ -1,5 +1,5 @@
 ---
-title: dabcraft M5c — Froxel volumetrics (god rays + height fog)
+title: git-craft M5c — Froxel volumetrics (god rays + height fog)
 date: 2026-06-13
 domain: render-layer
 type: enhancement
@@ -9,12 +9,12 @@ db-migration: false
 rls-affecting: false
 slice: null
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
-touched-files: [dabcraft/src/render/volumetric.rs, dabcraft/src/render/targets.rs, dabcraft/src/render/gtao.rs, dabcraft/src/render/shadow.rs, dabcraft/src/app.rs, dabcraft/assets/shaders/volumetric.wgsl, dabcraft/assets/shaders/composite.wgsl]
+touched-files: [git-craft/src/render/volumetric.rs, git-craft/src/render/targets.rs, git-craft/src/render/gtao.rs, git-craft/src/render/shadow.rs, git-craft/src/app.rs, git-craft/assets/shaders/volumetric.wgsl, git-craft/assets/shaders/composite.wgsl]
 trigger-tasks-touched: []
-shared-modules-touched: [dabcraft/src/render/targets.rs, dabcraft/src/app.rs]
+shared-modules-touched: [git-craft/src/render/targets.rs, git-craft/src/app.rs]
 ---
 
-# dabcraft M5c — Froxel Volumetrics Implementation Plan
+# git-craft M5c — Froxel Volumetrics Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -38,7 +38,7 @@ shared-modules-touched: [dabcraft/src/render/targets.rs, dabcraft/src/app.rs]
 
 **Validation:** Rendering correctness via the F3 HUD per-pass GPU timers + visual inspection (project convention: rendering is validated via HUD/`--bench`, never "by feel"). Pure helpers (froxel slice↔view-distance mapping, uniform layout sizes, HG phase normalization) are unit-tested. Quality gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`. `cargo fmt` is NOT a gate.
 
-**Environment:** Rust via rustup — every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before `cargo`. Run cargo with `--manifest-path dabcraft/Cargo.toml` from the repo root (`/Users/onurtellioglu/Github/Minecraft`). No git remote — skip push/PR. Branch is already `feat/m5-shaders` (M5 merges as one milestone; do NOT merge to main in this rung).
+**Environment:** Rust via rustup — every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before `cargo`. Run cargo with `--manifest-path git-craft/Cargo.toml` from the repo root (`/Users/onurtellioglu/Github/Minecraft`). No git remote — skip push/PR. Branch is already `feat/m5-shaders` (M5 merges as one milestone; do NOT merge to main in this rung).
 
 ---
 
@@ -82,13 +82,13 @@ Apply in composite: `fog = froxel_integrated(screen_uv, view_dist_to_slice(view_
 
 ## File Structure
 
-- `dabcraft/src/render/targets.rs` — **modify**: add `FROXEL_FORMAT`, `VOL_W/H/D` consts, `froxel_scatter_view`, `froxel_integrated_view` (+ a ping-pong history view in Task 3). Fixed-size 3D textures, NOT recreated on resize.
-- `dabcraft/src/render/volumetric.rs` — **create**: `VolumetricPass` (inscatter + integrate compute pipelines, `VolUniform`), pure helpers `slice_to_view_dist`/`view_dist_to_slice` + a `hg_phase` test hook.
-- `dabcraft/assets/shaders/volumetric.wgsl` — **create**: `cs_inscatter` (CSM god ray + height fog) and `cs_integrate` (front-to-back).
-- `dabcraft/src/render/shadow.rs` — **modify**: expose `uniform_buffer()`/`array_view()` to the volumetric bind group (already pub; add a comparison-sampler accessor or let VolumetricPass make its own).
-- `dabcraft/assets/shaders/composite.wgsl` — **modify**: sample the integrated froxel grid and apply `color·t + inscatter`.
-- `dabcraft/src/render/gtao.rs` — **modify**: `CompositePass` gains the froxel texture + sampler + a small uniform (inv_view_proj, camera, viewport, VOL params) in its bind group.
-- `dabcraft/src/app.rs` — **modify**: construct `VolumetricPass`; insert `vol_inscatter`/`vol_integrate` encode after the GTAO blur; renumber `PASS_*` (+`PASS_VOLUMETRIC`); feed the froxel grid + a vol uniform to composite each frame; register `volumetric.wgsl` for hot-reload; resize is a no-op for the fixed grid.
+- `git-craft/src/render/targets.rs` — **modify**: add `FROXEL_FORMAT`, `VOL_W/H/D` consts, `froxel_scatter_view`, `froxel_integrated_view` (+ a ping-pong history view in Task 3). Fixed-size 3D textures, NOT recreated on resize.
+- `git-craft/src/render/volumetric.rs` — **create**: `VolumetricPass` (inscatter + integrate compute pipelines, `VolUniform`), pure helpers `slice_to_view_dist`/`view_dist_to_slice` + a `hg_phase` test hook.
+- `git-craft/assets/shaders/volumetric.wgsl` — **create**: `cs_inscatter` (CSM god ray + height fog) and `cs_integrate` (front-to-back).
+- `git-craft/src/render/shadow.rs` — **modify**: expose `uniform_buffer()`/`array_view()` to the volumetric bind group (already pub; add a comparison-sampler accessor or let VolumetricPass make its own).
+- `git-craft/assets/shaders/composite.wgsl` — **modify**: sample the integrated froxel grid and apply `color·t + inscatter`.
+- `git-craft/src/render/gtao.rs` — **modify**: `CompositePass` gains the froxel texture + sampler + a small uniform (inv_view_proj, camera, viewport, VOL params) in its bind group.
+- `git-craft/src/app.rs` — **modify**: construct `VolumetricPass`; insert `vol_inscatter`/`vol_integrate` encode after the GTAO blur; renumber `PASS_*` (+`PASS_VOLUMETRIC`); feed the froxel grid + a vol uniform to composite each frame; register `volumetric.wgsl` for hot-reload; resize is a no-op for the fixed grid.
 
 ---
 

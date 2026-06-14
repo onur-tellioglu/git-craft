@@ -1,4 +1,4 @@
-// Binary greedy mesher (dabcraft spec §5, M2 Tasks 5–6).
+// Binary greedy mesher (git-craft spec §5, M2 Tasks 5–6).
 // Per-corner AO with merge-safe 9-bit neighborhood keys and diagonal flip.
 
 use std::collections::HashMap;

@@ -522,26 +522,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
-name = "dabcraft"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "crossbeam-channel",
- "egui",
- "egui-wgpu",
- "egui-winit",
- "env_logger",
- "fastnoise-lite",
- "glam",
- "log",
- "naga",
- "pollster",
- "rayon",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -912,6 +892,26 @@ dependencies = [
  "libc",
  "r-efi",
  "wasip2",
+]
+
+[[package]]
+name = "git-craft"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "crossbeam-channel",
+ "egui",
+ "egui-wgpu",
+ "egui-winit",
+ "env_logger",
+ "fastnoise-lite",
+ "glam",
+ "log",
+ "naga",
+ "pollster",
+ "rayon",
+ "wgpu",
+ "winit",
 ]
 
 [[package]]

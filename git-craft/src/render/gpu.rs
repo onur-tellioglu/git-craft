@@ -30,7 +30,7 @@ impl Gpu {
         // Every Apple Silicon Metal device exposes it.
         assert!(
             adapter.features().contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
-            "dabcraft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
+            "git-craft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
         );
         required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
 
