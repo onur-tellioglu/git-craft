@@ -17,11 +17,16 @@ touched-files:
   - .gitignore
   - CLAUDE.md
   - README.md
+  - VISION.md
+  - CHANGELOG.md
+  - AGENTS.md
+  - SECURITY.md
   - LICENSE-MIT
   - LICENSE-APACHE
   - CONTRIBUTING.md
   - CODE_OF_CONDUCT.md
   - .github/**
+  - .claude/**
   - docs/superpowers/**
 trigger-tasks-touched: []
 shared-modules-touched: []
@@ -31,9 +36,9 @@ shared-modules-touched: []
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Rename the project to `git-craft`, dual-license it MIT/Apache-2.0, add standard contribution infrastructure, and publish it to GitHub as a private repository ready to be flipped public.
+**Goal:** Rename the project to `git-craft`, dual-license it MIT/Apache-2.0, bake in its community-and-agent-driven mission, add contribution + governance + agent-enablement infrastructure with versioning, and publish to GitHub as a private repo ready to be flipped public with a protected `main`.
 
-**Architecture:** A rename pass (directory, Cargo package, code strings, docs token) followed by additive root/`.github` files (license, README, CONTRIBUTING, CoC, templates, CI), then a git publishing flow (merge latest code to `main`, atomic commits on a `chore/` branch, create the repo, push, open a PR).
+**Architecture:** A rename pass (directory, Cargo package, code strings, docs token) followed by additive root/`.github`/`.claude` files — license, README (with mission), VISION, CHANGELOG, CONTRIBUTING, CoC, SECURITY, AGENTS, CODEOWNERS, issue/PR templates, CI + release workflows, and a project-local `/contribute` command — then a git publishing flow (merge latest code to `main`, atomic commits on a `chore/` branch, create the repo, push, set topics, open a PR, and configure branch protection after the public flip).
 
 **Tech Stack:** Rust (edition 2024, wgpu 29), Git, GitHub CLI (`gh`), GitHub Actions.
 
@@ -262,6 +267,17 @@ targeting modern shader-pack visuals at a 384-block render distance and 120 fps 
 
 <!-- TODO: add a screenshot or GIF here before going public — first impression matters. -->
 
+## Why git-craft?
+
+Minecraft's direction no longer matches what many players and builders want, and the
+community has always been able to dream bigger than the official roadmap — but it could
+never touch the engine itself. git-craft is the other path: a voxel sandbox that is
+**open to the engine, built in public, and grown by its community**. And because AI coding
+agents have matured, contributing no longer requires deep prior knowledge of the codebase —
+point your agent at our docs and guardrails and it can carry real work. This is an
+experiment in what a community can build on its own, with agents as force-multipliers. Read
+the full story in [VISION.md](VISION.md) — then come build with us.
+
 ## Features
 
 - **Voxel world** — greedy-meshed chunks, infinite streaming worldgen, cave culling.
@@ -323,13 +339,18 @@ shader-pack visuals) are complete; M6 (persistence, textures, performance) is ne
 
 ## Documentation
 
+Documentation is a permanent, first-class part of this repo.
+
+- Vision & mission: [VISION.md](VISION.md)
+- Changelog: [CHANGELOG.md](CHANGELOG.md)
 - Design spec: [`docs/superpowers/specs/2026-06-11-dabcraft-design.md`](docs/superpowers/specs/2026-06-11-dabcraft-design.md)
 - Milestone plans: [`docs/superpowers/plans/`](docs/superpowers/plans/)
 
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) and our
-[Code of Conduct](CODE_OF_CONDUCT.md).
+[Code of Conduct](CODE_OF_CONDUCT.md). This project is built to be developed *with AI
+agents*: if you use one, point it at [AGENTS.md](AGENTS.md) first.
 
 ## References
 
@@ -419,6 +440,21 @@ Before opening a pull request, make sure `cargo fmt --check`, `cargo clippy --al
   alpha-tested geometry in its own pipeline after solid opaque.
 - WGSL shaders live under `git-craft/assets/shaders/`.
 
+## Building with an AI agent
+
+git-craft is explicitly designed to be developed with AI coding agents (Claude Code and
+others). You do not need deep prior knowledge of the codebase to contribute meaningfully.
+
+- Point your agent at [AGENTS.md](AGENTS.md) first — it is the canonical, tool-agnostic
+  guide to building, testing, the architecture map, and the project's hard conventions.
+- Give it the relevant design context: the design spec under `docs/superpowers/specs/` and
+  the milestone plan you are working from under `docs/superpowers/plans/`.
+- Claude Code users: this repo ships a `/contribute` command (in `.claude/commands/`) that
+  walks your agent through the full loop.
+- Keep the loop tight: small feature branch → test-first change → `cargo fmt` + `clippy` +
+  `test` green → open a PR. CI and the maintainer's review are the safety net; let them gate
+  you rather than landing large unreviewed changes.
+
 ## Assets and intellectual property
 
 Do **not** contribute Minecraft (or any other proprietary) assets — textures, sounds, models,
@@ -440,6 +476,19 @@ compatible permissive / Creative Commons license, with attribution noted in your
 2. Make your change; ensure fmt + clippy + tests pass.
 3. Open a pull request using the template, link any related issue, and describe how you
    verified the change (HUD readings / benchmark numbers for rendering work).
+
+## Versioning & releases
+
+git-craft follows [Semantic Versioning](https://semver.org). The version in
+`git-craft/Cargo.toml` is the single source of truth; while we are on `0.x`, expect breaking
+changes between minor versions.
+
+- Every behavior-affecting PR adds a bullet under the `[Unreleased]` heading in
+  [CHANGELOG.md](CHANGELOG.md) (Added / Changed / Fixed / Removed).
+- Cutting a release (maintainer): move `[Unreleased]` entries under a new
+  `[X.Y.Z] - YYYY-MM-DD` heading, bump `Cargo.toml`, commit, then tag and push:
+  `git tag vX.Y.Z && git push origin vX.Y.Z`. The release workflow turns the tag into a
+  GitHub Release using that changelog section.
 
 ## License of contributions
 
@@ -484,10 +533,10 @@ git commit -m "docs: add contributing guide and code of conduct"
 
 ---
 
-## Task 6: Add GitHub templates and CI workflow
+## Task 6: Add GitHub templates, governance files, and CI/release workflows
 
 **Files:**
-- Create: `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/config.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/ci.yml`
+- Create: `.github/ISSUE_TEMPLATE/bug_report.yml`, `.github/ISSUE_TEMPLATE/feature_request.yml`, `.github/ISSUE_TEMPLATE/config.yml`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/CODEOWNERS`, `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `SECURITY.md`
 
 - [ ] **Step 1: Write `.github/ISSUE_TEMPLATE/bug_report.yml`**
 
@@ -631,28 +680,422 @@ jobs:
         run: cargo test
 ```
 
-- [ ] **Step 6: Validate the YAML parses**
+- [ ] **Step 6: Write `.github/CODEOWNERS`**
+
+Routes every PR's review request to the maintainer. Replace `<gh-login>` with the GitHub
+username from `gh api user --jq .login`:
+```text
+# The maintainer owns the whole tree; all PRs request their review.
+*       @<gh-login>
+```
+
+- [ ] **Step 7: Write `SECURITY.md`**
+
+Create `SECURITY.md` at the repo root:
+```markdown
+# Security Policy
+
+git-craft is an early-stage, best-effort project. We still take security seriously.
+
+## Reporting a vulnerability
+
+Please report security issues **privately** rather than opening a public issue:
+
+- Preferred: open a private report via this repository's **Security → Advisories →
+  Report a vulnerability** (GitHub Security Advisories).
+- We will acknowledge the report and respond as soon as we reasonably can.
+
+## Supported versions
+
+The project is pre-1.0; only the latest `main` and the most recent tagged release receive
+fixes. There is no long-term-support guarantee yet.
+```
+
+- [ ] **Step 8: Write `.github/workflows/release.yml`**
+
+On a pushed `v*` tag, create a GitHub Release whose notes are the matching `CHANGELOG.md`
+section:
+```yaml
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract changelog section
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            /^## \[/ { if (found) exit }
+            $0 ~ "^## \\[" ver "\\]" { found=1 }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No changelog section for $VERSION" > release-notes.md
+          fi
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+```
+
+- [ ] **Step 9: Validate the YAML parses**
 
 Run:
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-for f in .github/ISSUE_TEMPLATE/*.yml .github/workflows/ci.yml; do
+for f in .github/ISSUE_TEMPLATE/*.yml .github/workflows/*.yml; do
   ruby -ryaml -e "YAML.load_file('$f')" 2>/dev/null && echo "OK $f" || python3 -c "import yaml,sys; yaml.safe_load(open('$f'))" && echo "OK $f"
 done
 ```
 Expected: `OK` for each file. (If neither `ruby` nor `python3 -m yaml` is available, visually confirm indentation instead.)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-git add .github
-git commit -m "chore: add issue/PR templates and CI workflow"
+git add .github SECURITY.md
+git commit -m "chore: add issue/PR templates, CODEOWNERS, security policy, and CI/release workflows"
 ```
 
 ---
 
-## Task 7: Final verification, publish, and open a PR
+## Task 7: Add VISION.md (the manifesto)
+
+**Files:**
+- Create: `VISION.md` (repo root)
+
+- [ ] **Step 1: Write `VISION.md`**
+
+Create `VISION.md` at the repo root with exactly this content:
+
+````markdown
+# Vision
+
+## Why this exists
+
+Minecraft proved that a voxel sandbox can be a canvas for millions of imaginations. But the
+game belongs to a single studio, and its direction — shaped by Mojang and Microsoft — no
+longer matches what many of the people who love it actually want. The community has always
+dreamed bigger than the official roadmap: mods, shaders, data packs, total conversions. Yet
+the one thing the community could never touch was the **engine** itself.
+
+git-craft takes the other road. It is a voxel sandbox that is **open all the way down** —
+the renderer, the world generation, the physics, the lighting — and it grows by
+contribution, not by a corporate roadmap.
+
+## The agent-era thesis
+
+Something changed recently: AI coding agents got good. Tools like Claude Code are now in the
+hands of ordinary developers, and a well-scoped change to an unfamiliar codebase no longer
+requires weeks of ramp-up. If the project provides clear documentation and firm guardrails,
+a contributor — guided by their agent — can land real, correct work on day one.
+
+That reframes what a community project can be. git-craft is an experiment in exactly this:
+
+> **What can a community build on its own, in the open, with AI agents as
+> force-multipliers?**
+
+We want to find out — and to show it.
+
+## Principles
+
+- **Open by default.** The engine, the docs, the design history — all public, all permanent.
+- **Documentation is first-class.** Specs and plans live in the repo forever. If it isn't
+  written down, an agent can't build from it, and neither can a newcomer.
+- **Built for agents and humans alike.** `AGENTS.md` and a guided `/contribute` flow mean a
+  contributor's tooling doesn't have to match the maintainer's.
+- **Small, reviewed steps.** Changes land through PRs with green CI and human review on a
+  protected `main`. Trust the process, not heroics.
+- **Validate with data, not vibes.** Performance and rendering claims are proven with the
+  F3 HUD timestamps and benchmarks — never asserted by feel.
+- **Performance is a feature.** The target is shader-pack-grade visuals at a 384-block
+  render distance and 120 fps on Apple M4.
+
+## Where we are
+
+Early, and honest about it. The engine already does cascaded shadows, GTAO, TAA,
+volumetrics, bloom, ACES tone mapping, a Hillaire atmosphere, and screen-space water
+reflections. There is no persistence or texturing yet. The roadmap is in the open under
+`docs/superpowers/`.
+
+## Come build with us
+
+If any of this resonates, you are exactly who this project is for. Read
+[CONTRIBUTING.md](CONTRIBUTING.md), point your agent at [AGENTS.md](AGENTS.md), and open a
+PR. Let's show what a community can do.
+````
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd /Users/onurtellioglu/Github/Minecraft
+git add VISION.md
+git commit -m "docs: add VISION manifesto"
+```
+
+---
+
+## Task 8: Add CHANGELOG.md
+
+**Files:**
+- Create: `CHANGELOG.md` (repo root)
+
+- [ ] **Step 1: Write `CHANGELOG.md`**
+
+Create `CHANGELOG.md` at the repo root with exactly this content:
+
+````markdown
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+While the project is on `0.x`, breaking changes may occur between minor versions.
+
+## [Unreleased]
+
+### Added
+
+- Open-source release: dual MIT/Apache-2.0 license, README, VISION, CONTRIBUTING,
+  CODE_OF_CONDUCT, SECURITY, AGENTS guide, issue/PR templates, and CI.
+
+## [0.1.0] - 2026-06-14
+
+### Added
+
+- Voxel world: greedy-meshed chunks, infinite streaming worldgen, cave culling.
+- Lighting: cascaded shadow maps (CSM), flood-fill block/sky light.
+- Post-processing: GTAO, TAA, volumetric in-scatter, bloom, ACES tone mapping.
+- Atmosphere: Hillaire sky and aerial-perspective LUTs, day/night cycle.
+- Water: transparent refraction with screen-space reflections and a sky-LUT fallback.
+- Performance tooling: F3 debug HUD with per-pass GPU timestamps, render-scale safety
+  valve, `--bench` percentile reporting.
+````
+
+> **Note on the date:** `2026-06-14` is the date this changelog baseline is written. If the
+> implementation runs on a different day, set the `[0.1.0]` date to the actual date — do not
+> use a placeholder.
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd /Users/onurtellioglu/Github/Minecraft
+git add CHANGELOG.md
+git commit -m "docs: add changelog with 0.1.0 baseline"
+```
+
+---
+
+## Task 9: Add agent enablement (AGENTS.md, CLAUDE.md pointer, .claude/)
+
+**Files:**
+- Create: `AGENTS.md` (repo root), `.claude/commands/contribute.md`, `.claude/settings.json`
+- Modify: `CLAUDE.md` (repo root), `.gitignore`
+
+- [ ] **Step 1: Write `AGENTS.md`** (canonical, tool-agnostic agent guide)
+
+Create `AGENTS.md` at the repo root with exactly this content:
+
+````markdown
+# AGENTS.md
+
+Guidance for AI coding agents (and humans) working on **git-craft**. This is the canonical
+project guide — read it before making changes. See [VISION.md](VISION.md) for why the
+project exists.
+
+## What this is
+
+A performance-focused, Minecraft-style voxel engine in Rust on wgpu, targeting shader-pack
+visuals at a 384-block render distance / 120 fps on Apple M4. Single binary crate in the
+`git-craft/` subdirectory.
+
+## Build, run, test (run from `git-craft/`)
+
+```bash
+cd git-craft
+cargo run --release                          # play (release only — debug is too slow)
+cargo run --release -- --bench               # benchmark; prints frame-time percentiles
+cargo test                                   # unit tests for the engine core
+cargo clippy --all-targets -- -D warnings    # lints (must be clean)
+cargo fmt                                     # format (CI checks with --check)
+```
+
+## Architecture map
+
+- `src/main.rs` — entry point.
+- `src/app.rs` — winit application: event loop, input handling, per-frame orchestration,
+  render-pass wiring, keybindings.
+- `src/game/` — gameplay and simulation: `camera`, `player`, `physics`, `raycast`,
+  `input`, `hotbar`, `daycycle`.
+- `src/mesh/` — chunk meshing (pure functions): `greedy` mesher, `neighborhood`, `padded`,
+  `quad`.
+- `src/world/` — world data and generation: `block`, `chunks`, `section` (palette storage),
+  `gen`, `decor`, `light` / `light_engine`, `jobs` (streaming).
+- `src/render/` — wgpu pipelines and passes: `gpu`, `targets`, `terrain`, `shadow`, `gtao`,
+  `taa`, `volumetric`, `bloom`, `exposure`, `post`, `atmosphere`, `water`, `outline`,
+  `frustum`, `visibility`, `timestamps`, `egui_layer`, `game_ui`, `hot_reload`, `arena`.
+- `assets/shaders/*.wgsl` — WGSL shaders, loaded (and hot-reloadable) at runtime.
+
+## Conventions (hard rules)
+
+- **Engine core is pure functions over plain data, unit-tested (TDD).** Meshing, lighting,
+  worldgen, physics, and palette storage have no I/O and are covered by `cargo test`. Add
+  tests first for changes here.
+- **Validate rendering with data, not feel.** Use the F3 debug HUD (per-pass GPU
+  timestamps) and `--bench` percentiles to justify performance/visual claims.
+- **Apple TBDR discipline.** Forward rendering, no Z-prepass, precise load/store ops,
+  alpha-tested geometry in its own pipeline after solid opaque. Don't add a Z-prepass or
+  break the pass ordering without strong measured justification.
+
+## Guardrails
+
+- **Never push to `main`.** It is protected; land changes via a PR from a feature branch.
+- **No proprietary assets.** Do not add Minecraft (or other proprietary) textures, sounds,
+  or data. Art/audio must be original or under a compatible permissive/CC license.
+- **Keep PRs small and focused.** Run `cargo fmt` + `clippy` + `test` before opening one.
+- **Read the design first.** The spec is `docs/superpowers/specs/2026-06-11-dabcraft-design.md`;
+  milestone plans are in `docs/superpowers/plans/`.
+
+## Git & PR conventions
+
+- Feature branches named `<type>/<short-kebab>`; commits `type: what and why`
+  (`feat`/`fix`/`refactor`/`chore`/`docs`/`test`); atomic commits.
+- Add a `[Unreleased]` line to `CHANGELOG.md` for behavior-affecting changes.
+- Open PRs with the template; CI (fmt + clippy + test on macOS) must pass.
+````
+
+- [ ] **Step 2: Rewrite `CLAUDE.md` as a pointer + quick reference**
+
+Replace the entire contents of `CLAUDE.md` (repo root) with:
+
+````markdown
+# git-craft — Claude Code notes
+
+This project's canonical guidance lives in **[AGENTS.md](AGENTS.md)** — read it first. It
+covers the architecture map, conventions, and guardrails.
+
+## Quick reference (run from `git-craft/`)
+
+```bash
+cargo run --release                          # play
+cargo test                                   # engine-core unit tests
+cargo clippy --all-targets -- -D warnings    # lints
+cargo fmt                                     # format
+```
+
+## Guardrails
+
+- Never push to `main` — land changes via a PR from a feature branch.
+- No proprietary assets. Validate rendering/perf with the F3 HUD and `--bench`, not by feel.
+- Read the design spec at `docs/superpowers/specs/2026-06-11-dabcraft-design.md` first.
+
+## Claude Code specifics
+
+- Run `/contribute` (project command in `.claude/commands/`) for a guided contribution loop.
+- Safe, common commands are pre-allowed in `.claude/settings.json`.
+````
+
+> This supersedes the earlier project-overview content of `CLAUDE.md`; that material now
+> lives, expanded, in `AGENTS.md`.
+
+- [ ] **Step 3: Write `.claude/commands/contribute.md`**
+
+```markdown
+---
+description: Guided contribution flow for git-craft (read → branch → TDD → checks → PR)
+---
+
+You are contributing to git-craft, a community- and agent-driven voxel game engine.
+Follow this loop. Never push to `main` — all changes land via PR.
+
+1. Read `AGENTS.md` (the canonical project guide) and skim the design spec at
+   `docs/superpowers/specs/2026-06-11-dabcraft-design.md`. If a milestone plan under
+   `docs/superpowers/plans/` covers the work, read it too.
+2. Confirm scope with the user: $ARGUMENTS. If it is unclear, ask one focused question.
+3. Create a feature branch: `git checkout -b <type>/<short-kebab>` (type = feat/fix/refactor/chore/docs).
+4. Implement test-first for engine-core changes (pure functions in `src/mesh`, `src/world`,
+   `src/game`): write a failing `cargo test`, then make it pass. For rendering work,
+   validate with the F3 HUD / `--bench`, not by feel.
+5. From `git-craft/`, run `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, and
+   `cargo test`. Fix anything red.
+6. If behavior changed, add a line under `[Unreleased]` in `CHANGELOG.md`.
+7. Commit atomically (`type: what and why`), then open a PR with `gh pr create` using the
+   template. Describe how you verified the change.
+
+Keep PRs small and focused. CI and maintainer review are the safety net.
+```
+
+- [ ] **Step 4: Write `.claude/settings.json`** (minimal safe allowlist)
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "Bash(cargo run:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(cargo check:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git branch:*)",
+      "Bash(git log:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)"
+    ]
+  }
+}
+```
+
+> Deliberately excludes destructive/outward commands (`git push`, `git reset`, `rm`, repo
+> deletion). Contributors keep full control over anything risky.
+
+- [ ] **Step 5: Ignore local Claude settings overrides**
+
+Append to `.gitignore` (so personal local overrides are never committed, but the shared
+`settings.json` and commands are):
+```text
+
+# Claude Code local overrides
+.claude/settings.local.json
+```
+
+- [ ] **Step 6: Verify the JSON parses**
+
+Run:
+```bash
+cd /Users/onurtellioglu/Github/Minecraft
+python3 -c "import json; json.load(open('.claude/settings.json'))" && echo "settings.json OK"
+```
+Expected: `settings.json OK`.
+
+- [ ] **Step 7: Commit**
+
+```bash
+cd /Users/onurtellioglu/Github/Minecraft
+git add AGENTS.md CLAUDE.md .claude .gitignore
+git commit -m "docs: add AGENTS guide and project-local Claude contribution tooling"
+```
+
+---
+
+## Task 10: Final verification, publish, and open a PR
 
 **Files:** none (verification + git/GitHub operations)
 
@@ -676,22 +1119,26 @@ Expected: fmt clean, clippy clean (no warnings), tests pass, and a `git-craft` b
 Run:
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-ls README.md LICENSE-MIT LICENSE-APACHE CONTRIBUTING.md CODE_OF_CONDUCT.md
-ls .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml .github/PULL_REQUEST_TEMPLATE.md .github/workflows/ci.yml
+ls README.md VISION.md CHANGELOG.md AGENTS.md CLAUDE.md SECURITY.md LICENSE-MIT LICENSE-APACHE CONTRIBUTING.md CODE_OF_CONDUCT.md
+ls .github/ISSUE_TEMPLATE/bug_report.yml .github/ISSUE_TEMPLATE/feature_request.yml .github/PULL_REQUEST_TEMPLATE.md .github/CODEOWNERS .github/workflows/ci.yml .github/workflows/release.yml
+ls .claude/commands/contribute.md .claude/settings.json
 git log --oneline main..chore/open-source-setup
 ```
-Expected: all files present; the log shows the five Task 2–6 commits.
+Expected: all files present; the log shows the eight Task 2–9 commits (rename, license,
+README, CONTRIBUTING+CoC, .github, VISION, CHANGELOG, agent tooling).
 
 - [ ] **Step 3: Create the private GitHub repo and push (maintainer go-ahead required)**
 
-From the repo root, create the repo as **private** and push all branches:
+From the repo root, create the repo as **private**, push all branches, and set the topics:
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-gh repo create git-craft --private --source=. --remote=origin --description "A performance-focused, Minecraft-style voxel engine in Rust on wgpu."
+gh repo create git-craft --private --source=. --remote=origin \
+  --description "An open, community- and AI-agent-driven Minecraft-style voxel engine in Rust on wgpu."
 git push -u origin main
 git push -u origin chore/open-source-setup
+gh repo edit --add-topic voxel,game-engine,rust,wgpu,sandbox,open-source,ai-agents,community-driven
 ```
-Expected: repo `git-craft` created under the authenticated account; both branches pushed. Note the repo URL from the `gh` output.
+Expected: repo `git-craft` created under the authenticated account; both branches pushed; topics set. Note the repo URL from the `gh` output.
 
 - [ ] **Step 4: Open the pull request**
 
@@ -710,12 +1157,32 @@ Expected: the `CI / fmt + clippy + test` workflow runs and passes on `macos-late
 
 - [ ] **Step 6: Hand off to the maintainer**
 
-Report the repo URL and PR URL. Remind the maintainer of the two manual actions that are
-intentionally **not** automated:
+Report the repo URL and PR URL. Remind the maintainer of the manual actions that are
+intentionally **not** automated, in order:
 1. Review and merge the PR (`chore/open-source-setup` → `main`).
 2. Flip the repository from **private** to **public** when satisfied
    (Settings → General → Danger Zone → Change visibility), and add a screenshot/GIF to the
    README (the `<!-- TODO -->` placeholder).
+3. **Protect `main`** (do this once public — branch protection is free for public repos; on
+   a free plan it does not apply while private). Either via the UI
+   (Settings → Branches → Add branch ruleset / protection rule for `main`) with: *require a
+   pull request before merging*, *require 1 approval*, *require status checks to pass* →
+   select `fmt + clippy + test`, *require branches up to date*, *block force pushes*, *block
+   deletions* — or via the API:
+   ```bash
+   OWNER=$(gh api user --jq .login)
+   gh api -X PUT "repos/$OWNER/git-craft/branches/main/protection" \
+     -H "Accept: application/vnd.github+json" \
+     --input - <<'JSON'
+   {
+     "required_status_checks": { "strict": true, "contexts": ["fmt + clippy + test"] },
+     "enforce_admins": false,
+     "required_pull_request_reviews": { "required_approving_review_count": 1 },
+     "restrictions": null
+   }
+   JSON
+   ```
+   Verify: `gh api "repos/$OWNER/git-craft/branches/main/protection" --jq '.required_pull_request_reviews, .required_status_checks'` returns the configured rules.
 
 ---
 
@@ -723,21 +1190,28 @@ intentionally **not** automated:
 
 **Spec coverage:**
 - §3 Rename → Task 2 (dir move, Cargo, code strings, docs token, preserve-list, grep + build verify). ✓
-- §4 Licensing → Task 3 (LICENSE-MIT, LICENSE-APACHE, Cargo metadata, inbound=outbound stated in README/CONTRIBUTING). ✓
-- §5.1 README → Task 4 (all listed sections, verified controls table, References). ✓
-- §5.2 CONTRIBUTING → Task 5 Step 1. ✓
+- §4 Licensing → Task 3 (LICENSE-MIT, LICENSE-APACHE, Cargo metadata, inbound=outbound stated in README/CONTRIBUTING/CHANGELOG). ✓
+- §5.1 README → Task 4 (all listed sections, "Why git-craft?", verified controls table, References, doc links). ✓
+- §5.2 CONTRIBUTING → Task 5 (build/conventions/git/PR + "Building with an AI agent" + "Versioning & releases"). ✓
 - §5.3 CODE_OF_CONDUCT (Issues contact, no email) → Task 5 Steps 2–3. ✓
-- §5.4 issue templates / §5.5 PR template / §5.6 CI (macos-latest) → Task 6. ✓
-- §6 Trademark disclaimer + asset rule → README (Task 4) + CONTRIBUTING (Task 5). ✓
-- §7 Publishing flow (pre-flight, merge, branch, atomic commits, private repo, PR, handoff) → Tasks 1, 7, and per-task commits. ✓
-- §8 Success criteria → Task 7 Steps 1–2 verification. ✓
+- §5.4 issue templates / §5.5 PR template / §5.6 CI (macos-latest) → Task 6 Steps 1–5, 9–10. ✓
+- §6 Trademark disclaimer + asset rule → README (Task 4) + CONTRIBUTING + AGENTS (Tasks 5, 9). ✓
+- §7 Publishing flow (pre-flight, merge, branch, atomic commits, private repo, topics, PR, handoff) → Tasks 1, 10. ✓
+- §8 Success criteria → Task 10 Steps 1–2 verification. ✓
+- §10 Vision artifacts → Task 7 (VISION.md), Task 4 ("Why git-craft?"), Task 10 Step 3 (description/topics). ✓
+- §11 Versioning & releases → Task 8 (CHANGELOG), Task 5 ("Versioning & releases"), Task 6 Step 8 (release.yml). ✓
+- §12 Governance → Task 6 Steps 6–7 (CODEOWNERS, SECURITY.md), Task 10 Step 6.3 (branch protection). ✓
+- §13 Agent enablement → Task 9 (AGENTS.md, CLAUDE.md pointer, `.claude/commands/contribute.md`, `.claude/settings.json`) + Task 5 AI section. ✓
 
-**Placeholder scan:** The only intentional placeholders are `<gh-login>` in Cargo.toml
-(resolved via `gh api user --jq .login` in Task 3 Step 3) and the README `<!-- TODO -->`
-screenshot marker (a deliverable placeholder the maintainer fills, flagged in Task 7 Step 6).
-No "TBD"/"implement later" steps; every content step shows the full content.
+**Placeholder scan:** Intentional, resolved placeholders only: `<gh-login>` in Cargo.toml /
+CODEOWNERS / branch-protection (resolved via `gh api user --jq .login`); the README
+`<!-- TODO -->` screenshot marker (maintainer fills it, flagged in Task 10 Step 6); the
+CHANGELOG `[0.1.0]` date (Task 8 notes to use the real run date). No "TBD"/"implement later"
+steps; every content step shows full content.
 
-**Type/name consistency:** `git-craft` (package, binary, dir, prose) used uniformly; commit
-types match the project's `feat/fix/refactor/chore/docs` set; the `git-craft/` working
-directory is used consistently in every cargo command and in the CI `working-directory`.
+**Type/name consistency:** `git-craft` (package, binary, dir, prose) used uniformly; the CI
+job name `fmt + clippy + test` matches the branch-protection required status-check context in
+Task 10 Step 6; commit types match `feat/fix/refactor/chore/docs`; the `git-craft/` working
+directory is used consistently in every cargo command and in the CI `working-directory`;
+`AGENTS.md` is referenced as canonical from README, CONTRIBUTING, CLAUDE.md, and `/contribute`.
 
