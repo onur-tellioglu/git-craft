@@ -37,6 +37,13 @@ pub struct RenderTargets {
     pub ao_blur_view: wgpu::TextureView,
     /// AO-composited HDR (main color × ambient-occlusion factor). TAA reads this.
     pub composited_view: wgpu::TextureView,
+    /// Raw composited texture (COPY_SRC for the pre-water snapshot).
+    pub composited_texture: wgpu::Texture,
+    /// Snapshot of `composited_view` taken before the water pass, so water can
+    /// sample the opaque scene behind it for refraction + SSR. COPY_DST.
+    pub scene_color_view: wgpu::TextureView,
+    /// Raw scene-color texture (COPY_DST target of the snapshot).
+    pub scene_color_texture: wgpu::Texture,
     pub bloom_views: Vec<wgpu::TextureView>, // one per mip
     pub bloom_sizes: Vec<(u32, u32)>,
     pub width: u32,
@@ -166,7 +173,20 @@ impl RenderTargets {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: HDR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            // COPY_SRC: snapshotted into scene_color before the water pass.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let scene_color = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("scene color (water refraction source)"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: HDR_FORMAT,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
@@ -179,6 +199,9 @@ impl RenderTargets {
             ao_raw_view,
             ao_blur_view,
             composited_view: composited.create_view(&wgpu::TextureViewDescriptor::default()),
+            composited_texture: composited,
+            scene_color_view: scene_color.create_view(&wgpu::TextureViewDescriptor::default()),
+            scene_color_texture: scene_color,
             bloom_views,
             bloom_sizes,
             width,

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::mesh::padded::{PaddedSection, PADDED};
 use crate::mesh::quad::{PackedQuad, Quad};
+use crate::world::block::{BlockId, WATER};
 
 const SIZE: usize = 32;
 
@@ -46,7 +47,14 @@ fn plane_key(face: u32, slice: u32, block: u16, ao_key: u32, light: u8) -> u64 {
 /// 9-bit solidity pattern of the out-layer 3×3 neighborhood of a face,
 /// in the face's U/V axes. Bit (du+1)*3+(dv+1); (px,py,pz) are the padded
 /// coords of the solid cell owning the face.
-fn ao_neighborhood(padded: &PaddedSection, px: usize, py: usize, pz: usize, face: usize) -> u32 {
+fn ao_neighborhood(
+    padded: &PaddedSection,
+    px: usize,
+    py: usize,
+    pz: usize,
+    face: usize,
+    occ: &impl Fn(BlockId) -> bool,
+) -> u32 {
     let n = FACE_N[face];
     let (u, v) = (FACE_U[face], FACE_V[face]);
     let base = [px as i32 + n[0], py as i32 + n[1], pz as i32 + n[2]];
@@ -61,7 +69,7 @@ fn ao_neighborhood(padded: &PaddedSection, px: usize, py: usize, pz: usize, face
             // The normal step keeps exactly one coordinate at the apron rim;
             // U/V steps move the other two, which started in 1..=32. All
             // three therefore stay inside 0..34.
-            if padded.get(q[0] as usize, q[1] as usize, q[2] as usize).is_solid() {
+            if occ(padded.get(q[0] as usize, q[1] as usize, q[2] as usize)) {
                 key |= 1 << ((du + 1) * 3 + (dv + 1));
             }
         }
@@ -93,21 +101,47 @@ impl Mesher {
         }
     }
 
+    /// Mesh treating every non-air block as one opaque solid (the M2–M4
+    /// behavior). The production path uses `mesh_layers`; this stays as the
+    /// reference single-layer mesher and the basis for the mesher unit tests.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn mesh(&mut self, padded: &PaddedSection) -> Vec<PackedQuad> {
+        self.mesh_with(padded, |b| b.is_solid(), |_| true)
+    }
+
+    /// Split into (opaque, water) layers for the transparent water pass.
+    /// Opaque treats water as empty so the seafloor face (solid→water) is
+    /// emitted and visible through the surface; water keeps only WATER-owned
+    /// faces against air (water→solid stays culled, water→water internal).
+    pub fn mesh_layers(&mut self, padded: &PaddedSection) -> (Vec<PackedQuad>, Vec<PackedQuad>) {
+        let opaque = self.mesh_with(padded, |b| b.is_solid() && b != WATER, |_| true);
+        let water = self.mesh_with(padded, |b| b.is_solid(), |b| b == WATER);
+        (opaque, water)
+    }
+
+    /// Core mesh pass. `occ` is the solidity used for face culling + AO; `keep`
+    /// filters which owning blocks emit a face (so one occupancy can yield a
+    /// single block type's surface).
+    fn mesh_with(
+        &mut self,
+        padded: &PaddedSection,
+        occ: impl Fn(BlockId) -> bool,
+        keep: impl Fn(BlockId) -> bool,
+    ) -> Vec<PackedQuad> {
         self.axis_cols = [[[0; PADDED]; PADDED]; 3];
         self.planes.clear();
         self.quads.clear();
-        self.build_axis_cols(padded);
-        self.build_planes(padded);
+        self.build_axis_cols(padded, &occ);
+        self.build_planes(padded, &occ, &keep);
         self.sweep_planes();
         std::mem::take(&mut self.quads)
     }
 
-    fn build_axis_cols(&mut self, padded: &PaddedSection) {
+    fn build_axis_cols(&mut self, padded: &PaddedSection, occ: &impl Fn(BlockId) -> bool) {
         for y in 0..PADDED {
             for z in 0..PADDED {
                 for x in 0..PADDED {
-                    if padded.get(x, y, z).is_solid() {
+                    if occ(padded.get(x, y, z)) {
                         self.axis_cols[0][z][x] |= 1 << y;
                         self.axis_cols[1][y][z] |= 1 << x;
                         self.axis_cols[2][y][x] |= 1 << z;
@@ -117,7 +151,12 @@ impl Mesher {
         }
     }
 
-    fn build_planes(&mut self, padded: &PaddedSection) {
+    fn build_planes(
+        &mut self,
+        padded: &PaddedSection,
+        occ: &impl Fn(BlockId) -> bool,
+        keep: &impl Fn(BlockId) -> bool,
+    ) {
         #[allow(clippy::needless_range_loop)] // axis indexes axis_cols AND FACE_OF; iterator form is less clear
         for axis in 0..3usize {
             for i in 1..=SIZE {
@@ -139,7 +178,10 @@ impl Mesher {
                                 _ => (j, i, (c + 1) as usize),
                             };
                             let block = padded.get(x, y, z);
-                            let ao_key = ao_neighborhood(padded, x, y, z, face as usize);
+                            if !keep(block) {
+                                continue;
+                            }
+                            let ao_key = ao_neighborhood(padded, x, y, z, face as usize, occ);
                             let n = FACE_N[face as usize];
                             let light = padded.light_packed(
                                 (x as i32 + n[0]) as usize,
@@ -256,6 +298,48 @@ mod tests {
     #[test]
     fn empty_section_emits_nothing() {
         assert!(mesh(&PaddedSection::air()).is_empty());
+    }
+
+    #[test]
+    fn plain_mesh_still_treats_water_as_a_solid() {
+        use crate::world::block::WATER;
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, WATER);
+        assert_eq!(mesh(&p).len(), 6, "mesh() keeps the M2 all-solid behavior");
+    }
+
+    #[test]
+    fn water_splits_into_its_own_layer_with_a_visible_seafloor() {
+        use crate::world::block::{SAND, WATER};
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, SAND); // seafloor, interior (5,5,5)
+        p.set(6, 7, 6, WATER); // water directly above
+        let (opaque, water) = Mesher::new().mesh_layers(&p);
+        let op: Vec<Quad> = opaque.iter().map(|q| q.unpack()).collect();
+        let wq: Vec<Quad> = water.iter().map(|q| q.unpack()).collect();
+        // Opaque keeps the sand AND emits its top face (water counted as empty).
+        assert!(
+            op.iter().any(|q| q.texture == SAND.0 as u32 && q.face == 2),
+            "seafloor top face must be emitted into the opaque layer"
+        );
+        assert!(op.iter().all(|q| q.texture != WATER.0 as u32), "opaque layer holds no water");
+        // Water layer is only WATER, has a top surface, and no bottom (culled by the sand).
+        assert!(!wq.is_empty() && wq.iter().all(|q| q.texture == WATER.0 as u32));
+        assert!(wq.iter().any(|q| q.face == 2), "water top surface present");
+        assert!(wq.iter().all(|q| q.face != 3), "water bottom against the sand is culled");
+    }
+
+    #[test]
+    fn submerged_water_block_emits_no_water_faces() {
+        use crate::world::block::{STONE, WATER};
+        // Water fully boxed in by stone: no water→air faces anywhere.
+        let mut p = PaddedSection::air();
+        p.set(6, 6, 6, WATER);
+        for (dx, dy, dz) in [(1, 0, 0), (-1i32, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+            p.set((6 + dx) as usize, (6 + dy) as usize, (6 + dz) as usize, STONE);
+        }
+        let (_, water) = Mesher::new().mesh_layers(&p);
+        assert!(water.is_empty(), "enclosed water has no visible surface");
     }
 
     #[test]

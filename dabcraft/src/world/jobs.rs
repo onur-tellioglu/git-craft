@@ -23,7 +23,10 @@ pub enum JobResult {
     Meshed {
         pos: SectionPos,
         version: u64,
-        quads: Vec<PackedQuad>,
+        /// Opaque terrain quads (water excluded; seafloor faces exposed).
+        opaque: Vec<PackedQuad>,
+        /// Water-surface quads, drawn in the transparent pass.
+        water: Vec<PackedQuad>,
         /// Cave-culling mask; consumed by the BFS traversal in Task 11.
         #[allow(dead_code)]
         visibility: u16,
@@ -63,9 +66,9 @@ impl Jobs {
         let tx = self.tx.clone();
         rayon::spawn(move || {
             let padded = hood.build_padded();
-            let quads = Mesher::new().mesh(&padded);
+            let (opaque, water) = Mesher::new().mesh_layers(&padded);
             let visibility = crate::render::visibility::face_connectivity(&padded);
-            let _ = tx.send(JobResult::Meshed { pos, version, quads, visibility });
+            let _ = tx.send(JobResult::Meshed { pos, version, opaque, water, visibility });
         });
     }
 
