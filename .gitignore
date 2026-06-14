@@ -13,3 +13,9 @@ target/
 # git-craft runtime data
 saves/
 .task-log/
+
+# Project Claude tooling is committed even though the user's global gitignore
+# excludes .claude/ — re-include it here, but keep local overrides out.
+!.claude/
+!.claude/**
+.claude/settings.local.json
