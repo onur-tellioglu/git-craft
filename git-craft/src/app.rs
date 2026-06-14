@@ -1581,7 +1581,12 @@ impl ApplicationHandler for App {
         let hdr_format = crate::render::targets::HDR_FORMAT;
         let terrain_src =
             std::fs::read_to_string(shader_path("terrain.wgsl")).expect("terrain.wgsl missing");
-        self.terrain = Some(TerrainRenderer::new(&gpu.device, hdr_format, &terrain_src));
+        self.terrain = Some(TerrainRenderer::new(
+            &gpu.device,
+            &gpu.queue,
+            hdr_format,
+            &terrain_src,
+        ));
         let shadow_src =
             std::fs::read_to_string(shader_path("shadow.wgsl")).expect("shadow.wgsl missing");
         let terrain_ref = self.terrain.as_ref().unwrap();

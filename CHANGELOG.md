@@ -31,6 +31,12 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
   untouched terrain regenerates deterministically — and lighting is never stored: a loaded
   column recomputes it through the generation path. All disk I/O runs on a dedicated worker
   thread, so the frame loop never blocks; edited columns are saved when they unload or on quit.
+- Procedural per-block material textures (M6c): the flat per-block palette color is replaced
+  by code-generated materials — per-block albedo detail, a tangent-space normal map, and a
+  roughness channel — sampled in the terrain pass. Lighting gains normal-mapped surface relief
+  and a roughness-controlled specular highlight. Materials are generated deterministically from
+  each block's own base color (no external or proprietary art), with a full CPU-built mip chain
+  so terrain tiling doesn't shimmer at distance.
 
 ### Fixed
 
@@ -43,6 +49,15 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
   only updated once the worker confirms the write.
 - `Persistence` field is now `Option<Persistence>` so bench mode (M6a) can pass `None`
   without region files polluting benchmark reproducibility.
+- Normal mapping no longer leaks diffuse/specular light onto geometrically back-facing surfaces
+  (dark side of walls near the sun terminator was incorrectly lit). A geometric back-face guard
+  (`ndotl_geo = dot(geo_normal, sun)`) now gates the entire direct + specular contribution so
+  back faces receive only ambient light.
+
+### Changed
+
+- The device now requests `max_bind_groups = 5` (the terrain pipeline binds camera, quads,
+  shadow, aerial, and the new material group); Apple Silicon Metal supports this comfortably.
 
 ## [0.5.0] - 2026-06-14
 

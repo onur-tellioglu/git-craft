@@ -26,6 +26,11 @@ struct ShadowUniform {
 @group(2) @binding(2) var shadow_samp: sampler_comparison;
 @group(3) @binding(0) var aerial_lut: texture_3d<f32>;
 @group(3) @binding(1) var aerial_samp: sampler;
+// Procedural per-block materials (see src/render/material.rs): albedo (rgb) +
+// roughness (a), and a tangent-space normal map. Layer = block id.
+@group(4) @binding(0) var mat_albedo: texture_2d_array<f32>;
+@group(4) @binding(1) var mat_normal: texture_2d_array<f32>;
+@group(4) @binding(2) var mat_samp: sampler;
 
 // Per-face: origin offset (added to voxel pos), U axis, V axis.
 // Face order matches Rust: 0=+X 1=-X 2=+Y 3=-Y 4=+Z 5=-Z.
@@ -53,24 +58,6 @@ const FACE_NORMAL = array<vec3<f32>, 6>(
 const FACE_SHADE = array<f32, 6>(0.8, 0.8, 1.0, 0.5, 0.6, 0.6);
 const TORCH_COLOR = vec3(1.0, 0.62, 0.33);
 
-// M2 palette indexed by the quad's texture field = block id;
-// procedural textures replace this in M6.
-const PALETTE = array<vec3<f32>, 13>(
-    vec3(1.0, 0.0, 1.0),      //  0 air (never rendered; magenta = bug)
-    vec3(0.35, 0.62, 0.22),   //  1 grass
-    vec3(0.45, 0.32, 0.2),    //  2 dirt
-    vec3(0.52, 0.52, 0.54),   //  3 stone
-    vec3(0.86, 0.81, 0.58),   //  4 sand
-    vec3(0.91, 0.93, 0.95),   //  5 snow grass
-    vec3(0.19, 0.36, 0.68),   //  6 water (opaque until M5)
-    vec3(0.42, 0.31, 0.19),   //  7 oak log
-    vec3(0.23, 0.43, 0.14),   //  8 oak leaves
-    vec3(0.32, 0.23, 0.14),   //  9 spruce log
-    vec3(0.16, 0.3, 0.19),    // 10 spruce leaves
-    vec3(0.27, 0.5, 0.21),    // 11 cactus
-    vec3(0.95, 0.71, 0.3),    // 12 torch
-);
-
 const CORNER_UV = array<vec2<f32>, 4>(
     vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0),
 );
@@ -84,7 +71,9 @@ struct VsOut {
     @location(2) ao: f32,
     // x = skylight, y = blocklight (constant across a greedy quad).
     @location(3) @interpolate(flat) light: vec2<f32>,
-    @location(4) @interpolate(flat) albedo: vec3<f32>,
+    // Per-block tiling UV (corner_uv × quad extent) and the material layer.
+    @location(4) tile_uv: vec2<f32>,
+    @location(5) @interpolate(flat) layer: u32,
 };
 
 @vertex
@@ -117,7 +106,9 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
     out.face = face;
     out.ao = ao / 3.0;
     out.light = vec2(skylight, blocklight);
-    out.albedo = PALETTE[min(tex, 12u)];
+    // Tile the material once per block across the greedy-merged quad.
+    out.tile_uv = uv * vec2(w, h);
+    out.layer = min(tex, 12u);
     return out;
 }
 
@@ -158,24 +149,55 @@ struct FragOut {
 
 @fragment
 fn fs_main(in: VsOut) -> FragOut {
-    let normal = FACE_NORMAL[in.face];
+    let geo_normal = FACE_NORMAL[in.face];
+
+    // Procedural material: albedo (rgb) + roughness (a), plus a tangent-space
+    // normal reconstructed into world space via the face's U/V/N basis.
+    let mat = textureSample(mat_albedo, mat_samp, in.tile_uv, in.layer);
+    let albedo = mat.rgb;
+    let roughness = mat.a;
+    let tn = textureSample(mat_normal, mat_samp, in.tile_uv, in.layer).xyz * 2.0 - 1.0;
+    let normal = normalize(
+        FACE_U[in.face] * tn.x + FACE_V[in.face] * tn.y + geo_normal * tn.z
+    );
+
     let view_dist = length(in.world_pos - frame.camera.xyz);
     let ndotl = max(dot(normal, frame.sun.xyz), 0.0);
 
+    // Geometric back-face guard: even if the perturbed normal deviates far
+    // enough to produce ndotl > 0, the face is in permanent shadow when the
+    // unperturbed geometric normal faces away from the sun. Gate the entire
+    // direct + specular contribution so the dark side of walls stays purely
+    // ambient (no light-leak halo near the sun terminator).
+    let ndotl_geo = max(dot(geo_normal, frame.sun.xyz), 0.0);
+    let geo_lit = step(0.001, ndotl_geo);
+
     // Flood-fill skylight gates the direct term beyond shadow range and
     // underground (spec §6): caves stay dark at noon, shafts of light need
-    // actual sky exposure.
+    // actual sky exposure. Shadow bias uses the geometric face normal (the
+    // perturbed normal would reintroduce acne).
     let guard = smoothstep(0.0, 0.5, in.light.x);
     var shadow_f = 0.0;
-    if ndotl > 0.0 && guard > 0.0 {
-        shadow_f = shadow_factor(in.world_pos, normal, view_dist);
+    if ndotl > 0.0 && guard > 0.0 && geo_lit > 0.0 {
+        shadow_f = shadow_factor(in.world_pos, geo_normal, view_dist);
     }
+    let sun_vis = min(shadow_f, guard) * geo_lit;
 
     let ao = mix(0.35, 1.0, in.ao);
-    let direct = frame.sun_color.rgb * ndotl * min(shadow_f, guard);
+    let direct = frame.sun_color.rgb * ndotl * sun_vis;
     let ambient = frame.sky.rgb * pow(in.light.x, 1.8) * FACE_SHADE[in.face] * ao;
     let torch = TORCH_COLOR * 1.4 * pow(in.light.y, 1.6) * FACE_SHADE[in.face] * ao;
-    let lit = in.albedo * (direct + ambient + torch);
+
+    // Roughness-controlled Blinn-Phong specular from the sun, gated by the same
+    // visibility as the diffuse. Subtle on matte terrain; brighter on smoother
+    // blocks (snow, water).
+    let view_dir = normalize(frame.camera.xyz - in.world_pos);
+    let half_v = normalize(frame.sun.xyz + view_dir);
+    let shininess = mix(4.0, 64.0, 1.0 - roughness);
+    let spec = pow(max(dot(normal, half_v), 0.0), shininess) * (1.0 - roughness) * 0.5;
+    let specular = frame.sun_color.rgb * spec * sun_vis * step(0.0001, ndotl);
+
+    let lit = albedo * (direct + ambient + torch) + specular;
     // Aerial perspective: froxel slice indexed by exaggerated view distance.
     // 10.0 = AP_MAX_KM in sky_luts.wgsl.
     let screen_uv = in.clip.xy / frame.params.xy;
@@ -187,7 +209,7 @@ fn fs_main(in: VsOut) -> FragOut {
     // term (the only term GTAO attenuates). Direct sun + torch are excluded so
     // AO never smudges lit faces or torch-lit caves.
     let LUMA = vec3(0.2126, 0.7152, 0.0722);
-    let amb_lum = dot(in.albedo * ambient * ap.a, LUMA);
+    let amb_lum = dot(albedo * ambient * ap.a, LUMA);
     let tot_lum = dot(color, LUMA) + 1e-4;
     let ambient_weight = clamp(amb_lum / tot_lum, 0.0, 1.0);
 

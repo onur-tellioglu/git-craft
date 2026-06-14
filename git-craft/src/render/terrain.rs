@@ -94,6 +94,11 @@ pub struct TerrainRenderer {
     aerial_layout: wgpu::BindGroupLayout,
     aerial_bind_group: Option<wgpu::BindGroup>,
     aerial_sampler: wgpu::Sampler,
+    /// Procedural per-block material textures (albedo+roughness, normal). Built
+    /// once from `material::build_atlas`; the bind group keeps the GPU textures
+    /// + sampler alive.
+    material_layout: wgpu::BindGroupLayout,
+    material_bind_group: wgpu::BindGroup,
     // The bind group references quads_buffer + section_info_buffer; both are
     // owned fields, so they outlive it by construction (M1's Option dance is
     // gone — all buffers are fixed-size and created once).
@@ -115,6 +120,7 @@ pub struct TerrainRenderer {
 impl TerrainRenderer {
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
         shader_source: &str,
     ) -> Self {
@@ -285,6 +291,8 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let (material_layout, material_bind_group) = Self::build_material(device, queue);
+
         let pipeline = Self::build_pipeline(
             device,
             surface_format,
@@ -292,6 +300,7 @@ impl TerrainRenderer {
             &quads_layout,
             &shadow_layout,
             &aerial_layout,
+            &material_layout,
             shader_source,
         );
 
@@ -307,6 +316,8 @@ impl TerrainRenderer {
             aerial_layout,
             aerial_bind_group: None,
             aerial_sampler,
+            material_layout,
+            material_bind_group,
             quads_bind_group,
             quads_buffer,
             section_info_buffer,
@@ -322,6 +333,7 @@ impl TerrainRenderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // bind-group layouts; bundling adds more noise than it removes
     fn build_pipeline(
         device: &wgpu::Device,
         surface_format: wgpu::TextureFormat,
@@ -329,6 +341,7 @@ impl TerrainRenderer {
         quads_layout: &wgpu::BindGroupLayout,
         shadow_layout: &wgpu::BindGroupLayout,
         aerial_layout: &wgpu::BindGroupLayout,
+        material_layout: &wgpu::BindGroupLayout,
         shader_source: &str,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -342,6 +355,7 @@ impl TerrainRenderer {
                 Some(quads_layout),
                 Some(shadow_layout),
                 Some(aerial_layout),
+                Some(material_layout),
             ],
             immediate_size: 0,
         });
@@ -399,8 +413,120 @@ impl TerrainRenderer {
             &self.quads_layout,
             &self.shadow_layout,
             &self.aerial_layout,
+            &self.material_layout,
             shader_source,
         );
+    }
+
+    /// Build the procedural material texture arrays (albedo+roughness, normal)
+    /// and their bind group. Generated once at startup; sampled by every
+    /// terrain fragment. The bind group keeps the textures + sampler alive.
+    fn build_material(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
+        use crate::render::material;
+        let atlas = material::build_atlas(material::ATLAS_SIZE);
+
+        let make_array = |label: &str, mips: &[Vec<u8>]| -> wgpu::TextureView {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: atlas.size,
+                    height: atlas.size,
+                    depth_or_array_layers: atlas.layers,
+                },
+                mip_level_count: atlas.mip_levels,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let mut w = atlas.size;
+            for (mip, data) in mips.iter().enumerate() {
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: mip as u32,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    data,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(w * 4),
+                        rows_per_image: Some(w),
+                    },
+                    wgpu::Extent3d {
+                        width: w,
+                        height: w,
+                        depth_or_array_layers: atlas.layers,
+                    },
+                );
+                w = (w / 2).max(1);
+            }
+            texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            })
+        };
+
+        let albedo_view = make_array("material albedo", &atlas.albedo);
+        let normal_view = make_array("material normal", &atlas.normal);
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("material"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+
+        let tex_entry = |binding: u32| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("material"),
+            entries: &[
+                tex_entry(0),
+                tex_entry(1),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("material"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&albedo_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&normal_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        (layout, bind_group)
     }
 
     pub fn write_frame(&self, queue: &wgpu::Queue, p: &FrameParams) {
@@ -706,6 +832,7 @@ impl TerrainRenderer {
         rpass.set_bind_group(1, &self.quads_bind_group, &[]);
         rpass.set_bind_group(2, shadow_bg, &[]);
         rpass.set_bind_group(3, aerial_bg, &[]);
+        rpass.set_bind_group(4, &self.material_bind_group, &[]);
         rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         for i in 0..self.visible_count {
             rpass.draw_indexed_indirect(&self.indirect_buffer, i as u64 * 20);
