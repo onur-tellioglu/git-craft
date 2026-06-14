@@ -2,6 +2,12 @@
 name = "git-craft"
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "A performance-focused, Minecraft-style voxel engine in Rust on wgpu, targeting modern shader-pack visuals at 384-block render distance / 120 fps on Apple M4."
+repository = "https://github.com/onur-tellioglu/git-craft"
+keywords = ["voxel", "gamedev", "wgpu", "renderer", "minecraft"]
+categories = ["games", "graphics", "rendering"]
+authors = ["Onur Tellioğlu"]
 
 [dependencies]
 wgpu = "29"
