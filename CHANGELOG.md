@@ -13,6 +13,12 @@ While the project is on `0.x`, breaking changes may occur between minor versions
 - Open-source release: dual MIT/Apache-2.0 license, README, VISION, CONTRIBUTING,
   CODE_OF_CONDUCT, SECURITY, AGENTS guide, issue/PR templates, and CI.
 
+### Fixed
+
+- Shader loading resolves `assets/shaders` relative to the executable, so a shipped
+  binary with `assets/` bundled alongside runs outside the build tree. The compile-time
+  `CARGO_MANIFEST_DIR` path stays the preferred dev/hot-reload location.
+
 ## [0.1.0] - 2026-06-14
 
 ### Added
