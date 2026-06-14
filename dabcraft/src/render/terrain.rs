@@ -55,8 +55,10 @@ struct SectionInfo {
 
 struct SectionEntry {
     slot: u32,
-    offset: u32, // in quads
-    len: u32,    // in quads
+    offset: u32, // opaque quads: arena offset
+    len: u32,    // opaque quads: count (0 = water-only section)
+    water_offset: u32, // water quads: arena offset
+    water_len: u32,    // water quads: count (0 = no water surface)
 }
 
 pub struct DrawStats {
@@ -99,11 +101,14 @@ pub struct TerrainRenderer {
     quads_buffer: wgpu::Buffer,
     section_info_buffer: wgpu::Buffer,
     indirect_buffer: wgpu::Buffer,
+    /// Per-visible-section water draw args, written each frame alongside `indirect_buffer`.
+    water_indirect_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     arena: Arena,
     entries: HashMap<SectionPos, SectionEntry>,
     free_slots: Vec<u32>,
     visible_count: u32,
+    water_visible_count: u32,
     surface_format: wgpu::TextureFormat,
 }
 
@@ -243,6 +248,12 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let water_indirect_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("water indirect"),
+            size: MAX_SECTIONS as u64 * 20,
+            usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         let quads_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("quads"),
@@ -279,11 +290,13 @@ impl TerrainRenderer {
             quads_buffer,
             section_info_buffer,
             indirect_buffer,
+            water_indirect_buffer,
             index_buffer,
             arena: Arena::new(QUAD_CAPACITY),
             entries: HashMap::new(),
             free_slots: (0..MAX_SECTIONS).rev().collect(),
             visible_count: 0,
+            water_visible_count: 0,
             surface_format,
         }
     }
@@ -371,28 +384,68 @@ impl TerrainRenderer {
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
 
-    /// Upload (or replace) one section's quads. Empty quads = section is
-    /// resident-free (fully enclosed / all air) and draws nothing.
-    pub fn upload_section(&mut self, queue: &wgpu::Queue, pos: SectionPos, quads: &[PackedQuad]) {
+    /// Upload (or replace) one section's quads, split into opaque terrain and
+    /// water-surface layers. Both empty = the section is resident-free (fully
+    /// enclosed / all air) and draws nothing.
+    pub fn upload_section(
+        &mut self,
+        queue: &wgpu::Queue,
+        pos: SectionPos,
+        opaque: &[PackedQuad],
+        water: &[PackedQuad],
+    ) {
         self.remove_section(pos);
-        if quads.is_empty() {
+        if opaque.is_empty() && water.is_empty() {
             return;
         }
-        if quads.len() as u32 > MAX_QUADS_PER_SECTION {
+        if opaque.len() as u32 > MAX_QUADS_PER_SECTION || water.len() as u32 > MAX_QUADS_PER_SECTION
+        {
             // Unreachable for real terrain (worst case 98k); guard anyway.
-            log::error!("section {pos:?} exceeds MAX_QUADS_PER_SECTION ({})", quads.len());
+            log::error!("section {pos:?} exceeds MAX_QUADS_PER_SECTION");
             return;
         }
-        let Some(offset) = self.arena.alloc(quads.len() as u32) else {
-            log::warn!("quad arena full; section {pos:?} not uploaded");
-            return;
+        // Allocate the opaque range first; bail (whole section) if it can't fit.
+        let (offset, len) = if opaque.is_empty() {
+            (0, 0)
+        } else {
+            match self.arena.alloc(opaque.len() as u32) {
+                Some(off) => (off, opaque.len() as u32),
+                None => {
+                    log::warn!("quad arena full; section {pos:?} not uploaded");
+                    return;
+                }
+            }
+        };
+        // Water range is best-effort: a full arena drops the surface, not the terrain.
+        let (water_offset, water_len) = if water.is_empty() {
+            (0, 0)
+        } else {
+            match self.arena.alloc(water.len() as u32) {
+                Some(off) => (off, water.len() as u32),
+                None => {
+                    log::warn!("quad arena full; water surface for {pos:?} dropped");
+                    (0, 0)
+                }
+            }
         };
         let Some(slot) = self.free_slots.pop() else {
-            self.arena.free(offset, quads.len() as u32);
+            self.arena.free(offset, len);
+            if water_len > 0 {
+                self.arena.free(water_offset, water_len);
+            }
             log::warn!("section slots exhausted; section {pos:?} not uploaded");
             return;
         };
-        queue.write_buffer(&self.quads_buffer, offset as u64 * 8, bytemuck::cast_slice(quads));
+        if len > 0 {
+            queue.write_buffer(&self.quads_buffer, offset as u64 * 8, bytemuck::cast_slice(opaque));
+        }
+        if water_len > 0 {
+            queue.write_buffer(
+                &self.quads_buffer,
+                water_offset as u64 * 8,
+                bytemuck::cast_slice(water),
+            );
+        }
         let o = pos.origin();
         let info = SectionInfo { origin: [o.x, o.y, o.z, 0] };
         queue.write_buffer(
@@ -400,12 +453,17 @@ impl TerrainRenderer {
             slot as u64 * std::mem::size_of::<SectionInfo>() as u64,
             bytemuck::bytes_of(&info),
         );
-        self.entries.insert(pos, SectionEntry { slot, offset, len: quads.len() as u32 });
+        self.entries.insert(pos, SectionEntry { slot, offset, len, water_offset, water_len });
     }
 
     pub fn remove_section(&mut self, pos: SectionPos) {
         if let Some(e) = self.entries.remove(&pos) {
-            self.arena.free(e.offset, e.len);
+            if e.len > 0 {
+                self.arena.free(e.offset, e.len);
+            }
+            if e.water_len > 0 {
+                self.arena.free(e.water_offset, e.water_len);
+            }
             self.free_slots.push(e.slot);
         }
     }
@@ -423,6 +481,7 @@ impl TerrainRenderer {
     ) -> DrawStats {
         let mut args: Vec<wgpu::util::DrawIndexedIndirectArgs> =
             Vec::with_capacity(self.entries.len());
+        let mut water_args: Vec<wgpu::util::DrawIndexedIndirectArgs> = Vec::new();
         let mut drawn_quads = 0u32;
         let mut cave_culled = 0u32;
         for (pos, e) in &self.entries {
@@ -437,13 +496,22 @@ impl TerrainRenderer {
             if !frustum.intersects_aabb(min, max) {
                 continue;
             }
-            drawn_quads += e.len;
-            args.push(section_draw_args(e.offset, e.len, e.slot));
+            if e.len > 0 {
+                drawn_quads += e.len;
+                args.push(section_draw_args(e.offset, e.len, e.slot));
+            }
+            if e.water_len > 0 {
+                water_args.push(section_draw_args(e.water_offset, e.water_len, e.slot));
+            }
         }
         if !args.is_empty() {
             queue.write_buffer(&self.indirect_buffer, 0, bytemuck::cast_slice(&args));
         }
+        if !water_args.is_empty() {
+            queue.write_buffer(&self.water_indirect_buffer, 0, bytemuck::cast_slice(&water_args));
+        }
         self.visible_count = args.len() as u32;
+        self.water_visible_count = water_args.len() as u32;
         DrawStats {
             resident_sections: self.entries.len() as u32,
             visible_sections: self.visible_count,
@@ -476,6 +544,16 @@ impl TerrainRenderer {
         &self.index_buffer
     }
 
+    /// Water transparent-pass draw resources (the water pipeline lives in
+    /// WaterRenderer but pulls from the same quad/section/index buffers).
+    pub fn water_indirect_buffer(&self) -> &wgpu::Buffer {
+        &self.water_indirect_buffer
+    }
+
+    pub fn water_visible_count(&self) -> u32 {
+        self.water_visible_count
+    }
+
     /// Write indirect args for every resident section intersecting `frustum`
     /// into `buffer` at `offset_bytes`; returns the draw count. Used by the
     /// shadow cascades — no cave culling (anything in the light frustum casts
@@ -490,6 +568,9 @@ impl TerrainRenderer {
         let mut args: Vec<wgpu::util::DrawIndexedIndirectArgs> =
             Vec::with_capacity(self.entries.len());
         for (pos, e) in &self.entries {
+            if e.len == 0 {
+                continue; // water-only section casts no shadow
+            }
             let min = pos.origin().as_vec3();
             if !frustum.intersects_aabb(min, min + glam::Vec3::splat(32.0)) {
                 continue;

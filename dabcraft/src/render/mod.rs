@@ -18,3 +18,4 @@ pub mod terrain;
 pub mod timestamps;
 pub mod visibility;
 pub mod volumetric;
+pub mod water;

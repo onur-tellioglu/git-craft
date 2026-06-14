@@ -18,8 +18,8 @@ use crate::render::timestamps::GpuTimer;
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
 const PASS_LABELS: &[&str] = &[
-    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "volumetric", "composite", "taa",
-    "bloom", "exposure", "post",
+    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "volumetric", "composite", "water",
+    "taa", "bloom", "exposure", "post",
 ];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
@@ -27,10 +27,11 @@ const PASS_MAIN: usize = 4;
 const PASS_GTAO: usize = 5;
 const PASS_VOLUMETRIC: usize = 6;
 const PASS_COMPOSITE: usize = 7;
-const PASS_TAA: usize = 8;
-const PASS_BLOOM: usize = 9;
-const PASS_EXPOSURE: usize = 10;
-const PASS_POST: usize = 11;
+const PASS_WATER: usize = 8;
+const PASS_TAA: usize = 9;
+const PASS_BLOOM: usize = 10;
+const PASS_EXPOSURE: usize = 11;
+const PASS_POST: usize = 12;
 
 /// GTAO tuning (one place to tweak the look; see the M5b GTAO plan).
 /// World-space sample radius in blocks (1 block = 1 m).
@@ -63,6 +64,17 @@ const VOL_HG_G: f32 = 0.6;
 const VOL_AMBIENT: f32 = 0.4;
 /// Temporal reprojection blend (M5c Task 3): fraction of the new estimate kept.
 const VOL_TAA_ALPHA: f32 = 0.05;
+
+/// Water tuning (M5d). Tint color the refracted scene fades toward with depth.
+const WATER_TINT: [f32; 3] = [0.04, 0.13, 0.18];
+/// Fog density per meter of water column (higher = murkier, hides the seafloor sooner).
+const WATER_FOG_DENSITY: f32 = 0.06;
+/// Fresnel reflectance at normal incidence (water ≈ 0.02).
+const WATER_FRESNEL_F0: f32 = 0.02;
+/// Reflection strength multiplier on the fresnel term.
+const WATER_REFLECTION: f32 = 1.0;
+/// Screen-space refraction offset scale (how far the normal bends the lookup).
+const WATER_REFRACTION: f32 = 0.03;
 
 fn shader_path(name: &str) -> String {
     format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
@@ -140,6 +152,7 @@ pub struct App {
     blur: Option<crate::render::gtao::BlurPass>,
     composite: Option<crate::render::gtao::CompositePass>,
     volumetric: Option<crate::render::volumetric::VolumetricPass>,
+    water: Option<crate::render::water::WaterRenderer>,
     /// Previous frame's UNJITTERED view_proj (for TAA reprojection).
     prev_view_proj: glam::Mat4,
     /// Ping-pong index: which history_views slot is read this frame (0 or 1).
@@ -166,7 +179,12 @@ pub struct App {
     world: crate::world::chunks::ChunkMap,
     worldgen: crate::world::r#gen::WorldGen,
     jobs: crate::world::jobs::Jobs,
-    upload_queue: VecDeque<(crate::world::chunks::SectionPos, Vec<crate::mesh::quad::PackedQuad>)>,
+    #[allow(clippy::type_complexity)]
+    upload_queue: VecDeque<(
+        crate::world::chunks::SectionPos,
+        Vec<crate::mesh::quad::PackedQuad>,
+        Vec<crate::mesh::quad::PackedQuad>,
+    )>,
     /// Latest mesh-job version per section. Two jobs for one section can
     /// finish out of order; only a result matching the current version may
     /// be uploaded, or a stale snapshot would overwrite the fresh mesh.
@@ -208,6 +226,7 @@ impl App {
             blur: None,
             composite: None,
             volumetric: None,
+            water: None,
             prev_view_proj: glam::Mat4::IDENTITY,
             taa_history_idx: 0,
             frame_index: 0,
@@ -303,6 +322,11 @@ impl App {
             && let Some(exposure_buf) = self.exposure.as_ref().map(|e| e.result_buffer())
         {
             post.set_input(device, &targets.resolved_view, &targets.bloom_views[0], exposure_buf);
+        }
+        if let (Some(water), Some(targets), Some(depth_sv)) =
+            (self.water.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
+        {
+            water.rebuild_bind_group(device, &targets.scene_color_view, depth_sv);
         }
     }
 
@@ -411,11 +435,11 @@ impl App {
                         crate::world::light_engine::on_block_changed(&mut self.world, p);
                     }
                 }
-                JobResult::Meshed { pos, version, quads, visibility } => {
+                JobResult::Meshed { pos, version, opaque, water, visibility } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
                     if version == current && self.world.ready(pos.column()).is_some() {
                         self.visibility_masks.insert(pos, visibility);
-                        self.upload_queue.push_back((pos, quads));
+                        self.upload_queue.push_back((pos, opaque, water));
                     }
                     // version < current: a newer job is in flight (or already
                     // landed) for this section — stale snapshot, drop it.
@@ -478,11 +502,11 @@ impl App {
         // 5. Budgeted GPU uploads.
         if let Some(terrain) = self.terrain.as_mut() {
             for _ in 0..MAX_UPLOADS_PER_FRAME {
-                let Some((pos, quads)) = self.upload_queue.pop_front() else { break };
+                let Some((pos, opaque, water)) = self.upload_queue.pop_front() else { break };
                 if self.world.ready(pos.column()).is_none() {
                     continue; // unloaded while queued
                 }
-                terrain.upload_section(&gpu.queue, pos, &quads);
+                terrain.upload_section(&gpu.queue, pos, &opaque, &water);
             }
         }
 
@@ -585,6 +609,11 @@ impl App {
                     "volumetric" => {
                         if let Some(v) = self.volumetric.as_mut() {
                             v.swap_shader(&gpu.device, &source);
+                        }
+                    }
+                    "water" => {
+                        if let (Some(w), Some(t)) = (self.water.as_mut(), self.terrain.as_ref()) {
+                            w.swap_shader(&gpu.device, t.camera_layout(), t.quads_layout(), &source);
                         }
                     }
                     // outline has no swap_shader yet; restart to pick it up.
@@ -780,6 +809,22 @@ impl App {
             exposure.prepare(&gpu.queue, dt);
         }
 
+        // Water uniform: tint/fog/fresnel tuning + an animation clock for ripples.
+        if let Some(water) = self.water.as_ref() {
+            water.prepare(
+                &gpu.queue,
+                &crate::render::water::WaterUniform {
+                    tint: [WATER_TINT[0], WATER_TINT[1], WATER_TINT[2], WATER_FOG_DENSITY],
+                    params: [
+                        self.frame_index as f32 * 0.03,
+                        WATER_FRESNEL_F0,
+                        WATER_REFLECTION,
+                        WATER_REFRACTION,
+                    ],
+                },
+            );
+        }
+
         // Prepare TAA uniform: jittered inv_view_proj, prev unjittered view_proj.
         if let Some(taa) = self.taa.as_ref() {
             let taa_uniform = crate::render::taa::TaaUniform {
@@ -945,6 +990,38 @@ impl App {
         let comp_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_COMPOSITE));
         if let (Some(composite), Some(targets)) = (self.composite.as_ref(), self.targets.as_ref()) {
             composite.encode(&mut encoder, &targets.composited_view, comp_writes);
+        }
+
+        // Water transparent pass: snapshot the opaque/composited scene into
+        // scene_color (the refraction + SSR source), then draw water surfaces
+        // back into composited_view, upstream of TAA so the edges resolve.
+        let water_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_WATER));
+        if let (Some(water), Some(terrain), Some(targets)) =
+            (self.water.as_ref(), self.terrain.as_ref(), self.targets.as_ref())
+        {
+            encoder.copy_texture_to_texture(
+                targets.composited_texture.as_image_copy(),
+                targets.scene_color_texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: targets.width,
+                    height: targets.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("water"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.composited_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: water_writes,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            water.draw(&mut rpass, terrain);
         }
 
         // TAA resolve: reproject + neighborhood clamp + blend; writes resolved_view.
@@ -1151,6 +1228,7 @@ impl ApplicationHandler for App {
         shaders.watch("gtao_blur", shader_path("gtao_blur.wgsl"));
         shaders.watch("composite", shader_path("composite.wgsl"));
         shaders.watch("volumetric", shader_path("volumetric.wgsl"));
+        shaders.watch("water", shader_path("water.wgsl"));
         self.shaders = Some(shaders);
 
         let size = window.inner_size();
@@ -1287,6 +1365,28 @@ impl ApplicationHandler for App {
             &luts_ref.skyview_view,
             &sky_src,
         ));
+
+        // Transparent water pass: reuses terrain's camera/quads bind groups and
+        // the sky-view LUT; its scene-color + depth bind group is wired below.
+        let water_src =
+            std::fs::read_to_string(shader_path("water.wgsl")).expect("water.wgsl missing");
+        let mut water = {
+            let terrain_ref = self.terrain.as_ref().unwrap();
+            let luts_ref = self.sky_luts.as_ref().unwrap();
+            crate::render::water::WaterRenderer::new(
+                &gpu.device,
+                terrain_ref.camera_layout(),
+                terrain_ref.quads_layout(),
+                &luts_ref.skyview_view,
+                &water_src,
+            )
+        };
+        if let (Some(targets), Some(depth_sv)) =
+            (self.targets.as_ref(), self.depth_sample_view.as_ref())
+        {
+            water.rebuild_bind_group(&gpu.device, &targets.scene_color_view, depth_sv);
+        }
+        self.water = Some(water);
 
         // Initialize egui and GPU timer.
         self.egui = Some(EguiLayer::new(&gpu.device, gpu.config.format, &window));
