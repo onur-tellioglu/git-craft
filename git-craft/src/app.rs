@@ -838,7 +838,7 @@ impl App {
                 && self.upload_queue.is_empty()
                 && self.stats.columns_ready > 0;
             let gpu_ms = self.timer.as_ref().map(|t| t.total_ms()).unwrap_or(0.0);
-            let has_timer = self.timer.is_some();
+            let ts_enabled = self.timer.as_ref().is_some_and(|t| t.timestamps_enabled());
             if let Some(run) = self.bench.as_mut() {
                 if run.is_warming() {
                     run.warmup_step(idle);
@@ -847,11 +847,23 @@ impl App {
                     if run.is_done() {
                         let cpu = run.cpu_summary().unwrap();
                         let gpu = run.gpu_summary().unwrap();
+                        // Primary signal: were timestamp queries created?
+                        // Secondary guard: reject an all-zero readback batch
+                        // (every sample stalled), which would give a bogus GPU
+                        // verdict of 0 ms. Warn so the user can diagnose it.
+                        if ts_enabled && gpu.max == 0.0 {
+                            log::warn!(
+                                "TIMESTAMP_QUERY is enabled but all GPU readbacks \
+                                 returned 0 — possible Metal driver stall; \
+                                 falling back to CPU p99 for the verdict"
+                            );
+                        }
+                        let timestamps = ts_enabled && gpu.max > 0.0;
                         let report = crate::bench::format_report(
                             &cpu,
                             &gpu,
                             BENCH_TARGET_FPS,
-                            has_timer && gpu.max > 0.0,
+                            timestamps,
                             RENDER_RADIUS,
                         );
                         println!("{report}");
