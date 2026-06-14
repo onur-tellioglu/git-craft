@@ -19,3 +19,8 @@ saves/
 !.claude/
 !.claude/**
 .claude/settings.local.json
+.worktrees/
+.orchestrate/*
+!.orchestrate/project-config.json
+OPTIMIZATIONS-*.md
+SECURITY-*.md
