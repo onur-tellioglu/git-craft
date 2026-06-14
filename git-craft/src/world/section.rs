@@ -22,6 +22,15 @@ fn bits_for(palette_len: usize) -> u32 {
     }
 }
 
+/// Take a fixed-size chunk from `bytes` at cursor `c`, advancing it. None on
+/// truncation. The building block for the little-endian readers below.
+fn take<const N: usize>(bytes: &[u8], c: &mut usize) -> Option<[u8; N]> {
+    let end = c.checked_add(N)?;
+    let slice = bytes.get(*c..end)?;
+    *c = end;
+    Some(slice.try_into().expect("slice length checked above"))
+}
+
 /// Read a packed index from a raw data buffer without borrowing the whole Section.
 fn read_index_raw(data: &[u64], bits: u32, voxel: usize) -> usize {
     let bit = voxel * bits as usize;
@@ -159,6 +168,58 @@ impl Section {
         *self = rebuilt;
     }
 
+    /// Append this section's bytes (palette form) to `out`, for persistence.
+    /// Layout: `[palette_len u16][palette × u16][bits u8][data × u64]`, all
+    /// little-endian. The data word count is derivable from `bits`, so it is
+    /// not stored. See [`Section::read_bytes`] for the inverse.
+    pub fn write_bytes(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&(self.palette.len() as u16).to_le_bytes());
+        for b in &self.palette {
+            out.extend_from_slice(&b.0.to_le_bytes());
+        }
+        out.push(self.bits as u8);
+        for word in &self.data {
+            out.extend_from_slice(&word.to_le_bytes());
+        }
+    }
+
+    /// Parse a section written by [`Section::write_bytes`]. Returns the section
+    /// and the number of bytes consumed (so columns can pack sections
+    /// back-to-back). `None` on truncation or an invalid header — a corrupt
+    /// save degrades to regeneration rather than a panic.
+    pub fn read_bytes(bytes: &[u8]) -> Option<(Section, usize)> {
+        let mut c = 0usize;
+        let palette_len = u16::from_le_bytes(take::<2>(bytes, &mut c)?) as usize;
+        if palette_len == 0 {
+            return None;
+        }
+        let mut palette = Vec::with_capacity(palette_len);
+        for _ in 0..palette_len {
+            palette.push(BlockId(u16::from_le_bytes(take::<2>(bytes, &mut c)?)));
+        }
+        let bits = take::<1>(bytes, &mut c)?[0] as u32;
+        if bits > 16 || (bits == 0 && palette_len != 1) {
+            return None;
+        }
+        let words = if bits == 0 {
+            0
+        } else {
+            VOLUME * bits as usize / 64
+        };
+        let mut data = Vec::with_capacity(words);
+        for _ in 0..words {
+            data.push(u64::from_le_bytes(take::<8>(bytes, &mut c)?));
+        }
+        Some((
+            Section {
+                palette,
+                bits,
+                data,
+            },
+            c,
+        ))
+    }
+
     #[cfg(test)]
     pub fn palette_len(&self) -> usize {
         self.palette.len()
@@ -265,6 +326,67 @@ mod tests {
         let mut c = Section::empty();
         c.set(0, 0, 0, GRASS);
         assert_ne!(a, c);
+    }
+
+    fn roundtrip(s: &Section) -> Section {
+        let mut buf = Vec::new();
+        s.write_bytes(&mut buf);
+        let (back, consumed) = Section::read_bytes(&buf).expect("valid section bytes");
+        assert_eq!(
+            consumed,
+            buf.len(),
+            "read_bytes must consume the whole blob"
+        );
+        back
+    }
+
+    #[test]
+    fn serialize_roundtrips_empty_and_uniform() {
+        assert_eq!(roundtrip(&Section::empty()), Section::empty());
+        let mut uniform = Section::empty();
+        uniform.set(5, 6, 7, STONE);
+        uniform.set(5, 6, 7, AIR); // back to uniform-air content
+        assert_eq!(roundtrip(&uniform), uniform);
+    }
+
+    #[test]
+    fn serialize_roundtrips_multi_palette_and_word_spanning() {
+        let mut s = Section::empty();
+        let blocks = [AIR, GRASS, DIRT, STONE, BlockId(4)]; // 5 entries → 3-bit indices
+        for x in 0..32 {
+            for y in 0..32 {
+                for z in 0..32 {
+                    s.set(x, y, z, blocks[(x * 7 + y * 3 + z) % 5]);
+                }
+            }
+        }
+        assert_eq!(roundtrip(&s), s);
+    }
+
+    #[test]
+    fn read_bytes_rejects_truncated_input() {
+        let mut s = Section::empty();
+        s.set(0, 0, 0, GRASS);
+        let mut buf = Vec::new();
+        s.write_bytes(&mut buf);
+        assert!(Section::read_bytes(&buf[..buf.len() - 1]).is_none());
+        assert!(Section::read_bytes(&[]).is_none());
+    }
+
+    #[test]
+    fn two_sections_pack_back_to_back() {
+        let mut a = Section::empty();
+        a.set(1, 2, 3, STONE);
+        let mut b = Section::empty();
+        b.set(4, 5, 6, GRASS);
+        let mut buf = Vec::new();
+        a.write_bytes(&mut buf);
+        b.write_bytes(&mut buf);
+        let (ra, na) = Section::read_bytes(&buf).unwrap();
+        let (rb, nb) = Section::read_bytes(&buf[na..]).unwrap();
+        assert_eq!(ra, a);
+        assert_eq!(rb, b);
+        assert_eq!(na + nb, buf.len());
     }
 
     #[test]

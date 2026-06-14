@@ -5,4 +5,6 @@ pub mod r#gen;
 pub mod jobs;
 pub mod light;
 pub mod light_engine;
+pub mod persistence;
+pub mod region;
 pub mod section;
