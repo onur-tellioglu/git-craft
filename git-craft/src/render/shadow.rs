@@ -1,5 +1,5 @@
 //! Cascaded Shadow Maps (CSM): cascade split/light-matrix math (pure, TDD)
-//! and the GPU depth-pass renderer that renders three 2048² cascade layers
+//! and the GPU depth-pass renderer that renders three 1536² cascade layers
 //! with texel-snapped orthographic matrices and a cadenced update schedule.
 
 use glam::{Mat4, Vec3};
@@ -185,7 +185,7 @@ impl ShadowRenderer {
             }],
         });
 
-        // Depth texture: 2048×2048×3 array layers.
+        // Depth texture: 1536×1536×3 array layers.
         let shadow_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow maps"),
             size: wgpu::Extent3d {
