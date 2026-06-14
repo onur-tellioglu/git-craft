@@ -10,10 +10,10 @@ rls-affecting: false
 slice: null
 parent-spec: docs/superpowers/specs/2026-06-14-git-craft-open-source-design.md
 touched-files:
-  - dabcraft/Cargo.toml
-  - dabcraft/src/app.rs
-  - dabcraft/src/render/gpu.rs
-  - dabcraft/src/mesh/greedy.rs
+  - git-craft/Cargo.toml
+  - git-craft/src/app.rs
+  - git-craft/src/render/gpu.rs
+  - git-craft/src/mesh/greedy.rs
   - .gitignore
   - CLAUDE.md
   - README.md
@@ -48,7 +48,7 @@ shared-modules-touched: []
 
 - **No remote exists yet** and no GitHub issue is associated. Commit messages therefore carry **no** `refs #N` / `closes #N` trailers.
 - Per the project's git conventions: atomic commits, message format `type: what and why`, **no** `Co-Authored-By` trailer, **no** `--no-verify`.
-- The crate lives in the `dabcraft/` subdirectory (renamed to `git-craft/` in Task 2). Run `cargo` commands from inside that directory.
+- The crate lives in the `git-craft/` subdirectory (renamed to `git-craft/` in Task 2). Run `cargo` commands from inside that directory.
 - Outward-facing / irreversible steps (creating the GitHub repo) are in the final task — get the maintainer's explicit go-ahead before running them.
 
 ---
@@ -86,10 +86,10 @@ Expected: switched to a new branch `chore/open-source-setup`.
 
 ---
 
-## Task 2: Rename dabcraft → git-craft
+## Task 2: Rename git-craft → git-craft
 
 **Files:**
-- Move: `dabcraft/` → `git-craft/`
+- Move: `git-craft/` → `git-craft/`
 - Modify: `git-craft/Cargo.toml`, `git-craft/src/app.rs`, `git-craft/src/render/gpu.rs`, `git-craft/src/mesh/greedy.rs`, `.gitignore`, `CLAUDE.md`
 - Modify (token only): `docs/superpowers/specs/*.md`, `docs/superpowers/plans/*.md`
 
@@ -97,7 +97,7 @@ Expected: switched to a new branch `chore/open-source-setup`.
 
 - [ ] **Step 1: Move the crate directory (preserving history)**
 
-Run: `git -C /Users/onurtellioglu/Github/Minecraft mv dabcraft git-craft`
+Run: `git -C /Users/onurtellioglu/Github/Minecraft mv git-craft git-craft`
 Expected: the directory and all tracked files move to `git-craft/`.
 
 - [ ] **Step 2: Rename the Cargo package**
@@ -119,30 +119,30 @@ In `git-craft/src/render/gpu.rs`, the capability error string:
 ```rust
 "git-craft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
 ```
-In `git-craft/src/mesh/greedy.rs`, the header comment — replace `dabcraft spec` with `git-craft spec`.
-In `.gitignore`, replace the comment `# dabcraft runtime data` with `# git-craft runtime data`.
+In `git-craft/src/mesh/greedy.rs`, the header comment — replace `git-craft spec` with `git-craft spec`.
+In `.gitignore`, replace the comment `# git-craft runtime data` with `# git-craft runtime data`.
 
 - [ ] **Step 4: Replace the project-name token in CLAUDE.md (preserving the doc path)**
 
-In `CLAUDE.md`: change the heading `# dabcraft` → `# git-craft` and every prose mention of the project name to `git-craft`. **Exception:** the `Key documents` line that references `docs/superpowers/specs/2026-06-11-dabcraft-design.md` keeps that exact path (the filename is not renamed). Also update any `dabcraft/` path mention to `git-craft/`.
+In `CLAUDE.md`: change the heading `# git-craft` → `# git-craft` and every prose mention of the project name to `git-craft`. **Exception:** the `Key documents` line that references `docs/superpowers/specs/2026-06-11-dabcraft-design.md` keeps that exact path (the filename is not renamed). Also update any `git-craft/` path mention to `git-craft/`.
 
 - [ ] **Step 5: Replace the token in historical doc bodies (filenames preserved)**
 
-Replace the bare token `dabcraft` with `git-craft` inside the *bodies* of files under `docs/superpowers/specs/` and `docs/superpowers/plans/`. Do this with a path-safe replacement that does not touch filenames. Run from the repo root:
+Replace the bare token `git-craft` with `git-craft` inside the *bodies* of files under `docs/superpowers/specs/` and `docs/superpowers/plans/`. Do this with a path-safe replacement that does not touch filenames. Run from the repo root:
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-grep -rIl --include='*.md' 'dabcraft' docs/superpowers | while read -r f; do
+grep -rIl --include='*.md' 'git-craft' docs/superpowers | while read -r f; do
   perl -0pi -e 's/\bdabcraft\b(?!-design\.md|-m\d|\.md)/git-craft/g' "$f"
 done
 ```
-Then manually verify no in-body path reference of the form `docs/superpowers/.../<date>-dabcraft-...md` was broken (those should still read `dabcraft` because they are filenames). If the regex is too blunt for a given file, edit that file by hand instead.
+Then manually verify no in-body path reference of the form `docs/superpowers/.../<date>-git-craft-...md` was broken (those should still read `git-craft` because they are filenames). If the regex is too blunt for a given file, edit that file by hand instead.
 
 - [ ] **Step 6: Verify the rename leaves only filenames/paths**
 
 Run:
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-grep -rIn "dabcraft" . --exclude-dir=target --exclude-dir=.git --exclude-dir=.task-log
+grep -rIn "git-craft" . --exclude-dir=target --exclude-dir=.git --exclude-dir=.task-log
 ```
 Expected: every remaining hit is either (a) a dated doc **filename** under `docs/superpowers/`, or (b) a **path reference** to such a filename (e.g. the `CLAUDE.md` Key-documents link, in-body links inside plans/specs). No code, no `Cargo.toml`, no headings. If any other hit remains, fix it.
 
@@ -162,7 +162,7 @@ Expected: build succeeds and produces `target/release/git-craft`; all tests pass
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
 git add -A
-git commit -m "chore: rename dabcraft to git-craft"
+git commit -m "chore: rename git-craft to git-craft"
 ```
 
 ---

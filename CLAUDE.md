@@ -1,22 +1,24 @@
-# dabcraft
+# git-craft — Claude Code notes
 
-Performance-focused Minecraft-style voxel game in Rust on wgpu, targeting modern shader-pack visuals (CSM shadows, GTAO, volumetrics, bloom, ACES, Hillaire atmosphere) at 384-block render distance / 120 fps on Apple M4.
+This project's canonical guidance lives in **[AGENTS.md](AGENTS.md)** — read it first. It
+covers the architecture map, conventions, and guardrails.
 
-## Key documents
+## Quick reference (run from `git-craft/`)
 
-- Design spec: `docs/superpowers/specs/2026-06-11-dabcraft-design.md` — read before any engine work.
+```bash
+cargo run --release                          # play
+cargo test                                   # engine-core unit tests
+cargo clippy --all-targets -- -D warnings    # lints
+cargo fmt                                     # format
+```
 
-## Repo decisions
+## Guardrails
 
-- `CLAUDE.md` and `docs/` are committed to this repo.
-- Single binary crate (`dabcraft/` once scaffolded), WGSL shaders under `assets/shaders/`.
+- Never push to `main` — land changes via a PR from a feature branch.
+- No proprietary assets. Validate rendering/perf with the F3 HUD and `--bench`, not by feel.
+- Read the design spec at `docs/superpowers/specs/2026-06-11-dabcraft-design.md` first.
 
-## Conventions
+## Claude Code specifics
 
-- Engine core (meshing, lighting, worldgen, physics, palette storage) is pure functions over plain data — unit tested, TDD.
-- Rendering claims are validated with the F3 debug HUD (per-pass GPU timestamps) and `--bench` percentiles, never by feel.
-- Apple TBDR discipline: forward rendering, no Z-prepass, precise load/store ops, alpha-tested geometry in its own pipeline after solid opaque.
-
-## Commands
-
-Project not yet scaffolded. Once it is: `cargo test`, `cargo clippy`, `cargo run --release` (debug builds are too slow for meaningful play testing).
+- Run `/contribute` (project command in `.claude/commands/`) for a guided contribution loop.
+- Safe, common commands are pre-allowed in `.claude/settings.json`.
