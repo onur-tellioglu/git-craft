@@ -105,6 +105,68 @@ fn sky_reflection(dir: vec3<f32>) -> vec3<f32> {
     return textureSampleLevel(skyview, samp, skyview_uv(d), 0.0).rgb;
 }
 
+fn hash12(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+const SSR_STEPS: i32 = 48;
+const SSR_MAX_DIST: f32 = 96.0;   // world meters the ray marches
+const SSR_THICKNESS: f32 = 1.5;   // max depth gap counted as a hit (meters in NDC-ish)
+
+// March the reflection ray in world space, projecting to screen each step and
+// testing against the opaque depth. Returns rgb + a (a = hit confidence; 0 = miss).
+fn ssr(origin: vec3<f32>, dir: vec3<f32>, jitter: f32) -> vec4<f32> {
+    let step = SSR_MAX_DIST / f32(SSR_STEPS);
+    var t = step * (0.5 + jitter);
+    var prev_t = 0.0;
+    for (var i = 0; i < SSR_STEPS; i++) {
+        let p = origin + dir * t;
+        let clip = frame.view_proj * vec4(p, 1.0);
+        if clip.w <= 0.0 {
+            break;
+        }
+        let ndc = clip.xyz / clip.w;
+        let uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+        if uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 {
+            break;
+        }
+        let scene_d = textureLoad(depth_tex, vec2<i32>(uv * frame.params.xy), 0).r;
+        if scene_d < 1.0 && ndc.z > scene_d {
+            // The ray is behind the depth surface. Refine between prev_t and t,
+            // then accept if the crossing is a thin surface (not a far gap).
+            var lo = prev_t;
+            var hi = t;
+            for (var k = 0; k < 6; k++) {
+                let mid = (lo + hi) * 0.5;
+                let mp = origin + dir * mid;
+                let mc = frame.view_proj * vec4(mp, 1.0);
+                let mndc = mc.xyz / mc.w;
+                let muv = vec2(mndc.x * 0.5 + 0.5, 0.5 - mndc.y * 0.5);
+                let md = textureLoad(depth_tex, vec2<i32>(muv * frame.params.xy), 0).r;
+                if mndc.z > md { hi = mid; } else { lo = mid; }
+            }
+            let hp = origin + dir * hi;
+            let hc = frame.view_proj * vec4(hp, 1.0);
+            let hndc = hc.xyz / hc.w;
+            let huv = vec2(hndc.x * 0.5 + 0.5, 0.5 - hndc.y * 0.5);
+            let hd = textureLoad(depth_tex, vec2<i32>(huv * frame.params.xy), 0).r;
+            // Reject far-gap crossings (ray passed through empty space behind a near edge).
+            if hndc.z - hd > SSR_THICKNESS * 0.02 {
+                return vec4(0.0);
+            }
+            // Fade near screen edges and as the ray gets long (both look wrong).
+            let edge = min(min(huv.x, 1.0 - huv.x), min(huv.y, 1.0 - huv.y));
+            let fade = smoothstep(0.0, 0.08, edge) * (1.0 - hi / SSR_MAX_DIST);
+            return vec4(textureSampleLevel(scene_tex, samp, huv, 0.0).rgb, fade);
+        }
+        prev_t = t;
+        t += step;
+    }
+    return vec4(0.0);
+}
+
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let uv = in.clip.xy / frame.params.xy;
@@ -145,9 +207,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
     refracted = mix(refracted, water.tint.rgb, fog);
 
-    // Reflection: sky-view LUT in the mirror direction + a tight sun glint.
+    // Reflection: screen-space ray march, falling back to the sky-view LUT on a
+    // miss / off-screen / edge fade.
     let r = reflect(-v, n);
-    var reflected = sky_reflection(r);
+    let hit = ssr(in.world_pos, r, hash12(in.clip.xy + t));
+    var reflected = mix(sky_reflection(r), hit.rgb, hit.a);
     let glint = pow(max(dot(r, frame.sun.xyz), 0.0), 200.0) * frame.sun.w;
     reflected += frame.sun_color.rgb * glint * 3.0;
 
