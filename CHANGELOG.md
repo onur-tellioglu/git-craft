@@ -10,6 +10,16 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Added
+
+- Region save/load persistence (M6b): player edits now survive a restart. Broken/placed
+  blocks are written to region files under `saves/region/` (32×32 columns per file,
+  read-modify-written via a temp file + atomic rename) and reloaded when the player returns,
+  instead of being overwritten by fresh worldgen. Only edited columns are persisted —
+  untouched terrain regenerates deterministically — and lighting is never stored: a loaded
+  column recomputes it through the generation path. All disk I/O runs on a dedicated worker
+  thread, so the frame loop never blocks; edited columns are saved when they unload or on quit.
+
 ## [0.5.0] - 2026-06-14
 
 First public release, at milestone M5 (the full shader ladder).

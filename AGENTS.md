@@ -31,7 +31,9 @@ cargo fmt                                     # format (CI checks with --check)
 - `src/mesh/` — chunk meshing (pure functions): `greedy` mesher, `neighborhood`, `padded`,
   `quad`.
 - `src/world/` — world data and generation: `block`, `chunks`, `section` (palette storage),
-  `gen`, `decor`, `light` / `light_engine`, `jobs` (streaming).
+  `gen`, `decor`, `light` / `light_engine`, `jobs` (streaming), `region` + `persistence`
+  (edited columns saved to `saves/region/` via a background I/O worker; untouched terrain
+  regenerates, light is never stored).
 - `src/render/` — wgpu pipelines and passes: `gpu`, `targets`, `terrain`, `shadow`, `gtao`,
   `taa`, `volumetric`, `bloom`, `exposure`, `post`, `atmosphere`, `water`, `outline`,
   `frustum`, `visibility`, `timestamps`, `egui_layer`, `game_ui`, `hot_reload`, `arena`.

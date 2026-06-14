@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -239,10 +239,21 @@ pub struct App {
     /// scale×swapchain; the post pass upscales by sampling the resolved target.
     render_scale: f32,
     stats: FrameStats,
+    /// Player edits are persisted to region files on disk via a background
+    /// worker (no main-thread I/O). Columns the player has touched are tracked
+    /// and saved when they unload or the app exits.
+    persistence: crate::world::persistence::Persistence,
+    /// Columns with a payload on disk: stream them in by loading, not generating.
+    saved_columns: HashSet<crate::world::chunks::ColumnPos>,
+    /// Columns edited since they were last saved (i.e. since load/eviction).
+    edited_columns: HashSet<crate::world::chunks::ColumnPos>,
 }
 
 impl App {
     pub fn new(instance: wgpu::Instance) -> Self {
+        // Open the on-disk world and learn which columns are already saved.
+        let (persistence, saved_columns) =
+            crate::world::persistence::Persistence::new(PathBuf::from("saves").join("region"));
         Self {
             instance: Some(instance),
             window: None,
@@ -298,6 +309,9 @@ impl App {
             vol_debug: false,
             render_scale: 1.0,
             stats: FrameStats::default(),
+            persistence,
+            saved_columns,
+            edited_columns: HashSet::new(),
         }
     }
 
@@ -428,6 +442,11 @@ impl App {
         {
             if self.world.set_block(hit.block, AIR) {
                 crate::world::light_engine::on_block_changed(&mut self.world, hit.block);
+                self.edited_columns
+                    .insert(crate::world::chunks::block_to_column(
+                        hit.block.x,
+                        hit.block.z,
+                    ));
             }
             self.break_timer = EDIT_REPEAT;
         }
@@ -447,6 +466,8 @@ impl App {
             if free && !self.player.aabb().intersects_cell(cell) {
                 if self.world.set_block(cell, self.hotbar.selected_block()) {
                     crate::world::light_engine::on_block_changed(&mut self.world, cell);
+                    self.edited_columns
+                        .insert(crate::world::chunks::block_to_column(cell.x, cell.z));
                 }
                 self.place_timer = EDIT_REPEAT;
             }
@@ -512,6 +533,51 @@ impl App {
             }
         }
 
+        // 1b. Drain finished disk loads. A loaded column takes the same insert
+        // + seam-heal path as a generated one (light recomputed by the worker).
+        for loaded in self.persistence.drain_loaded() {
+            use crate::world::persistence::Loaded;
+            match loaded {
+                Loaded::Column { pos, data, light } => {
+                    let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
+                    if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
+                        continue; // moved away; the unload pass reaps the slot
+                    }
+                    let touched = self.world.insert_generated(pos, data, *light, Vec::new());
+                    crate::world::light_engine::seed_column_borders(&mut self.world, pos);
+                    for p in touched {
+                        crate::world::light_engine::on_block_changed(&mut self.world, p);
+                    }
+                }
+                Loaded::Failed { pos } => {
+                    // Corrupt/missing payload: drop it from the saved set and
+                    // regenerate, unless the player has already moved on.
+                    self.saved_columns.remove(&pos);
+                    let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
+                    if d2 <= UNLOAD_RADIUS * UNLOAD_RADIUS && self.world.contains(pos) {
+                        self.jobs.spawn_gen(self.worldgen.clone(), pos);
+                    }
+                }
+            }
+        }
+
+        // 1c. Persist edited columns about to leave the keep radius, before the
+        // unload pass drops their data.
+        let unload_r2 = UNLOAD_RADIUS * UNLOAD_RADIUS;
+        let leaving: Vec<ColumnPos> = self
+            .edited_columns
+            .iter()
+            .filter(|c| (c.x - center.x).pow(2) + (c.z - center.z).pow(2) > unload_r2)
+            .copied()
+            .collect();
+        for col in leaving {
+            if let Some(c) = self.world.ready(col) {
+                self.persistence.request_save(col, c.sections.to_vec());
+                self.saved_columns.insert(col);
+            }
+            self.edited_columns.remove(&col);
+        }
+
         // 2. Unload far columns and free their GPU meshes + version entries.
         if let Some(terrain) = self.terrain.as_mut() {
             for pos in self.world.unload_outside(center, UNLOAD_RADIUS) {
@@ -528,15 +594,21 @@ impl App {
             }
         }
 
-        // 3. Request generation, nearest first.
-        if self.jobs.gen_in_flight < MAX_GEN_IN_FLIGHT {
+        // 3. Request streaming for nearby missing columns, nearest first.
+        // Saved columns load from disk; the rest generate. Both draw on one
+        // in-flight budget so loads can't starve generation or vice versa.
+        if self.jobs.gen_in_flight + self.persistence.load_in_flight < MAX_GEN_IN_FLIGHT {
             for col in columns_in_radius(center, LOAD_RADIUS) {
-                if self.jobs.gen_in_flight >= MAX_GEN_IN_FLIGHT {
+                if self.jobs.gen_in_flight + self.persistence.load_in_flight >= MAX_GEN_IN_FLIGHT {
                     break;
                 }
                 if !self.world.contains(col) {
                     self.world.mark_generating(col);
-                    self.jobs.spawn_gen(self.worldgen.clone(), col);
+                    if self.saved_columns.contains(&col) {
+                        self.persistence.request_load(col);
+                    } else {
+                        self.jobs.spawn_gen(self.worldgen.clone(), col);
+                    }
                 }
             }
         }
@@ -1689,6 +1761,19 @@ impl ApplicationHandler for App {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
+    }
+
+    /// On quit, save every still-loaded edited column, then drain the worker's
+    /// queued saves and join it so nothing is lost.
+    fn exiting(&mut self, _el: &ActiveEventLoop) {
+        let edited: Vec<crate::world::chunks::ColumnPos> = self.edited_columns.drain().collect();
+        for col in edited {
+            if let Some(c) = self.world.ready(col) {
+                self.persistence.request_save(col, c.sections.to_vec());
+                self.saved_columns.insert(col);
+            }
+        }
+        self.persistence.shutdown();
     }
 }
 
