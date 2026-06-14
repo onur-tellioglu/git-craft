@@ -330,6 +330,28 @@ mod tests {
         assert!(!run.is_warming());
     }
 
+    /// A world that has brief idle windows but never sustains STEADY_FRAMES
+    /// consecutive idles must still exit warmup when WARMUP_CAP is reached.
+    /// This guards the streak-reset + cap interaction: the idle_streak resets
+    /// repeatedly but warmup_frames keeps climbing, so the cap eventually fires.
+    #[test]
+    fn warmup_cap_fires_despite_recurring_busy_frames() {
+        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut ready = false;
+        for frame in 0..WARMUP_CAP as usize {
+            // Pattern: STEADY_FRAMES-1 idle frames, then 1 busy frame.
+            // The idle streak never reaches STEADY_FRAMES; the busy frame resets
+            // it each cycle. Only WARMUP_CAP can break the stalemate.
+            let idle = (frame % STEADY_FRAMES as usize) != (STEADY_FRAMES as usize - 1);
+            ready = run.warmup_step(idle);
+            if ready {
+                break;
+            }
+        }
+        assert!(ready);
+        assert!(!run.is_warming());
+    }
+
     #[test]
     fn push_records_until_done() {
         let mut run = BenchRun::new(BenchConfig { frames: 3 });
