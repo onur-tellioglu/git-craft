@@ -1,4 +1,5 @@
 mod app;
+mod bench;
 mod game;
 mod mesh;
 mod render;
@@ -8,6 +9,8 @@ use winit::event_loop::{ControlFlow, EventLoop};
 
 fn main() {
     env_logger::init();
+    let bench_cfg = bench::parse_bench_args(std::env::args());
+
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
@@ -17,6 +20,6 @@ fn main() {
         Box::new(display_handle),
     ));
 
-    let mut app = app::App::new(instance);
+    let mut app = app::App::new(instance, bench_cfg);
     event_loop.run_app(&mut app).unwrap();
 }

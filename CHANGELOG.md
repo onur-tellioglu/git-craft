@@ -10,6 +10,21 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Added
+
+- `--bench` performance harness (M6a): a deterministic fixed-vantage flythrough at the
+  full 384-block render distance, frozen at noon, that warms up until streaming goes
+  idle, records a window of frames (default 600, `--bench-frames N` to override), and
+  prints min/mean/p50/p95/p99/max for CPU frame time and GPU pass time with a PASS/FAIL
+  verdict against the 120 fps (8.33 ms) budget. Uses `Immediate` present when the surface
+  offers it so CPU frame time is not vsync-capped; the GPU metric (from the existing
+  per-pass timestamps) is vsync-independent and drives the verdict. The `--bench` flag
+  was previously documented but not wired up.
+- M6 performance baseline (1280×720, render-scale 1.0): GPU p50 ≈ 13.3 ms / p99 ≈ 18.7 ms,
+  CPU p50 ≈ 4.6 ms / p99 ≈ 8.9 ms. Verdict FAIL — the full M5 shader stack exceeds the
+  native-resolution 120 fps budget; the render-scale safety valve and per-pass tuning are
+  the follow-up performance work this baseline now measures against.
+
 ## [0.5.0] - 2026-06-14
 
 First public release, at milestone M5 (the full shader ladder).
