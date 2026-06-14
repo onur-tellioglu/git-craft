@@ -2,7 +2,7 @@ use glam::{IVec3, Vec3};
 use winit::keyboard::KeyCode as K;
 
 use crate::game::input::InputState;
-use crate::game::physics::{move_aabb, Aabb};
+use crate::game::physics::{Aabb, move_aabb};
 
 pub const WIDTH: f32 = 0.6;
 pub const HEIGHT: f32 = 1.8;
@@ -38,7 +38,12 @@ impl Player {
     /// Starts in Fly: the world streams in around the spawn point exactly
     /// like M2; the player toggles to Walk when there is ground to walk on.
     pub fn new(position: Vec3) -> Self {
-        Self { position, velocity: Vec3::ZERO, on_ground: false, mode: MoveMode::Fly }
+        Self {
+            position,
+            velocity: Vec3::ZERO,
+            on_ground: false,
+            mode: MoveMode::Fly,
+        }
     }
 
     pub fn aabb(&self) -> Aabb {
@@ -106,7 +111,11 @@ impl Player {
         }
         if dir != Vec3::ZERO {
             let speed = FLY_SPEED
-                * if input.is_down(K::ControlLeft) { FLY_SPRINT_MULTIPLIER } else { 1.0 };
+                * if input.is_down(K::ControlLeft) {
+                    FLY_SPRINT_MULTIPLIER
+                } else {
+                    1.0
+                };
             self.position += dir.normalize() * speed * dt;
         }
     }
@@ -124,7 +133,11 @@ impl Player {
 
         let wish = Self::wish_dir(input, yaw).normalize_or_zero();
         let mut speed = WALK_SPEED
-            * if input.is_down(K::ControlLeft) { SPRINT_MULTIPLIER } else { 1.0 };
+            * if input.is_down(K::ControlLeft) {
+                SPRINT_MULTIPLIER
+            } else {
+                1.0
+            };
         if in_water {
             speed *= WATER_SPEED_FACTOR;
         }
@@ -260,7 +273,13 @@ mod tests {
     #[test]
     fn fly_sprint_multiplies_speed() {
         let mut p = Player::new(Vec3::new(0.5, 64.0, 0.5));
-        p.update(&keys(&[K::KeyW, K::ControlLeft]), 0.0, 1.0, &no_blocks, &|_| false);
+        p.update(
+            &keys(&[K::KeyW, K::ControlLeft]),
+            0.0,
+            1.0,
+            &no_blocks,
+            &|_| false,
+        );
         let expected = 0.5 - FLY_SPEED * FLY_SPRINT_MULTIPLIER;
         assert!((p.position.z - expected).abs() < 1e-3);
     }
@@ -268,7 +287,13 @@ mod tests {
     #[test]
     fn sprint_scales_walk_speed() {
         let mut p = walking_at(Vec3::new(0.5, 64.0 + 1e-4, 0.5));
-        p.update(&keys(&[K::KeyW, K::ControlLeft]), 0.0, DT, &floor_at(63), &|_| false);
+        p.update(
+            &keys(&[K::KeyW, K::ControlLeft]),
+            0.0,
+            DT,
+            &floor_at(63),
+            &|_| false,
+        );
         assert!((p.position.z - (0.5 - WALK_SPEED * SPRINT_MULTIPLIER * DT)).abs() < 1e-4);
     }
 
@@ -278,7 +303,10 @@ mod tests {
         p.update(&keys(&[]), 0.0, DT, &|_| true, &|_| false);
         assert_eq!(p.position, Vec3::new(0.5, 64.0, 0.5), "no input, no motion");
         p.update(&keys(&[K::KeyW]), 0.0, 1.0, &|_| true, &|_| false);
-        assert!((p.position.z - (0.5 - FLY_SPEED)).abs() < 1e-4, "moves through solids");
+        assert!(
+            (p.position.z - (0.5 - FLY_SPEED)).abs() < 1e-4,
+            "moves through solids"
+        );
     }
 
     #[test]
@@ -299,7 +327,10 @@ mod tests {
         for _ in 0..40 {
             p.update(&keys(&[]), 0.0, DT, &no_blocks, &everywhere_water);
         }
-        assert!(p.velocity.y >= -WATER_SINK_SPEED - 1e-4, "sink speed is capped");
+        assert!(
+            p.velocity.y >= -WATER_SINK_SPEED - 1e-4,
+            "sink speed is capped"
+        );
         let y_before = p.position.y;
         for _ in 0..10 {
             p.update(&keys(&[K::Space]), 0.0, DT, &no_blocks, &everywhere_water);

@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 /// Unpacked quad, CPU-side working representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Quad {
-    pub x: u32,        // 0..=33 (apron space)
+    pub x: u32, // 0..=33 (apron space)
     pub y: u32,
     pub z: u32,
     pub face: u32,     // 0..=5: +X -X +Y -Y +Z -Z
@@ -12,8 +12,8 @@ pub struct Quad {
     pub ao: [u32; 4],  // 0..=3 per corner, order: (0,0) (w,0) (w,h) (0,h)
     pub skylight: u32, // 0..=15
     pub blocklight: u32,
-    pub texture: u32,  // 0..=1023, texture array layer
-    pub flip: u32,     // 0|1: triangulate along the (w,0)-(0,h) diagonal (AO fix)
+    pub texture: u32, // 0..=1023, texture array layer
+    pub flip: u32,    // 0|1: triangulate along the (w,0)-(0,h) diagonal (AO fix)
 }
 
 #[repr(C)]
@@ -25,7 +25,10 @@ pub struct PackedQuad {
 
 /// Two CCW triangles per quad: (0,1,2) and (0,2,3), vertices 4i..4i+3.
 pub fn build_quad_indices(quad_count: u32) -> Vec<u32> {
-    debug_assert!(quad_count <= u32::MAX / 4, "quad_count overflows vertex indices");
+    debug_assert!(
+        quad_count <= u32::MAX / 4,
+        "quad_count overflows vertex indices"
+    );
     let mut indices = Vec::with_capacity(quad_count as usize * 6);
     for i in 0..quad_count {
         let b = i * 4;
@@ -46,8 +49,12 @@ impl PackedQuad {
         debug_assert!(q.flip < 2);
         let data0 = q.x | (q.y << 6) | (q.z << 12) | (q.face << 18) | ((q.w - 1) << 21);
         let ao = q.ao[0] | (q.ao[1] << 2) | (q.ao[2] << 4) | (q.ao[3] << 6);
-        let data1 = (q.h - 1) | (ao << 5) | (q.skylight << 13) | (q.blocklight << 17)
-            | (q.texture << 21) | (q.flip << 31);
+        let data1 = (q.h - 1)
+            | (ao << 5)
+            | (q.skylight << 13)
+            | (q.blocklight << 17)
+            | (q.texture << 21)
+            | (q.flip << 31);
         Self { data0, data1 }
     }
 
@@ -63,7 +70,12 @@ impl PackedQuad {
             face: bits(self.data0, 18, 3),
             w: bits(self.data0, 21, 5) + 1,
             h: bits(self.data1, 0, 5) + 1,
-            ao: [ao_bits & 3, (ao_bits >> 2) & 3, (ao_bits >> 4) & 3, (ao_bits >> 6) & 3],
+            ao: [
+                ao_bits & 3,
+                (ao_bits >> 2) & 3,
+                (ao_bits >> 4) & 3,
+                (ao_bits >> 6) & 3,
+            ],
             skylight: bits(self.data1, 13, 4),
             blocklight: bits(self.data1, 17, 4),
             texture: bits(self.data1, 21, 10),
@@ -83,15 +95,48 @@ mod tests {
     #[test]
     fn packs_and_unpacks_all_fields() {
         roundtrip(Quad {
-            x: 12, y: 33, z: 7, face: 4, w: 32, h: 1,
-            ao: [0, 1, 2, 3], skylight: 15, blocklight: 9, texture: 1000, flip: 0,
+            x: 12,
+            y: 33,
+            z: 7,
+            face: 4,
+            w: 32,
+            h: 1,
+            ao: [0, 1, 2, 3],
+            skylight: 15,
+            blocklight: 9,
+            texture: 1000,
+            flip: 0,
         });
     }
 
     #[test]
     fn packs_field_extremes() {
-        roundtrip(Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 });
-        roundtrip(Quad { x: 33, y: 33, z: 33, face: 5, w: 32, h: 32, ao: [3; 4], skylight: 15, blocklight: 15, texture: 1023, flip: 0 });
+        roundtrip(Quad {
+            x: 0,
+            y: 0,
+            z: 0,
+            face: 0,
+            w: 1,
+            h: 1,
+            ao: [0; 4],
+            skylight: 0,
+            blocklight: 0,
+            texture: 0,
+            flip: 0,
+        });
+        roundtrip(Quad {
+            x: 33,
+            y: 33,
+            z: 33,
+            face: 5,
+            w: 32,
+            h: 32,
+            ao: [3; 4],
+            skylight: 15,
+            blocklight: 15,
+            texture: 1023,
+            flip: 0,
+        });
     }
 
     #[test]
@@ -104,7 +149,19 @@ mod tests {
     // They are also the authoritative reference for the WGSL unpack mirror.
     #[test]
     fn data0_field_bit_positions() {
-        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 };
+        let base = Quad {
+            x: 0,
+            y: 0,
+            z: 0,
+            face: 0,
+            w: 1,
+            h: 1,
+            ao: [0; 4],
+            skylight: 0,
+            blocklight: 0,
+            texture: 0,
+            flip: 0,
+        };
         assert_eq!(PackedQuad::pack(base).data0, 0);
         assert_eq!(PackedQuad::pack(Quad { x: 1, ..base }).data0, 1 << 0);
         assert_eq!(PackedQuad::pack(Quad { y: 1, ..base }).data0, 1 << 6);
@@ -115,18 +172,61 @@ mod tests {
 
     #[test]
     fn quad_indices_reference_four_vertices_per_quad() {
-        assert_eq!(build_quad_indices(2), vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+        assert_eq!(
+            build_quad_indices(2),
+            vec![0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]
+        );
     }
 
     #[test]
     fn data1_field_bit_positions() {
-        let base = Quad { x: 0, y: 0, z: 0, face: 0, w: 1, h: 1, ao: [0; 4], skylight: 0, blocklight: 0, texture: 0, flip: 0 };
+        let base = Quad {
+            x: 0,
+            y: 0,
+            z: 0,
+            face: 0,
+            w: 1,
+            h: 1,
+            ao: [0; 4],
+            skylight: 0,
+            blocklight: 0,
+            texture: 0,
+            flip: 0,
+        };
         assert_eq!(PackedQuad::pack(base).data1, 0);
         assert_eq!(PackedQuad::pack(Quad { h: 2, ..base }).data1, 1 << 0);
-        assert_eq!(PackedQuad::pack(Quad { ao: [1, 0, 0, 0], ..base }).data1, 1 << 5);
-        assert_eq!(PackedQuad::pack(Quad { ao: [0, 0, 0, 1], ..base }).data1, 1 << 11);
-        assert_eq!(PackedQuad::pack(Quad { skylight: 1, ..base }).data1, 1 << 13);
-        assert_eq!(PackedQuad::pack(Quad { blocklight: 1, ..base }).data1, 1 << 17);
+        assert_eq!(
+            PackedQuad::pack(Quad {
+                ao: [1, 0, 0, 0],
+                ..base
+            })
+            .data1,
+            1 << 5
+        );
+        assert_eq!(
+            PackedQuad::pack(Quad {
+                ao: [0, 0, 0, 1],
+                ..base
+            })
+            .data1,
+            1 << 11
+        );
+        assert_eq!(
+            PackedQuad::pack(Quad {
+                skylight: 1,
+                ..base
+            })
+            .data1,
+            1 << 13
+        );
+        assert_eq!(
+            PackedQuad::pack(Quad {
+                blocklight: 1,
+                ..base
+            })
+            .data1,
+            1 << 17
+        );
         assert_eq!(PackedQuad::pack(Quad { texture: 1, ..base }).data1, 1 << 21);
         assert_eq!(PackedQuad::pack(Quad { flip: 1, ..base }).data1, 1 << 31);
     }
@@ -134,8 +234,17 @@ mod tests {
     #[test]
     fn flip_bit_roundtrips() {
         roundtrip(Quad {
-            x: 3, y: 4, z: 5, face: 2, w: 2, h: 2,
-            ao: [1, 2, 3, 0], skylight: 15, blocklight: 0, texture: 1, flip: 1,
+            x: 3,
+            y: 4,
+            z: 5,
+            face: 2,
+            w: 2,
+            h: 2,
+            ao: [1, 2, 3, 0],
+            skylight: 15,
+            blocklight: 0,
+            texture: 1,
+            flip: 1,
         });
     }
 }

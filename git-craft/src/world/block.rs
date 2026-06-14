@@ -19,8 +19,18 @@ pub const TORCH: BlockId = BlockId(12);
 /// Every block the player can place (creative: everything but air),
 /// in hotbar paging order.
 pub const PLACEABLE: [BlockId; 12] = [
-    GRASS, DIRT, STONE, SAND, SNOW_GRASS, WATER,
-    OAK_LOG, OAK_LEAVES, SPRUCE_LOG, SPRUCE_LEAVES, CACTUS, TORCH,
+    GRASS,
+    DIRT,
+    STONE,
+    SAND,
+    SNOW_GRASS,
+    WATER,
+    OAK_LOG,
+    OAK_LEAVES,
+    SPRUCE_LOG,
+    SPRUCE_LEAVES,
+    CACTUS,
+    TORCH,
 ];
 
 impl BlockId {
@@ -105,8 +115,9 @@ mod tests {
 
     #[test]
     fn display_names_are_distinct_and_nonempty() {
-        let mut names: Vec<&str> =
-            (0..=max_block_id()).map(|id| BlockId(id).display_name()).collect();
+        let mut names: Vec<&str> = (0..=max_block_id())
+            .map(|id| BlockId(id).display_name())
+            .collect();
         assert!(names.iter().all(|n| !n.is_empty() && *n != "Unknown"));
         let total = names.len();
         names.sort();
@@ -144,7 +155,11 @@ mod tests {
                 [nums[0], nums[1], nums[2]]
             })
             .collect();
-        assert_eq!(palette.len() as u16, max_block_id() + 1, "one entry per block id");
+        assert_eq!(
+            palette.len() as u16,
+            max_block_id() + 1,
+            "one entry per block id"
+        );
         for (id, expected) in palette.iter().enumerate() {
             assert_eq!(
                 BlockId(id as u16).color(),
@@ -158,10 +173,19 @@ mod tests {
     fn ids_are_stable() {
         // Persisted worlds (M6) depend on these exact values; never renumber.
         let expected: [(BlockId, u16); 13] = [
-            (AIR, 0), (GRASS, 1), (DIRT, 2), (STONE, 3),
-            (SAND, 4), (SNOW_GRASS, 5), (WATER, 6),
-            (OAK_LOG, 7), (OAK_LEAVES, 8), (SPRUCE_LOG, 9),
-            (SPRUCE_LEAVES, 10), (CACTUS, 11), (TORCH, 12),
+            (AIR, 0),
+            (GRASS, 1),
+            (DIRT, 2),
+            (STONE, 3),
+            (SAND, 4),
+            (SNOW_GRASS, 5),
+            (WATER, 6),
+            (OAK_LOG, 7),
+            (OAK_LEAVES, 8),
+            (SPRUCE_LOG, 9),
+            (SPRUCE_LEAVES, 10),
+            (CACTUS, 11),
+            (TORCH, 12),
         ];
         for (block, id) in expected {
             assert_eq!(block.0, id);
@@ -187,7 +211,10 @@ mod tests {
     #[test]
     fn only_air_and_torch_pass_light() {
         assert!(!AIR.blocks_light());
-        assert!(!TORCH.blocks_light(), "a torch must not shadow the sky shaft it sits in");
+        assert!(
+            !TORCH.blocks_light(),
+            "a torch must not shadow the sky shaft it sits in"
+        );
         for id in 1..=max_block_id() {
             if BlockId(id) == TORCH {
                 continue;

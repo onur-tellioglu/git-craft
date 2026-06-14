@@ -6,8 +6,8 @@ use crate::mesh::greedy::Mesher;
 use crate::mesh::neighborhood::MeshNeighborhood;
 use crate::mesh::quad::PackedQuad;
 use crate::world::chunks::{ColumnPos, SectionPos};
-use crate::world::light::{light_new_column, LightData};
 use crate::world::r#gen::{ColumnData, StructureWrite, WorldGen};
+use crate::world::light::{LightData, light_new_column};
 
 #[derive(Debug)]
 pub enum JobResult {
@@ -47,7 +47,12 @@ pub struct Jobs {
 impl Jobs {
     pub fn new() -> Self {
         let (tx, rx) = crossbeam_channel::unbounded();
-        Self { tx, rx, gen_in_flight: 0, mesh_in_flight: 0 }
+        Self {
+            tx,
+            rx,
+            gen_in_flight: 0,
+            mesh_in_flight: 0,
+        }
     }
 
     pub fn spawn_gen(&mut self, worldgen: WorldGen, pos: ColumnPos) {
@@ -57,7 +62,12 @@ impl Jobs {
             let (data, writes) = worldgen.generate_column(pos.x, pos.z);
             let light = Box::new(light_new_column(&data.sections));
             // Send fails only when the app is shutting down; fine to drop.
-            let _ = tx.send(JobResult::Generated { pos, data, light, writes });
+            let _ = tx.send(JobResult::Generated {
+                pos,
+                data,
+                light,
+                writes,
+            });
         });
     }
 
@@ -68,7 +78,13 @@ impl Jobs {
             let padded = hood.build_padded();
             let (opaque, water) = Mesher::new().mesh_layers(&padded);
             let visibility = crate::render::visibility::face_connectivity(&padded);
-            let _ = tx.send(JobResult::Meshed { pos, version, opaque, water, visibility });
+            let _ = tx.send(JobResult::Meshed {
+                pos,
+                version,
+                opaque,
+                water,
+                visibility,
+            });
         });
     }
 

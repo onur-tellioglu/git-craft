@@ -29,7 +29,11 @@ pub fn raycast(
         origin.z.floor() as i32,
     ];
     if is_solid(IVec3::from_array(cell)) {
-        return Some(RayHit { block: IVec3::from_array(cell), normal: IVec3::ZERO, distance: 0.0 });
+        return Some(RayHit {
+            block: IVec3::from_array(cell),
+            normal: IVec3::ZERO,
+            distance: 0.0,
+        });
     }
     let o = [origin.x, origin.y, origin.z];
     let d = [dir.x, dir.y, dir.z];
@@ -84,10 +88,19 @@ mod tests {
 
     #[test]
     fn hits_block_along_positive_x() {
-        let hit = raycast(Vec3::new(0.5, 0.5, 0.5), Vec3::X, 6.0, &only(IVec3::new(3, 0, 0)))
-            .expect("must hit");
+        let hit = raycast(
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::X,
+            6.0,
+            &only(IVec3::new(3, 0, 0)),
+        )
+        .expect("must hit");
         assert_eq!(hit.block, IVec3::new(3, 0, 0));
-        assert_eq!(hit.normal, IVec3::new(-1, 0, 0), "entered through the -X face");
+        assert_eq!(
+            hit.normal,
+            IVec3::new(-1, 0, 0),
+            "entered through the -X face"
+        );
         assert!((hit.distance - 2.5).abs() < 1e-5);
     }
 
@@ -102,20 +115,36 @@ mod tests {
         .expect("must hit");
         assert_eq!(hit.block, IVec3::new(-4, 0, -1));
         assert_eq!(hit.normal, IVec3::new(1, 0, 0));
-        assert!((hit.distance - 2.5).abs() < 1e-5, "from x=-0.5 to the x=-3 face");
+        assert!(
+            (hit.distance - 2.5).abs() < 1e-5,
+            "from x=-0.5 to the x=-3 face"
+        );
     }
 
     #[test]
     fn vertical_ray_hits_underside() {
-        let hit = raycast(Vec3::new(0.5, 0.5, 0.5), Vec3::Y, 6.0, &only(IVec3::new(0, 5, 0)))
-            .expect("must hit");
+        let hit = raycast(
+            Vec3::new(0.5, 0.5, 0.5),
+            Vec3::Y,
+            6.0,
+            &only(IVec3::new(0, 5, 0)),
+        )
+        .expect("must hit");
         assert_eq!(hit.normal, IVec3::new(0, -1, 0));
         assert!((hit.distance - 4.5).abs() < 1e-5);
     }
 
     #[test]
     fn respects_max_distance() {
-        assert!(raycast(Vec3::new(0.5, 0.5, 0.5), Vec3::X, 2.0, &only(IVec3::new(3, 0, 0))).is_none());
+        assert!(
+            raycast(
+                Vec3::new(0.5, 0.5, 0.5),
+                Vec3::X,
+                2.0,
+                &only(IVec3::new(3, 0, 0))
+            )
+            .is_none()
+        );
     }
 
     #[test]

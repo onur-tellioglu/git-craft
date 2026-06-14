@@ -1,7 +1,7 @@
 //! Temporal anti-aliasing: sub-pixel jitter sequence and the resolve pass.
 
-use crate::render::targets::RenderTargets;
 use crate::render::targets::HDR_FORMAT;
+use crate::render::targets::RenderTargets;
 
 /// Halton(base) value for index i (i >= 1). Radical-inverse digit expansion.
 fn halton(mut i: u32, base: u32) -> f32 {
@@ -104,7 +104,13 @@ impl TaaPass {
             &uniform_buffer,
         );
         let pipeline = Self::build_pipeline(device, &layout, shader_source);
-        Self { pipeline, layout, bind_groups: [bg0, bg1], sampler, uniform_buffer }
+        Self {
+            pipeline,
+            layout,
+            bind_groups: [bg0, bg1],
+            sampler,
+            uniform_buffer,
+        }
     }
 
     fn build_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -362,7 +368,10 @@ mod tests {
         let mut sy = 0.0;
         for f in 0..JITTER_PERIOD {
             let (x, y) = jitter_offset(f);
-            assert!((-0.5..=0.5).contains(&x) && (-0.5..=0.5).contains(&y), "f={f}: {x},{y}");
+            assert!(
+                (-0.5..=0.5).contains(&x) && (-0.5..=0.5).contains(&y),
+                "f={f}: {x},{y}"
+            );
             sx += x;
             sy += y;
         }

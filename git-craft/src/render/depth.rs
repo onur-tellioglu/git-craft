@@ -11,7 +11,11 @@ pub fn create_depth_texture(
 ) -> (wgpu::Texture, wgpu::TextureView) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("depth"),
-        size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -23,4 +27,3 @@ pub fn create_depth_texture(
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
     (texture, view)
 }
-

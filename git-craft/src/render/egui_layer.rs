@@ -9,7 +9,11 @@ pub struct EguiLayer {
 }
 
 impl EguiLayer {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, window: &Window) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        window: &Window,
+    ) -> Self {
         let ctx = egui::Context::default();
         let state = egui_winit::State::new(
             ctx.clone(),
@@ -24,7 +28,11 @@ impl EguiLayer {
             surface_format,
             egui_wgpu::RendererOptions::default(),
         );
-        Self { ctx, state, renderer }
+        Self {
+            ctx,
+            state,
+            renderer,
+        }
     }
 
     pub fn on_window_event(&mut self, window: &Window, event: &winit::event::WindowEvent) -> bool {
@@ -48,7 +56,8 @@ impl EguiLayer {
         self.ctx.begin_pass(raw_input);
         ui(&self.ctx);
         let output = self.ctx.end_pass();
-        self.state.handle_platform_output(window, output.platform_output);
+        self.state
+            .handle_platform_output(window, output.platform_output);
 
         let paint_jobs = self.ctx.tessellate(output.shapes, output.pixels_per_point);
         let screen = egui_wgpu::ScreenDescriptor {
@@ -58,7 +67,9 @@ impl EguiLayer {
         for (id, delta) in &output.textures_delta.set {
             self.renderer.update_texture(device, queue, *id, delta);
         }
-        let user_cmds = self.renderer.update_buffers(device, queue, encoder, &paint_jobs, &screen);
+        let user_cmds = self
+            .renderer
+            .update_buffers(device, queue, encoder, &paint_jobs, &screen);
         {
             let mut rpass = encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {

@@ -14,7 +14,11 @@ pub struct Hotbar {
 
 impl Hotbar {
     pub fn new() -> Self {
-        let mut hb = Self { slots: [PLACEABLE[0]; SLOT_COUNT], selected: 0, page: 0 };
+        let mut hb = Self {
+            slots: [PLACEABLE[0]; SLOT_COUNT],
+            selected: 0,
+            page: 0,
+        };
         hb.fill_from_page();
         hb
     }
@@ -38,8 +42,7 @@ impl Hotbar {
 
     /// Mouse wheel: cycle the selected slot (positive = next, wraps).
     pub fn scroll(&mut self, steps: i32) {
-        self.selected =
-            (self.selected as i32 + steps).rem_euclid(SLOT_COUNT as i32) as usize;
+        self.selected = (self.selected as i32 + steps).rem_euclid(SLOT_COUNT as i32) as usize;
     }
 
     /// Shift+wheel: page the bar through the full placeable list (wraps).

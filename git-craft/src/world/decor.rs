@@ -24,10 +24,18 @@ pub fn oak_tree(base: IVec3, trunk: i32) -> Vec<StructureWrite> {
     let mut w = Vec::with_capacity(64);
     let top = base.y + trunk;
     for y in (base.y + 1)..=top {
-        w.push(StructureWrite { pos: IVec3::new(base.x, y, base.z), block: OAK_LOG, only_air: false });
+        w.push(StructureWrite {
+            pos: IVec3::new(base.x, y, base.z),
+            block: OAK_LOG,
+            only_air: false,
+        });
     }
     let mut leaf = |x: i32, y: i32, z: i32| {
-        w.push(StructureWrite { pos: IVec3::new(x, y, z), block: OAK_LEAVES, only_air: true });
+        w.push(StructureWrite {
+            pos: IVec3::new(x, y, z),
+            block: OAK_LEAVES,
+            only_air: true,
+        });
     };
     for y in (top - 1)..=top {
         for dx in -2i32..=2 {
@@ -59,10 +67,18 @@ pub fn spruce_tree(base: IVec3, trunk: i32) -> Vec<StructureWrite> {
     let mut w = Vec::with_capacity(32);
     let top = base.y + trunk;
     for y in (base.y + 1)..=top {
-        w.push(StructureWrite { pos: IVec3::new(base.x, y, base.z), block: SPRUCE_LOG, only_air: false });
+        w.push(StructureWrite {
+            pos: IVec3::new(base.x, y, base.z),
+            block: SPRUCE_LOG,
+            only_air: false,
+        });
     }
     let mut leaf = |x: i32, y: i32, z: i32| {
-        w.push(StructureWrite { pos: IVec3::new(x, y, z), block: SPRUCE_LEAVES, only_air: true });
+        w.push(StructureWrite {
+            pos: IVec3::new(x, y, z),
+            block: SPRUCE_LEAVES,
+            only_air: true,
+        });
     };
     for ring in 0..3 {
         let y = top - ring * 2 + 1;
@@ -113,13 +129,19 @@ mod tests {
     fn oak_tree_shape_is_well_formed() {
         let writes = oak_tree(glam::IVec3::new(10, 70, 10), 5);
         let logs: Vec<_> = writes.iter().filter(|w| w.block == OAK_LOG).collect();
-        let leaves: Vec<_> = writes.iter().filter(|w| w.block == crate::world::block::OAK_LEAVES).collect();
+        let leaves: Vec<_> = writes
+            .iter()
+            .filter(|w| w.block == crate::world::block::OAK_LEAVES)
+            .collect();
         assert_eq!(logs.len(), 5, "trunk height");
         assert!(logs.iter().all(|w| !w.only_air), "logs overwrite");
         assert!(leaves.iter().all(|w| w.only_air), "leaves never overwrite");
         assert!(leaves.len() > 20, "canopy exists");
         let top_log = logs.iter().map(|w| w.pos.y).max().unwrap();
-        assert!(leaves.iter().any(|w| w.pos.y > top_log), "leaves above the trunk");
+        assert!(
+            leaves.iter().any(|w| w.pos.y > top_log),
+            "leaves above the trunk"
+        );
     }
 
     #[test]
@@ -155,7 +177,11 @@ mod tests {
                 for w in &writes {
                     let in_x = (cx * 32..(cx + 1) * 32).contains(&w.pos.x);
                     let in_z = (cz * 32..(cz + 1) * 32).contains(&w.pos.z);
-                    assert!(!(in_x && in_z), "returned write {:?} is inside its own column", w.pos);
+                    assert!(
+                        !(in_x && in_z),
+                        "returned write {:?} is inside its own column",
+                        w.pos
+                    );
                 }
                 return; // one spilling column is proof enough
             }

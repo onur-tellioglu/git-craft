@@ -171,7 +171,14 @@ pub fn light_new_column(sections: &[Section]) -> [LightData; COLUMN_SECTIONS] {
         }
     }
     while let Some((x, y, z, level)) = queue.pop_front() {
-        for (dx, dy, dz) in [(1i32, 0i32, 0i32), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
+        for (dx, dy, dz) in [
+            (1i32, 0i32, 0i32),
+            (-1, 0, 0),
+            (0, 1, 0),
+            (0, -1, 0),
+            (0, 0, 1),
+            (0, 0, -1),
+        ] {
             let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
             if !(0..SIZE as i32).contains(&nx)
                 || !(0..WORLD_H as i32).contains(&ny)
@@ -183,7 +190,11 @@ pub fn light_new_column(sections: &[Section]) -> [LightData; COLUMN_SECTIONS] {
             if blocks[cidx(nx, ny, nz)].blocks_light() {
                 continue;
             }
-            let candidate = if level == MAX_LIGHT && dy == -1 { MAX_LIGHT } else { level - 1 };
+            let candidate = if level == MAX_LIGHT && dy == -1 {
+                MAX_LIGHT
+            } else {
+                level - 1
+            };
             if candidate > sky[cidx(nx, ny, nz)] {
                 sky[cidx(nx, ny, nz)] = candidate;
                 if candidate > 1 {
@@ -202,7 +213,9 @@ mod tests {
     use crate::world::section::Section;
 
     /// 8 empty sections with `fill(x, y, z) -> Option<BlockId>` applied.
-    fn column_with(fill: impl Fn(usize, i32, usize) -> Option<crate::world::block::BlockId>) -> Vec<Section> {
+    fn column_with(
+        fill: impl Fn(usize, i32, usize) -> Option<crate::world::block::BlockId>,
+    ) -> Vec<Section> {
         let mut sections: Vec<Section> = (0..8).map(|_| Section::empty()).collect();
         for y in 0..256i32 {
             for x in 0..32usize {
@@ -228,10 +241,16 @@ mod tests {
         assert_eq!(sky_at(&light, 5, 20, 5), 15, "first air cell above ground");
         assert_eq!(sky_at(&light, 5, 200, 5), 15, "high air");
         assert_eq!(sky_at(&light, 5, 10, 5), 0, "inside stone");
-        assert!(matches!(light[7], LightData::Uniform(15)), "all-air section collapses to uniform");
+        assert!(
+            matches!(light[7], LightData::Uniform(15)),
+            "all-air section collapses to uniform"
+        );
         // Section 0 (y=0..31) has stone at y=0..19 and sky-lit air at y=20..31,
         // so it is Dense. Sky reads 0 inside the stone, 15 in the lit air.
-        assert!(matches!(light[0], LightData::Dense(_)), "mixed section stays dense");
+        assert!(
+            matches!(light[0], LightData::Dense(_)),
+            "mixed section stays dense"
+        );
         assert_eq!(sky_at(&light, 5, 0, 5), 0, "deep stone cell is dark");
     }
 
@@ -240,14 +259,20 @@ mod tests {
         // Ground at y<20 plus a roof slab at y=40 covering x<16: under the
         // roof, light enters from the open side (x>=16) and decays inward.
         let sections = column_with(|x, y, _| {
-            if y < 20 { return Some(STONE); }
+            if y < 20 {
+                return Some(STONE);
+            }
             (y == 40 && x < 16).then_some(STONE)
         });
         let light = light_new_column(&sections);
         assert_eq!(sky_at(&light, 16, 30, 5), 15, "open shaft beside the roof");
         assert_eq!(sky_at(&light, 15, 30, 5), 14, "one step under the roof");
         assert_eq!(sky_at(&light, 12, 30, 5), 11, "four steps under the roof");
-        assert_eq!(sky_at(&light, 0, 30, 5), 0, "16 steps in: fully dark (15-16 < 0)");
+        assert_eq!(
+            sky_at(&light, 0, 30, 5),
+            0,
+            "16 steps in: fully dark (15-16 < 0)"
+        );
         // Horizontal entry happens at every y under the roof independently,
         // so every open cell under the roof at x=15 reads 14.
         assert_eq!(sky_at(&light, 15, 21, 5), 14);
@@ -260,13 +285,25 @@ mod tests {
         let sections = column_with(|x, y, z| {
             let pocket = (40..44).contains(&y) && (10..14).contains(&x) && (10..14).contains(&z);
             let shaft = x == 20 && z == 20 && (0..=100).contains(&y);
-            if pocket { return None; }
-            if shaft { return ((60..=100).contains(&y)).then_some(WATER); }
+            if pocket {
+                return None;
+            }
+            if shaft {
+                return ((60..=100).contains(&y)).then_some(WATER);
+            }
             (y <= 100).then_some(STONE)
         });
         let light = light_new_column(&sections);
-        assert_eq!(sky_at(&light, 11, 41, 11), 0, "sealed pocket gets no skylight");
-        assert_eq!(sky_at(&light, 20, 50, 20), 0, "below the water plug: dark (water blocks light in M4)");
+        assert_eq!(
+            sky_at(&light, 11, 41, 11),
+            0,
+            "sealed pocket gets no skylight"
+        );
+        assert_eq!(
+            sky_at(&light, 20, 50, 20),
+            0,
+            "below the water plug: dark (water blocks light in M4)"
+        );
         assert_eq!(sky_at(&light, 20, 101, 20), 15, "above the water surface");
     }
 
@@ -299,12 +336,22 @@ mod tests {
     fn uniform_stores_no_voxel_data_until_a_divergent_write() {
         let mut l = LightData::uniform(15, 0);
         assert!(matches!(l, LightData::Uniform(_)));
-        assert!(!l.set_sky(4, 5, 6, 15), "writing the uniform value is a no-op");
-        assert!(matches!(l, LightData::Uniform(_)), "no-op write must not promote");
+        assert!(
+            !l.set_sky(4, 5, 6, 15),
+            "writing the uniform value is a no-op"
+        );
+        assert!(
+            matches!(l, LightData::Uniform(_)),
+            "no-op write must not promote"
+        );
         assert!(l.set_sky(4, 5, 6, 9), "divergent write reports a change");
         assert!(matches!(l, LightData::Dense(_)));
         assert_eq!(l.sky(4, 5, 6), 9);
-        assert_eq!(l.sky(0, 0, 0), 15, "other voxels keep the old uniform value");
+        assert_eq!(
+            l.sky(0, 0, 0),
+            15,
+            "other voxels keep the old uniform value"
+        );
         assert_eq!(l.block_light(4, 5, 6), 0, "the other nibble is untouched");
     }
 
@@ -322,7 +369,10 @@ mod tests {
     fn set_returns_whether_the_value_changed() {
         let mut l = LightData::dark();
         assert!(l.set_block_light(0, 0, 0, 5));
-        assert!(!l.set_block_light(0, 0, 0, 5), "same value again: unchanged");
+        assert!(
+            !l.set_block_light(0, 0, 0, 5),
+            "same value again: unchanged"
+        );
         assert!(l.set_block_light(0, 0, 0, 6));
     }
 
@@ -341,12 +391,19 @@ mod tests {
     #[test]
     fn from_sky_slice_detects_uniformity() {
         let all15 = vec![15u8; 32768];
-        assert!(matches!(LightData::from_sky_slice(&all15), LightData::Uniform(15)));
+        assert!(matches!(
+            LightData::from_sky_slice(&all15),
+            LightData::Uniform(15)
+        ));
         let mut mixed = vec![15u8; 32768];
         mixed[100] = 3;
         let dense = LightData::from_sky_slice(&mixed);
         assert!(matches!(dense, LightData::Dense(_)));
         assert_eq!(dense.sky(4, 0, 3), 3, "voxel 100 = x4 z3 y0");
-        assert_eq!(dense.block_light(4, 0, 3), 0, "sky slice seeds no blocklight");
+        assert_eq!(
+            dense.block_light(4, 0, 3),
+            0,
+            "sky slice seeds no blocklight"
+        );
     }
 }

@@ -7,7 +7,10 @@ pub fn draw_crosshair(ctx: &egui::Context) {
         egui::Id::new("crosshair"),
     ));
     let c = ctx.content_rect().center();
-    let stroke = egui::Stroke::new(1.5, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200));
+    let stroke = egui::Stroke::new(
+        1.5,
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200),
+    );
     painter.line_segment([c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)], stroke);
     painter.line_segment([c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)], stroke);
 }
@@ -65,7 +68,12 @@ pub fn draw_hotbar(ctx: &egui::Context, slots: &[BlockId; 9], selected: usize) {
                         } else {
                             egui::Stroke::new(1.0, egui::Color32::from_gray(90))
                         };
-                        ui.painter().rect_stroke(rect.shrink(2.0), 4.0, stroke, egui::StrokeKind::Outside);
+                        ui.painter().rect_stroke(
+                            rect.shrink(2.0),
+                            4.0,
+                            stroke,
+                            egui::StrokeKind::Outside,
+                        );
                     }
                 });
             });
