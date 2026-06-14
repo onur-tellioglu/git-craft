@@ -194,6 +194,61 @@ mod tests {
         p.shutdown();
     }
 
+    /// Write a region file with a valid GCR1 header but a corrupt section
+    /// payload (palette_len=1, bits=2, packed indices all out of range) and
+    /// assert the worker returns Loaded::Failed without panicking.
+    ///
+    /// This tests the full path — from on-disk bytes through region parsing,
+    /// deserialization, and light recomputation — where finding #1 would have
+    /// panicked the worker before the bounds check was added.
+    #[test]
+    fn loading_a_corrupt_region_file_returns_failed() {
+        use crate::world::region::{local_index, region_of, serialize_region};
+        use std::collections::BTreeMap;
+
+        let dir = temp_dir("corrupt");
+        let pos = ColumnPos { x: 7, z: -3 };
+
+        // Build a corrupt section payload: palette_len=1, bits=2,
+        // all data words 0xFF (every 2-bit index == 3, out of range for palette_len=1).
+        const VOLUME: usize = 32 * 32 * 32;
+        let words = VOLUME * 2 / 64; // 1024 words
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&1u16.to_le_bytes()); // palette_len = 1
+        payload.extend_from_slice(&0u16.to_le_bytes()); // palette[0] = AIR (BlockId 0)
+        payload.push(2u8); // bits = 2
+        for _ in 0..words {
+            payload.extend_from_slice(&u64::MAX.to_le_bytes());
+        }
+        // Repeat for all COLUMN_SECTIONS so the region payload looks like a full column.
+        use crate::world::r#gen::COLUMN_SECTIONS;
+        let full_payload: Vec<u8> = payload.repeat(COLUMN_SECTIONS);
+
+        // Wrap in a valid region file structure.
+        let (rx, rz) = region_of(pos);
+        let idx = local_index(pos);
+        let mut map = BTreeMap::new();
+        map.insert(idx, full_payload);
+        let region_blob = serialize_region(&map);
+
+        // Write the region file to disk in the store dir.
+        std::fs::create_dir_all(&dir).unwrap();
+        let region_path = dir.join(format!("r.{rx}.{rz}.gcr"));
+        std::fs::write(&region_path, &region_blob).unwrap();
+
+        // Open persistence pointing at this dir; it will scan and find pos as saved.
+        let (mut p, saved) = Persistence::new(dir);
+        assert!(saved.contains(&pos), "scan must find the corrupt column");
+
+        // Request a load; the worker must return Failed, not panic.
+        p.request_load(pos);
+        assert!(
+            matches!(poll_one(&mut p), Loaded::Failed { .. }),
+            "corrupt payload must return Loaded::Failed, not panic"
+        );
+        p.shutdown();
+    }
+
     /// The "quit and relaunch" path: a real generated column with an edit is
     /// saved and the worker shut down, then a *fresh* store on the same dir
     /// re-discovers the column via `scan` and loads it with the edit intact —
