@@ -1,6 +1,6 @@
-use crate::world::block::{BlockId, AIR};
-use crate::world::light::{pack_light, LightData, MAX_LIGHT};
-use crate::world::section::{Section, SECTION_SIZE};
+use crate::world::block::{AIR, BlockId};
+use crate::world::light::{LightData, MAX_LIGHT, pack_light};
+use crate::world::section::{SECTION_SIZE, Section};
 
 /// Padded cube edge: 32 interior + 1 apron voxel on each side.
 pub const PADDED: usize = SECTION_SIZE + 2;
@@ -75,7 +75,13 @@ impl PaddedSection {
         for y in 0..PADDED {
             for z in 0..PADDED {
                 for x in 0..PADDED {
-                    if x == 0 || x == PADDED - 1 || y == 0 || y == PADDED - 1 || z == 0 || z == PADDED - 1 {
+                    if x == 0
+                        || x == PADDED - 1
+                        || y == 0
+                        || y == PADDED - 1
+                        || z == 0
+                        || z == PADDED - 1
+                    {
                         let (b, l) = neighbor(x as i32 - 1, y as i32 - 1, z as i32 - 1);
                         p.blocks[Self::index(x, y, z)] = b;
                         p.light[Self::index(x, y, z)] = l;
@@ -134,7 +140,11 @@ mod tests {
         assert_eq!(p.get(33, 5, 5), BlockId(1));
         assert_eq!(p.get(0, 0, 5), BlockId(2), "edge apron");
         assert_eq!(p.get(33, 33, 33), BlockId(3), "corner apron");
-        assert_eq!(p.get(5, 5, 5), AIR, "interior comes from the section, not the closure");
+        assert_eq!(
+            p.get(5, 5, 5),
+            AIR,
+            "interior comes from the section, not the closure"
+        );
     }
 
     #[test]
@@ -153,7 +163,11 @@ mod tests {
         light.set_sky(5, 6, 5, 11); // section-local cell above the stone
         // Apron closure: light 0x23 everywhere outside.
         let p = PaddedSection::build(&s, &light, |_, _, _| (AIR, 0x23));
-        assert_eq!(p.light_packed(6, 7, 6), 0x0B, "interior light at +1 padded offset");
+        assert_eq!(
+            p.light_packed(6, 7, 6),
+            0x0B,
+            "interior light at +1 padded offset"
+        );
         assert_eq!(p.light_packed(6, 6, 6), 0x00, "dark interior cell");
         assert_eq!(p.light_packed(0, 5, 5), 0x23, "apron from the closure");
     }

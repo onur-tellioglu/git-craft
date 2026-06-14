@@ -18,7 +18,9 @@ impl Gpu {
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
         }))
-        .expect("no suitable GPU adapter (check WGPU_BACKEND env if set — Metal expected on macOS)");
+        .expect(
+            "no suitable GPU adapter (check WGPU_BACKEND env if set — Metal expected on macOS)",
+        );
 
         // TIMESTAMP_QUERY is in the spec from day one; fall back gracefully if absent.
         let mut required_features = wgpu::Features::empty();
@@ -29,7 +31,9 @@ impl Gpu {
         // Indirect draws with non-zero first_instance require this feature.
         // Every Apple Silicon Metal device exposes it.
         assert!(
-            adapter.features().contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
+            adapter
+                .features()
+                .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
             "git-craft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
         );
         required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
@@ -64,7 +68,12 @@ impl Gpu {
         };
         surface.configure(&device, &config);
 
-        Self { surface, device, queue, config }
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

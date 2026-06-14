@@ -18,8 +18,19 @@ use crate::render::timestamps::GpuTimer;
 /// GPU pass timing slots (spec §8). Order is frame order; indices are stable
 /// within a task but renumbered as the frame graph grows through M5.
 const PASS_LABELS: &[&str] = &[
-    "luts", "shadow0", "shadow1", "shadow2", "main", "gtao", "volumetric", "composite", "water",
-    "taa", "bloom", "exposure", "post",
+    "luts",
+    "shadow0",
+    "shadow1",
+    "shadow2",
+    "main",
+    "gtao",
+    "volumetric",
+    "composite",
+    "water",
+    "taa",
+    "bloom",
+    "exposure",
+    "post",
 ];
 const PASS_LUTS: usize = 0;
 const PASS_SHADOW0: usize = 1;
@@ -82,7 +93,10 @@ fn shader_path(name: &str) -> String {
 
 /// Offscreen target size for a swapchain size and render scale, clamped to >= 1.
 fn render_dims(width: u32, height: u32, scale: f32) -> (u32, u32) {
-    (((width as f32 * scale) as u32).max(1), ((height as f32 * scale) as u32).max(1))
+    (
+        ((width as f32 * scale) as u32).max(1),
+        ((height as f32 * scale) as u32).max(1),
+    )
 }
 
 /// Cycle the render scale: 1.0 → 0.75 → 0.5 → 1.0 (the §11 fallback ladder).
@@ -263,13 +277,7 @@ impl App {
     /// Recreate the offscreen depth + render targets at `rw×rh` and rebuild every
     /// pass bind group that samples them. Shared by window resize and render-scale
     /// changes; the swapchain itself is resized separately (always full size).
-    fn rebuild_offscreen(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        rw: u32,
-        rh: u32,
-    ) {
+    fn rebuild_offscreen(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, rw: u32, rh: u32) {
         let (depth_tex, depth_view) = depth::create_depth_texture(device, rw, rh);
         let depth_sample_view = depth_tex.create_view(&wgpu::TextureViewDescriptor {
             aspect: wgpu::TextureAspect::DepthOnly,
@@ -281,19 +289,25 @@ impl App {
         self.targets = Some(crate::render::targets::RenderTargets::new(device, rw, rh));
         // History is now stale; discard it on the next frame.
         self.taa_valid = 0.0;
-        if let (Some(taa), Some(targets), Some(depth_sv)) =
-            (self.taa.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-        {
+        if let (Some(taa), Some(targets), Some(depth_sv)) = (
+            self.taa.as_mut(),
+            self.targets.as_ref(),
+            self.depth_sample_view.as_ref(),
+        ) {
             taa.rebuild_bind_groups(device, targets, depth_sv);
         }
-        if let (Some(gtao), Some(targets), Some(depth_sv)) =
-            (self.gtao.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-        {
+        if let (Some(gtao), Some(targets), Some(depth_sv)) = (
+            self.gtao.as_mut(),
+            self.targets.as_ref(),
+            self.depth_sample_view.as_ref(),
+        ) {
             gtao.rebuild_bind_group(device, depth_sv, &targets.gbuf_view);
         }
-        if let (Some(blur), Some(targets), Some(depth_sv)) =
-            (self.blur.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-        {
+        if let (Some(blur), Some(targets), Some(depth_sv)) = (
+            self.blur.as_mut(),
+            self.targets.as_ref(),
+            self.depth_sample_view.as_ref(),
+        ) {
             blur.rebuild_bind_group(device, &targets.ao_raw_view, depth_sv);
         }
         if let (Some(composite), Some(targets), Some(vol), Some(depth_sv)) = (
@@ -321,11 +335,18 @@ impl App {
         if let (Some(post), Some(targets)) = (self.post.as_mut(), self.targets.as_ref())
             && let Some(exposure_buf) = self.exposure.as_ref().map(|e| e.result_buffer())
         {
-            post.set_input(device, &targets.resolved_view, &targets.bloom_views[0], exposure_buf);
+            post.set_input(
+                device,
+                &targets.resolved_view,
+                &targets.bloom_views[0],
+                exposure_buf,
+            );
         }
-        if let (Some(water), Some(targets), Some(depth_sv)) =
-            (self.water.as_mut(), self.targets.as_ref(), self.depth_sample_view.as_ref())
-        {
+        if let (Some(water), Some(targets), Some(depth_sv)) = (
+            self.water.as_mut(),
+            self.targets.as_ref(),
+            self.depth_sample_view.as_ref(),
+        ) {
             water.rebuild_bind_group(device, &targets.scene_color_view, depth_sv);
         }
     }
@@ -335,7 +356,10 @@ impl App {
     fn set_cursor_grab(&mut self, grab: bool) {
         let Some(window) = &self.window else { return };
         if grab {
-            if window.set_cursor_grab(winit::window::CursorGrabMode::Locked).is_err() {
+            if window
+                .set_cursor_grab(winit::window::CursorGrabMode::Locked)
+                .is_err()
+            {
                 let _ = window.set_cursor_grab(winit::window::CursorGrabMode::Confined);
             }
             window.set_cursor_visible(false);
@@ -389,7 +413,10 @@ impl App {
             && hit.normal != glam::IVec3::ZERO
         {
             let cell = hit.block + hit.normal;
-            let free = self.world.block_at(cell).is_some_and(|b| b == AIR || b == WATER);
+            let free = self
+                .world
+                .block_at(cell)
+                .is_some_and(|b| b == AIR || b == WATER);
             if free && !self.player.aabb().intersects_cell(cell) {
                 if self.world.set_block(cell, self.hotbar.selected_block()) {
                     crate::world::light_engine::on_block_changed(&mut self.world, cell);
@@ -406,7 +433,7 @@ impl App {
     /// for distance leaves a Generating zombie slot that the unload pass in
     /// the same frame removes (drop condition radius == unload radius).
     fn update_world(&mut self) {
-        use crate::world::chunks::{columns_in_radius, ColumnPos, SectionPos};
+        use crate::world::chunks::{ColumnPos, SectionPos, columns_in_radius};
         use crate::world::jobs::JobResult;
         let Some(gpu) = self.gpu.as_ref() else { return };
 
@@ -418,7 +445,12 @@ impl App {
         // 1. Drain finished jobs.
         for result in self.jobs.drain() {
             match result {
-                JobResult::Generated { pos, data, light, writes } => {
+                JobResult::Generated {
+                    pos,
+                    data,
+                    light,
+                    writes,
+                } => {
                     let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
                     if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
                         // Player moved on; drop the data but keep its writes
@@ -435,7 +467,13 @@ impl App {
                         crate::world::light_engine::on_block_changed(&mut self.world, p);
                     }
                 }
-                JobResult::Meshed { pos, version, opaque, water, visibility } => {
+                JobResult::Meshed {
+                    pos,
+                    version,
+                    opaque,
+                    water,
+                    visibility,
+                } => {
                     let current = self.mesh_versions.get(&pos).copied().unwrap_or(0);
                     if version == current && self.world.ready(pos.column()).is_some() {
                         self.visibility_masks.insert(pos, visibility);
@@ -451,7 +489,11 @@ impl App {
         if let Some(terrain) = self.terrain.as_mut() {
             for pos in self.world.unload_outside(center, UNLOAD_RADIUS) {
                 for y in 0..8 {
-                    let section = SectionPos { x: pos.x, y, z: pos.z };
+                    let section = SectionPos {
+                        x: pos.x,
+                        y,
+                        z: pos.z,
+                    };
                     terrain.remove_section(section);
                     self.mesh_versions.remove(&section);
                     self.visibility_masks.remove(&section);
@@ -487,7 +529,11 @@ impl App {
                     if self.jobs.mesh_in_flight >= MAX_MESH_IN_FLIGHT {
                         break 'cols;
                     }
-                    let pos = SectionPos { x: col.x, y: sy as i32, z: col.z };
+                    let pos = SectionPos {
+                        x: col.x,
+                        y: sy as i32,
+                        z: col.z,
+                    };
                     let hood = self.build_neighborhood(pos);
                     if let Some(c) = self.world.ready_mut(col) {
                         c.dirty[sy] = false;
@@ -502,7 +548,9 @@ impl App {
         // 5. Budgeted GPU uploads.
         if let Some(terrain) = self.terrain.as_mut() {
             for _ in 0..MAX_UPLOADS_PER_FRAME {
-                let Some((pos, opaque, water)) = self.upload_queue.pop_front() else { break };
+                let Some((pos, opaque, water)) = self.upload_queue.pop_front() else {
+                    break;
+                };
                 if self.world.ready(pos.column()).is_none() {
                     continue; // unloaded while queued
                 }
@@ -528,7 +576,10 @@ impl App {
             }
             for dz in -1..=1 {
                 for dx in -1..=1 {
-                    let col = ColumnPos { x: pos.x + dx, z: pos.z + dz };
+                    let col = ColumnPos {
+                        x: pos.x + dx,
+                        z: pos.z + dz,
+                    };
                     if let Some(c) = self.world.ready(col) {
                         hood.sections[MeshNeighborhood::index(dx, dy, dz)] =
                             Some(c.sections[sy as usize].clone());
@@ -572,7 +623,8 @@ impl App {
                         }
                     }
                     "sky" => {
-                        if let (Some(s), Some(t)) = (self.sky_pass.as_mut(), self.terrain.as_ref()) {
+                        if let (Some(s), Some(t)) = (self.sky_pass.as_mut(), self.terrain.as_ref())
+                        {
                             s.swap_shader(&gpu.device, t.camera_layout(), &source);
                         }
                     }
@@ -613,7 +665,12 @@ impl App {
                     }
                     "water" => {
                         if let (Some(w), Some(t)) = (self.water.as_mut(), self.terrain.as_ref()) {
-                            w.swap_shader(&gpu.device, t.camera_layout(), t.quads_layout(), &source);
+                            w.swap_shader(
+                                &gpu.device,
+                                t.camera_layout(),
+                                t.quads_layout(),
+                                &source,
+                            );
                         }
                     }
                     // outline has no swap_shader yet; restart to pick it up.
@@ -669,9 +726,15 @@ impl App {
 
             // Hotbar: 1–9 select, wheel cycles, shift+wheel pages (spec §7).
             const DIGITS: [KeyCode; 9] = [
-                KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3,
-                KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6,
-                KeyCode::Digit7, KeyCode::Digit8, KeyCode::Digit9,
+                KeyCode::Digit1,
+                KeyCode::Digit2,
+                KeyCode::Digit3,
+                KeyCode::Digit4,
+                KeyCode::Digit5,
+                KeyCode::Digit6,
+                KeyCode::Digit7,
+                KeyCode::Digit8,
+                KeyCode::Digit9,
             ];
             for (i, key) in DIGITS.iter().enumerate() {
                 if self.input.key_pressed(*key) {
@@ -698,7 +761,8 @@ impl App {
                 };
                 let is_water =
                     |c: glam::IVec3| world.block_at(c) == Some(crate::world::block::WATER);
-                self.player.update(&self.input, self.camera.yaw, dt, &is_solid, &is_water);
+                self.player
+                    .update(&self.input, self.camera.yaw, dt, &is_solid, &is_water);
             }
             self.camera.position = self.player.eye();
 
@@ -712,7 +776,9 @@ impl App {
         self.update_world();
 
         // Disjoint field borrows: terrain mutably for prepare, gpu mutably.
-        let Some(depth_view_ref) = self.depth_view.as_ref() else { return };
+        let Some(depth_view_ref) = self.depth_view.as_ref() else {
+            return;
+        };
         let Some(gpu) = self.gpu.as_mut() else { return };
 
         let aspect = gpu.config.width as f32 / gpu.config.height as f32;
@@ -742,9 +808,11 @@ impl App {
                 y: (cam_pos.y as i32).div_euclid(32),
                 z: (cam_pos.z as i32).div_euclid(32),
             };
-            Some(crate::render::visibility::visible_set(cam_section, RENDER_RADIUS, |p| {
-                masks.get(&p).copied()
-            }))
+            Some(crate::render::visibility::visible_set(
+                cam_section,
+                RENDER_RADIUS,
+                |p| masks.get(&p).copied(),
+            ))
         } else {
             None
         };
@@ -793,17 +861,30 @@ impl App {
         }
 
         if let Some(luts) = self.sky_luts.as_ref() {
-            luts.prepare(&gpu.queue, &crate::render::atmosphere::AtmUniform {
-                inv_view_proj: view_proj.inverse().to_cols_array_2d(),
-                camera: [self.camera.position.x, self.camera.position.y, self.camera.position.z, altitude_km],
-                sun: [self.day.sun_dir().x, self.day.sun_dir().y, self.day.sun_dir().z, 0.0],
-                sun_radiance: [
-                    crate::render::atmosphere::SUN_RADIANCE.x,
-                    crate::render::atmosphere::SUN_RADIANCE.y,
-                    crate::render::atmosphere::SUN_RADIANCE.z,
-                    0.0,
-                ],
-            });
+            luts.prepare(
+                &gpu.queue,
+                &crate::render::atmosphere::AtmUniform {
+                    inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+                    camera: [
+                        self.camera.position.x,
+                        self.camera.position.y,
+                        self.camera.position.z,
+                        altitude_km,
+                    ],
+                    sun: [
+                        self.day.sun_dir().x,
+                        self.day.sun_dir().y,
+                        self.day.sun_dir().z,
+                        0.0,
+                    ],
+                    sun_radiance: [
+                        crate::render::atmosphere::SUN_RADIANCE.x,
+                        crate::render::atmosphere::SUN_RADIANCE.y,
+                        crate::render::atmosphere::SUN_RADIANCE.z,
+                        0.0,
+                    ],
+                },
+            );
         }
         if let Some(exposure) = self.exposure.as_ref() {
             exposure.prepare(&gpu.queue, dt);
@@ -814,7 +895,12 @@ impl App {
             water.prepare(
                 &gpu.queue,
                 &crate::render::water::WaterUniform {
-                    tint: [WATER_TINT[0], WATER_TINT[1], WATER_TINT[2], WATER_FOG_DENSITY],
+                    tint: [
+                        WATER_TINT[0],
+                        WATER_TINT[1],
+                        WATER_TINT[2],
+                        WATER_FOG_DENSITY,
+                    ],
                     params: [
                         self.frame_index as f32 * 0.03,
                         WATER_FRESNEL_F0,
@@ -849,7 +935,10 @@ impl App {
         }
         if let Some(blur) = self.blur.as_ref() {
             let (hw, hh) = crate::render::gtao::half_res(rw, rh);
-            blur.prepare(&gpu.queue, [hw as f32, hh as f32, GTAO_BLUR_DEPTH_SIGMA, 0.0]);
+            blur.prepare(
+                &gpu.queue,
+                [hw as f32, hh as f32, GTAO_BLUR_DEPTH_SIGMA, 0.0],
+            );
         }
         if let Some(composite) = self.composite.as_ref() {
             use crate::render::volumetric::{VOL_D, VOL_FAR, VOL_NEAR};
@@ -863,7 +952,12 @@ impl App {
                         0.0,
                     ],
                     inv_view_proj: jittered_vp.inverse().to_cols_array_2d(),
-                    camera: [self.camera.position.x, self.camera.position.y, self.camera.position.z, 0.0],
+                    camera: [
+                        self.camera.position.x,
+                        self.camera.position.y,
+                        self.camera.position.z,
+                        0.0,
+                    ],
                     vol_params: [VOL_NEAR, VOL_FAR, VOL_D as f32, 0.0],
                 },
             );
@@ -885,7 +979,12 @@ impl App {
                         self.camera.position.z,
                         self.frame_index as f32,
                     ],
-                    sun: [light_dir.x, light_dir.y, light_dir.z, if light_is_sun { 1.0 } else { 0.0 }],
+                    sun: [
+                        light_dir.x,
+                        light_dir.y,
+                        light_dir.z,
+                        if light_is_sun { 1.0 } else { 0.0 },
+                    ],
                     sun_color: [light_color.x, light_color.y, light_color.z, 0.0],
                     sky: [sky.x, sky.y, sky.z, self.taa_valid],
                     fog: [VOL_DENSITY, VOL_HAZE, VOL_FOG_Y0, VOL_FOG_H],
@@ -901,15 +1000,24 @@ impl App {
             self.input.end_frame();
             return;
         };
-        let Some(targets) = self.targets.as_ref() else { return };
+        let Some(targets) = self.targets.as_ref() else {
+            return;
+        };
         let hdr_view = &targets.hdr_view;
         let gbuf_view = &targets.gbuf_view;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = gpu
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("frame") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame"),
+            });
 
-        let luts_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_LUTS));
+        let luts_writes = self
+            .timer
+            .as_ref()
+            .and_then(|t| t.compute_writes(PASS_LUTS));
         if let Some(luts) = self.sky_luts.as_mut() {
             luts.encode(&mut encoder, luts_writes);
         }
@@ -981,13 +1089,19 @@ impl App {
 
         // Volumetric froxel grid: in-scatter (CSM god rays + height fog) then
         // front-to-back integrate. Composite samples the integrated grid next.
-        let vol_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_VOLUMETRIC));
+        let vol_writes = self
+            .timer
+            .as_ref()
+            .and_then(|t| t.compute_writes(PASS_VOLUMETRIC));
         if let Some(vol) = self.volumetric.as_ref() {
             vol.encode(&mut encoder, (self.frame_index & 1) as usize, vol_writes);
         }
 
         // Composite: apply blurred AO to the HDR ambient term; TAA reads composited_view.
-        let comp_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_COMPOSITE));
+        let comp_writes = self
+            .timer
+            .as_ref()
+            .and_then(|t| t.render_writes(PASS_COMPOSITE));
         if let (Some(composite), Some(targets)) = (self.composite.as_ref(), self.targets.as_ref()) {
             composite.encode(&mut encoder, &targets.composited_view, comp_writes);
         }
@@ -995,10 +1109,15 @@ impl App {
         // Water transparent pass: snapshot the opaque/composited scene into
         // scene_color (the refraction + SSR source), then draw water surfaces
         // back into composited_view, upstream of TAA so the edges resolve.
-        let water_writes = self.timer.as_ref().and_then(|t| t.render_writes(PASS_WATER));
-        if let (Some(water), Some(terrain), Some(targets)) =
-            (self.water.as_ref(), self.terrain.as_ref(), self.targets.as_ref())
-        {
+        let water_writes = self
+            .timer
+            .as_ref()
+            .and_then(|t| t.render_writes(PASS_WATER));
+        if let (Some(water), Some(terrain), Some(targets)) = (
+            self.water.as_ref(),
+            self.terrain.as_ref(),
+            self.targets.as_ref(),
+        ) {
             encoder.copy_texture_to_texture(
                 targets.composited_texture.as_image_copy(),
                 targets.scene_color_texture.as_image_copy(),
@@ -1014,7 +1133,10 @@ impl App {
                     view: &targets.composited_view,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: water_writes,
@@ -1036,7 +1158,10 @@ impl App {
         }
 
         // Exposure histogram + resolve: runs after bloom, before post.
-        let exp_writes = self.timer.as_ref().and_then(|t| t.compute_writes(PASS_EXPOSURE));
+        let exp_writes = self
+            .timer
+            .as_ref()
+            .and_then(|t| t.compute_writes(PASS_EXPOSURE));
         if let Some(exposure) = self.exposure.as_ref() {
             exposure.encode(&mut encoder, rw, rh, exp_writes);
         }
@@ -1057,7 +1182,13 @@ impl App {
         let pass_ms: Vec<(&str, f32)> = self
             .timer
             .as_ref()
-            .map(|t| t.labels().iter().copied().zip(t.pass_ms.iter().copied()).collect())
+            .map(|t| {
+                t.labels()
+                    .iter()
+                    .copied()
+                    .zip(t.pass_ms.iter().copied())
+                    .collect()
+            })
             .unwrap_or_default();
         let gpu_total = self.timer.as_ref().map(|t| t.total_ms()).unwrap_or(0.0);
         let cam = self.camera.position;
@@ -1093,15 +1224,17 @@ impl App {
         let gen_q = self.jobs.gen_in_flight;
         let mesh_q = self.jobs.mesh_in_flight;
         let uploads = self.upload_queue.len();
-        let (arena_used, arena_cap) =
-            self.terrain.as_ref().map(|t| t.arena_usage()).unwrap_or((0, 1));
+        let (arena_used, arena_cap) = self
+            .terrain
+            .as_ref()
+            .map(|t| t.arena_usage())
+            .unwrap_or((0, 1));
         let hotbar_slots = self.hotbar.slots;
         let hotbar_selected = self.hotbar.selected;
         let hud_visible = self.hud_visible;
         let paused = !self.cursor_grabbed;
         let render_scale = self.render_scale;
-        let (render_w, render_h) =
-            render_dims(gpu.config.width, gpu.config.height, render_scale);
+        let (render_w, render_h) = render_dims(gpu.config.width, gpu.config.height, render_scale);
         let day_label = format!(
             "{:02}:{:02} (×{:.2})",
             ((self.day.time * 24.0 + 6.0) % 24.0) as u32,
@@ -1199,7 +1332,10 @@ impl ApplicationHandler for App {
                 .create_window(Window::default_attributes().with_title("git-craft"))
                 .unwrap(),
         );
-        let instance = self.instance.take().expect("resumed twice with GPU already built");
+        let instance = self
+            .instance
+            .take()
+            .expect("resumed twice with GPU already built");
         let gpu = Gpu::new(&instance, window.clone());
         let size = window.inner_size();
         let (rw, rh) = render_dims(size.width, size.height, self.render_scale);
@@ -1303,8 +1439,7 @@ impl ApplicationHandler for App {
             &post_src,
         ));
 
-        let taa_src =
-            std::fs::read_to_string(shader_path("taa.wgsl")).expect("taa.wgsl missing");
+        let taa_src = std::fs::read_to_string(shader_path("taa.wgsl")).expect("taa.wgsl missing");
         let depth_sample_view_ref = self.depth_sample_view.as_ref().unwrap();
         self.taa = Some(crate::render::taa::TaaPass::new(
             &gpu.device,
@@ -1348,15 +1483,17 @@ impl ApplicationHandler for App {
 
         let luts_src =
             std::fs::read_to_string(shader_path("sky_luts.wgsl")).expect("sky_luts.wgsl missing");
-        self.sky_luts = Some(crate::render::atmosphere::SkyLuts::new(&gpu.device, &luts_src));
+        self.sky_luts = Some(crate::render::atmosphere::SkyLuts::new(
+            &gpu.device,
+            &luts_src,
+        ));
 
         // Wire aerial LUT into terrain group 3.
         if let (Some(terrain), Some(luts)) = (self.terrain.as_mut(), self.sky_luts.as_ref()) {
             terrain.attach_aerial(&gpu.device, &luts.aerial_view);
         }
 
-        let sky_src =
-            std::fs::read_to_string(shader_path("sky.wgsl")).expect("sky.wgsl missing");
+        let sky_src = std::fs::read_to_string(shader_path("sky.wgsl")).expect("sky.wgsl missing");
         let terrain_ref = self.terrain.as_ref().unwrap();
         let luts_ref = self.sky_luts.as_ref().unwrap();
         self.sky_pass = Some(crate::render::atmosphere::SkyPass::new(
@@ -1461,9 +1598,10 @@ impl ApplicationHandler for App {
 
         // Feed egui next; if it consumes the event, don't propagate to game input.
         if let (Some(egui), Some(window)) = (&mut self.egui, &self.window)
-            && egui.on_window_event(window, &event) {
-                return;
-            }
+            && egui.on_window_event(window, &event)
+        {
+            return;
+        }
 
         match event {
             WindowEvent::KeyboardInput { event, .. } => {
@@ -1482,7 +1620,9 @@ impl ApplicationHandler for App {
                 }
                 let mapped = match button {
                     winit::event::MouseButton::Left => Some(crate::game::input::MouseButton::Left),
-                    winit::event::MouseButton::Right => Some(crate::game::input::MouseButton::Right),
+                    winit::event::MouseButton::Right => {
+                        Some(crate::game::input::MouseButton::Right)
+                    }
                     _ => None,
                 };
                 if let Some(b) = mapped {

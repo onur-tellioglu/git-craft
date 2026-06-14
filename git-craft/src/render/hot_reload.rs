@@ -52,7 +52,11 @@ impl ShaderWatcher {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let path = path.into();
         let last_mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-        Self { path, last_mtime, last_check: Instant::now() }
+        Self {
+            path,
+            last_mtime,
+            last_check: Instant::now(),
+        }
     }
 
     /// Returns validated new shader source when the file changed and is valid.
@@ -61,7 +65,9 @@ impl ShaderWatcher {
             return None;
         }
         self.last_check = Instant::now();
-        let mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok()?;
+        let mtime = std::fs::metadata(&self.path)
+            .and_then(|m| m.modified())
+            .ok()?;
         if Some(mtime) == self.last_mtime {
             return None;
         }
@@ -89,7 +95,10 @@ mod tests {
 
     #[test]
     fn valid_wgsl_passes() {
-        assert!(validate_wgsl("@vertex fn vs() -> @builtin(position) vec4<f32> { return vec4(0.0); }").is_ok());
+        assert!(
+            validate_wgsl("@vertex fn vs() -> @builtin(position) vec4<f32> { return vec4(0.0); }")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -99,7 +108,9 @@ mod tests {
 
     #[test]
     fn type_error_is_reported() {
-        assert!(validate_wgsl("@vertex fn vs() -> @builtin(position) vec4<f32> { return 1; }").is_err());
+        assert!(
+            validate_wgsl("@vertex fn vs() -> @builtin(position) vec4<f32> { return 1; }").is_err()
+        );
     }
 
     #[test]

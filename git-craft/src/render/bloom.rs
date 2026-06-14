@@ -1,4 +1,4 @@
-use crate::render::targets::{RenderTargets, HDR_FORMAT};
+use crate::render::targets::{HDR_FORMAT, RenderTargets};
 use crate::render::timestamps::GpuTimer;
 
 #[repr(C)]
@@ -140,7 +140,10 @@ impl BloomPass {
             },
             alpha: wgpu::BlendComponent::REPLACE,
         };
-        (make("fs_down", wgpu::BlendState::REPLACE), make("fs_up", additive))
+        (
+            make("fs_down", wgpu::BlendState::REPLACE),
+            make("fs_up", additive),
+        )
     }
 
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
@@ -181,7 +184,7 @@ impl BloomPass {
                                 offset: 0,
                                 size: Some(
                                     std::num::NonZeroU64::new(
-                                        std::mem::size_of::<BloomUniform>() as u64,
+                                        std::mem::size_of::<BloomUniform>() as u64
                                     )
                                     .unwrap(),
                                 ),
@@ -197,13 +200,21 @@ impl BloomPass {
         // is full-res for i == 0, else mip i-1. Up pass j samples mip j+1.
         let full = (targets.width, targets.height);
         for i in 0..self.mip_count {
-            let src = if i == 0 { full } else { targets.bloom_sizes[i - 1] };
+            let src = if i == 0 {
+                full
+            } else {
+                targets.bloom_sizes[i - 1]
+            };
             let u = BloomUniform {
                 texel: [1.0 / src.0 as f32, 1.0 / src.1 as f32],
                 karis: if i == 0 { 1.0 } else { 0.0 },
                 intensity: 1.0,
             };
-            queue.write_buffer(&self.uniform_buffer, i as u64 * SLOT, bytemuck::bytes_of(&u));
+            queue.write_buffer(
+                &self.uniform_buffer,
+                i as u64 * SLOT,
+                bytemuck::bytes_of(&u),
+            );
         }
         for j in 0..self.mip_count.saturating_sub(1) {
             let src = targets.bloom_sizes[j + 1];
@@ -241,7 +252,10 @@ impl BloomPass {
                     view: dst,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load,
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: ts,

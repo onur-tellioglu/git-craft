@@ -21,7 +21,11 @@ pub fn cascade_splits(near: f32, far: f32, lambda: f32) -> [f32; CASCADE_COUNT +
         let t = i as f32 / CASCADE_COUNT as f32;
         let uniform = near + (far - near) * t;
         // Guard near == 0 (log split undefined); uniform-only there.
-        let log = if near > 0.0 { near * (far / near).powf(t) } else { uniform };
+        let log = if near > 0.0 {
+            near * (far / near).powf(t)
+        } else {
+            uniform
+        };
         *v = uniform * (1.0 - lambda) + log * lambda;
     }
     s
@@ -85,7 +89,10 @@ pub fn fit_light_matrix(corners: &[Vec3; 8], light_dir: Vec3, resolution: u32) -
         ((origin.y * half_res).round() - origin.y * half_res) / half_res,
         0.0,
     ));
-    CascadeFit { view_proj: snap * vp, texel_world: 2.0 * radius / resolution as f32 }
+    CascadeFit {
+        view_proj: snap * vp,
+        texel_world: 2.0 * radius / resolution as f32,
+    }
 }
 
 /// Update cadence (spec §6: far cascades every 2–4 frames).
@@ -104,7 +111,7 @@ pub fn cascade_due(frame: u64, cascade: usize) -> bool {
 
 use crate::render::depth::DEPTH_FORMAT;
 use crate::render::frustum::Frustum;
-use crate::render::terrain::{TerrainRenderer, MAX_SECTIONS};
+use crate::render::terrain::{MAX_SECTIONS, TerrainRenderer};
 use crate::render::timestamps::GpuTimer;
 
 /// Terrain-facing uniform: sampled by terrain.wgsl's fragment stage (Task 5).
@@ -240,7 +247,10 @@ impl ShadowRenderer {
 
         let pipeline = Self::build_pipeline(device, &cascade_layout, quads_layout, shader_source);
 
-        let fits = std::array::from_fn(|_| CascadeFit { view_proj: Mat4::IDENTITY, texel_world: 1.0 });
+        let fits = std::array::from_fn(|_| CascadeFit {
+            view_proj: Mat4::IDENTITY,
+            texel_world: 1.0,
+        });
 
         Self {
             pipeline,
@@ -313,7 +323,8 @@ impl ShadowRenderer {
         quads_layout: &wgpu::BindGroupLayout,
         shader_source: &str,
     ) {
-        self.pipeline = Self::build_pipeline(device, &self.cascade_layout, quads_layout, shader_source);
+        self.pipeline =
+            Self::build_pipeline(device, &self.cascade_layout, quads_layout, shader_source);
     }
 
     /// Returns the uniform buffer sampled by terrain.wgsl's fragment stage.
@@ -344,14 +355,29 @@ impl ShadowRenderer {
             if self.frame != 1 && !cascade_due(self.frame, i) {
                 continue;
             }
-            let corners = slice_corners(cam_pos, cam_forward, fov_y, aspect, splits[i], splits[i + 1]);
+            let corners = slice_corners(
+                cam_pos,
+                cam_forward,
+                fov_y,
+                aspect,
+                splits[i],
+                splits[i + 1],
+            );
             let fit = fit_light_matrix(&corners, light_dir, SHADOW_RESOLUTION);
             // Write the mat4 for this cascade slot into cascade_buffer.
             let mat_cols = fit.view_proj.to_cols_array();
-            queue.write_buffer(&self.cascade_buffer, i as u64 * CASCADE_SLOT, bytemuck::cast_slice(&mat_cols));
+            queue.write_buffer(
+                &self.cascade_buffer,
+                i as u64 * CASCADE_SLOT,
+                bytemuck::cast_slice(&mat_cols),
+            );
             let frustum = Frustum::from_view_proj(fit.view_proj);
-            self.draw_counts[i] =
-                terrain.write_indirect_for(queue, &frustum, &self.indirect_buffer, i as u64 * INDIRECT_STRIDE);
+            self.draw_counts[i] = terrain.write_indirect_for(
+                queue,
+                &frustum,
+                &self.indirect_buffer,
+                i as u64 * INDIRECT_STRIDE,
+            );
             self.fits[i] = fit;
             self.due[i] = true;
         }
@@ -360,7 +386,12 @@ impl ShadowRenderer {
         let uniform = ShadowUniform {
             mats: std::array::from_fn(|i| self.fits[i].view_proj.to_cols_array_2d()),
             splits: [splits[1], splits[2], splits[3], 0.0],
-            texels: [self.fits[0].texel_world, self.fits[1].texel_world, self.fits[2].texel_world, 0.0],
+            texels: [
+                self.fits[0].texel_world,
+                self.fits[1].texel_world,
+                self.fits[2].texel_world,
+                0.0,
+            ],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
     }
@@ -393,7 +424,11 @@ impl ShadowRenderer {
                 multiview_mask: None,
             });
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.cascade_bind_group, &[(i as u64 * CASCADE_SLOT) as u32]);
+            rpass.set_bind_group(
+                0,
+                &self.cascade_bind_group,
+                &[(i as u64 * CASCADE_SLOT) as u32],
+            );
             rpass.set_bind_group(1, terrain.quads_bind_group(), &[]);
             rpass.set_index_buffer(terrain.index_buffer().slice(..), wgpu::IndexFormat::Uint32);
             for d in 0..self.draw_counts[i] {
@@ -429,7 +464,10 @@ mod tests {
     #[test]
     fn lambda_zero_gives_uniform_splits() {
         let s = cascade_splits(0.0, 300.0, 0.0);
-        assert!((s[1] - 100.0).abs() < 1e-3 && (s[2] - 200.0).abs() < 1e-3, "{s:?}");
+        assert!(
+            (s[1] - 100.0).abs() < 1e-3 && (s[2] - 200.0).abs() < 1e-3,
+            "{s:?}"
+        );
     }
 
     #[test]
@@ -446,7 +484,11 @@ mod tests {
         for (got, want) in c[..4].iter().zip(expect_near) {
             assert!((*got - want).length() < 1e-3, "{got} != {want}");
         }
-        assert!((c[4] - Vec3::new(-20.0, -20.0, -20.0)).length() < 1e-3, "far corner: {}", c[4]);
+        assert!(
+            (c[4] - Vec3::new(-20.0, -20.0, -20.0)).length() < 1e-3,
+            "far corner: {}",
+            c[4]
+        );
     }
 
     #[test]
@@ -462,7 +504,10 @@ mod tests {
         let fit = fit_light_matrix(&corners, light(), RES);
         for c in corners {
             let ndc = fit.view_proj.project_point3(c);
-            assert!(ndc.x.abs() <= 1.001 && ndc.y.abs() <= 1.001, "corner outside XY: {ndc}");
+            assert!(
+                ndc.x.abs() <= 1.001 && ndc.y.abs() <= 1.001,
+                "corner outside XY: {ndc}"
+            );
             assert!((0.0..=1.0).contains(&ndc.z), "corner outside depth: {ndc}");
         }
     }
@@ -485,8 +530,16 @@ mod tests {
             let t = fit.view_proj.project_point3(Vec3::ZERO);
             let tx = t.x * RES as f32 / 2.0;
             let ty = t.y * RES as f32 / 2.0;
-            assert!((tx - tx.round()).abs() < 1e-3, "X off-grid by {} texels", tx - tx.round());
-            assert!((ty - ty.round()).abs() < 1e-3, "Y off-grid by {} texels", ty - ty.round());
+            assert!(
+                (tx - tx.round()).abs() < 1e-3,
+                "X off-grid by {} texels",
+                tx - tx.round()
+            );
+            assert!(
+                (ty - ty.round()).abs() < 1e-3,
+                "Y off-grid by {} texels",
+                ty - ty.round()
+            );
         }
     }
 
@@ -494,7 +547,10 @@ mod tests {
     fn texel_world_size_matches_the_ortho_diameter() {
         let corners = slice_corners(Vec3::ZERO, Vec3::NEG_Z, 70f32.to_radians(), 1.6, 0.5, 32.0);
         let center = corners.iter().copied().sum::<Vec3>() / 8.0;
-        let radius = corners.iter().map(|c| (*c - center).length()).fold(0.0f32, f32::max);
+        let radius = corners
+            .iter()
+            .map(|c| (*c - center).length())
+            .fold(0.0f32, f32::max);
         let fit = fit_light_matrix(&corners, light(), RES);
         assert!((fit.texel_world - 2.0 * radius / RES as f32).abs() < 1e-5);
     }

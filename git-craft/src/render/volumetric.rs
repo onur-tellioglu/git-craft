@@ -69,7 +69,11 @@ fn froxel_texture(device: &wgpu::Device, label: &str) -> wgpu::TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: VOL_W, height: VOL_H, depth_or_array_layers: VOL_D },
+            size: wgpu::Extent3d {
+                width: VOL_W,
+                height: VOL_H,
+                depth_or_array_layers: VOL_D,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
@@ -94,10 +98,10 @@ pub struct VolumetricPass {
     shadow_array: wgpu::TextureView,
     inscatter_pipeline: wgpu::ComputePipeline,
     integrate_pipeline: wgpu::ComputePipeline,
-    inscatter_in: [wgpu::BindGroup; 2],  // group0: reads prev = scatter[1-p]
+    inscatter_in: [wgpu::BindGroup; 2], // group0: reads prev = scatter[1-p]
     inscatter_out: [wgpu::BindGroup; 2], // group1: writes scatter[p]
-    integrate_in: [wgpu::BindGroup; 2],  // group0: reads scatter[p]
-    integrate_out: wgpu::BindGroup,      // group1: writes integrated
+    integrate_in: [wgpu::BindGroup; 2], // group0: reads scatter[p]
+    integrate_out: wgpu::BindGroup,     // group1: writes integrated
     is_wg: (u32, u32, u32),
     in_wg: (u32, u32, u32),
 }
@@ -115,8 +119,10 @@ impl VolumetricPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let scatter_views =
-            [froxel_texture(device, "froxel scatter 0"), froxel_texture(device, "froxel scatter 1")];
+        let scatter_views = [
+            froxel_texture(device, "froxel scatter 0"),
+            froxel_texture(device, "froxel scatter 1"),
+        ];
         let integrated_view = froxel_texture(device, "froxel integrated");
         // Comparison sampler for the CSM (mirrors terrain's shadow sampler).
         let cmp_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -194,7 +200,10 @@ impl VolumetricPass {
                 label: Some("vol inscatter in"),
                 layout: &in_layout_is,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.uniform.as_entire_binding(),
+                    },
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: self.shadow_uniform.as_entire_binding(),
@@ -233,14 +242,15 @@ impl VolumetricPass {
             bind_group_layouts: &[Some(&in_layout_is), Some(&out_layout_is)],
             immediate_size: 0,
         });
-        self.inscatter_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("vol inscatter"),
-            layout: Some(&layout_is),
-            module: &shader,
-            entry_point: Some("cs_inscatter"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        self.inscatter_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("vol inscatter"),
+                layout: Some(&layout_is),
+                module: &shader,
+                entry_point: Some("cs_inscatter"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
 
         // --- cs_integrate: group0 = in_scatter(4), group1 = out_integrated(1).
         let in_layout_in = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -274,14 +284,15 @@ impl VolumetricPass {
             bind_group_layouts: &[Some(&in_layout_in), Some(&out_layout_in)],
             immediate_size: 0,
         });
-        self.integrate_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("vol integrate"),
-            layout: Some(&layout_in),
-            module: &shader,
-            entry_point: Some("cs_integrate"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        self.integrate_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("vol integrate"),
+                layout: Some(&layout_in),
+                module: &shader,
+                entry_point: Some("cs_integrate"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
 
         self.inscatter_in = inscatter_in;
         self.inscatter_out = inscatter_out;

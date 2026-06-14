@@ -110,7 +110,15 @@ impl ExposurePass {
         let resolve = make("cs_resolve");
         let bind_group =
             Self::build_bind_group(device, &layout, hdr_view, &bins, &result, &uniform);
-        Self { histogram, resolve, layout, bind_group, bins, result, uniform }
+        Self {
+            histogram,
+            resolve,
+            layout,
+            bind_group,
+            bins,
+            result,
+            uniform,
+        }
     }
 
     fn build_bind_group(
@@ -129,9 +137,18 @@ impl ExposurePass {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(hdr_view),
                 },
-                wgpu::BindGroupEntry { binding: 1, resource: bins.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: result.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: bins.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: result.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: uniform.as_entire_binding(),
+                },
             ],
         })
     }

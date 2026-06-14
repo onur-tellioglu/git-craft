@@ -66,7 +66,11 @@ impl RenderTargets {
         let height = height.max(1);
         let hdr = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("hdr color"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -76,7 +80,11 @@ impl RenderTargets {
         });
         let gbuf = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gbuffer normal+ambient"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -90,12 +98,17 @@ impl RenderTargets {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
-                    size: wgpu::Extent3d { width: hw, height: hh, depth_or_array_layers: 1 },
+                    size: wgpu::Extent3d {
+                        width: hw,
+                        height: hh,
+                        depth_or_array_layers: 1,
+                    },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
                     format: AO_FORMAT,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 })
                 .create_view(&wgpu::TextureViewDescriptor::default())
@@ -107,7 +120,11 @@ impl RenderTargets {
         let mips = bloom_mip_count(half.0, half.1);
         let bloom = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("bloom chain"),
-            size: wgpu::Extent3d { width: half.0, height: half.1, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: half.0,
+                height: half.1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: mips,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -131,7 +148,11 @@ impl RenderTargets {
 
         let resolved = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("taa resolved"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -143,7 +164,11 @@ impl RenderTargets {
         });
         let history0 = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("taa history 0"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -155,7 +180,11 @@ impl RenderTargets {
         });
         let history1 = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("taa history 1"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -168,7 +197,11 @@ impl RenderTargets {
 
         let composited = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ao composited hdr"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -181,7 +214,11 @@ impl RenderTargets {
         });
         let scene_color = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("scene color (water refraction source)"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -227,7 +264,11 @@ mod tests {
 
     #[test]
     fn bloom_mip_count_scales_with_resolution() {
-        assert_eq!(bloom_mip_count(1512, 982), 6, "native half-res gets the full chain");
+        assert_eq!(
+            bloom_mip_count(1512, 982),
+            6,
+            "native half-res gets the full chain"
+        );
         assert_eq!(bloom_mip_count(20, 20), 2);
         assert_eq!(bloom_mip_count(8, 8), 1, "never zero mips");
     }

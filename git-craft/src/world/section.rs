@@ -1,4 +1,4 @@
-use crate::world::block::{BlockId, AIR};
+use crate::world::block::{AIR, BlockId};
 
 pub const SECTION_SIZE: usize = 32;
 const VOLUME: usize = SECTION_SIZE * SECTION_SIZE * SECTION_SIZE;
@@ -36,7 +36,11 @@ fn read_index_raw(data: &[u64], bits: u32, voxel: usize) -> usize {
 
 impl Section {
     pub fn empty() -> Self {
-        Self { palette: vec![AIR], bits: 0, data: Vec::new() }
+        Self {
+            palette: vec![AIR],
+            bits: 0,
+            data: Vec::new(),
+        }
     }
 
     fn index(x: usize, y: usize, z: usize) -> usize {
@@ -115,7 +119,9 @@ impl Section {
             return Some(self.palette[0]);
         }
         let first = self.read_index(0);
-        (1..VOLUME).all(|v| self.read_index(v) == first).then(|| self.palette[first])
+        (1..VOLUME)
+            .all(|v| self.read_index(v) == first)
+            .then(|| self.palette[first])
     }
 
     /// Bulk-decode all 32768 voxels into `out` (index = (y*32+z)*32+x).
@@ -137,7 +143,11 @@ impl Section {
         let mut flat = vec![AIR; VOLUME];
         self.unpack_into(&mut flat);
         let fill = flat[0];
-        let mut rebuilt = Section { palette: vec![fill], bits: 0, data: Vec::new() };
+        let mut rebuilt = Section {
+            palette: vec![fill],
+            bits: 0,
+            data: Vec::new(),
+        };
         for (voxel, &block) in flat.iter().enumerate() {
             if block != fill {
                 let x = voxel % 32;
@@ -175,7 +185,7 @@ impl PartialEq for Section {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::world::block::{BlockId, AIR, DIRT, GRASS, STONE};
+    use crate::world::block::{AIR, BlockId, DIRT, GRASS, STONE};
 
     #[test]
     fn set_then_get_roundtrips() {

@@ -9,7 +9,11 @@ pub struct Arena {
 
 impl Arena {
     pub fn new(capacity: u32) -> Self {
-        Self { free: vec![(0, capacity)], capacity, used: 0 }
+        Self {
+            free: vec![(0, capacity)],
+            capacity,
+            used: 0,
+        }
     }
 
     pub fn alloc(&mut self, len: u32) -> Option<u32> {

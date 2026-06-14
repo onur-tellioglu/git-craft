@@ -83,7 +83,14 @@ impl WaterRenderer {
         });
         let pipeline =
             Self::build_pipeline(device, camera_layout, quads_layout, &layout, shader_source);
-        Self { pipeline, layout, sampler, uniform, skyview: skyview.clone(), bind_group: None }
+        Self {
+            pipeline,
+            layout,
+            sampler,
+            uniform,
+            skyview: skyview.clone(),
+            bind_group: None,
+        }
     }
 
     fn build_pipeline(
@@ -145,7 +152,10 @@ impl WaterRenderer {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(scene_color),
                 },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(depth) },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&self.skyview),
@@ -154,7 +164,10 @@ impl WaterRenderer {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
-                wgpu::BindGroupEntry { binding: 4, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.uniform.as_entire_binding(),
+                },
             ],
         }));
     }
@@ -166,8 +179,13 @@ impl WaterRenderer {
         quads_layout: &wgpu::BindGroupLayout,
         shader_source: &str,
     ) {
-        self.pipeline =
-            Self::build_pipeline(device, camera_layout, quads_layout, &self.layout, shader_source);
+        self.pipeline = Self::build_pipeline(
+            device,
+            camera_layout,
+            quads_layout,
+            &self.layout,
+            shader_source,
+        );
     }
 
     pub fn prepare(&self, queue: &wgpu::Queue, u: &WaterUniform) {

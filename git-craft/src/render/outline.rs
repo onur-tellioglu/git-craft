@@ -104,7 +104,12 @@ impl OutlineRenderer {
             multiview_mask: None,
             cache: None,
         });
-        Self { pipeline, buffer, bind_group, target: None }
+        Self {
+            pipeline,
+            buffer,
+            bind_group,
+            target: None,
+        }
     }
 
     /// Update the targeted block (None hides the outline). Call before the

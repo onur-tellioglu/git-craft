@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::mesh::padded::{PaddedSection, PADDED};
+use crate::mesh::padded::{PADDED, PaddedSection};
 use crate::mesh::quad::{PackedQuad, Quad};
 use crate::world::block::{BlockId, WATER};
 
@@ -13,12 +13,30 @@ const SIZE: usize = 32;
 const FACE_OF: [[u32; 2]; 3] = [[2, 3], [0, 1], [4, 5]];
 
 /// Integer mirrors of the shader's FACE tables (cross(U,V) = outward normal).
-const FACE_N: [[i32; 3]; 6] =
-    [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
-const FACE_U: [[i32; 3]; 6] =
-    [[0, 1, 0], [0, 0, 1], [0, 0, 1], [1, 0, 0], [1, 0, 0], [0, 1, 0]];
-const FACE_V: [[i32; 3]; 6] =
-    [[0, 0, 1], [0, 1, 0], [1, 0, 0], [0, 0, 1], [0, 1, 0], [1, 0, 0]];
+const FACE_N: [[i32; 3]; 6] = [
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+];
+const FACE_U: [[i32; 3]; 6] = [
+    [0, 1, 0],
+    [0, 0, 1],
+    [0, 0, 1],
+    [1, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+];
+const FACE_V: [[i32; 3]; 6] = [
+    [0, 0, 1],
+    [0, 1, 0],
+    [1, 0, 0],
+    [0, 0, 1],
+    [0, 1, 0],
+    [1, 0, 0],
+];
 
 /// Binary greedy mesher (spec §5). Reusable: `mesh` clears prior state.
 /// M2: per-corner AO (Task 6), flip bit
@@ -36,7 +54,10 @@ pub struct Mesher {
 /// Bits 0..16: block id, 16..25: ao_key (9 bits), 25..31: slice (6 bits),
 /// 31..34: face (3 bits), 34..42: light packed byte.
 fn plane_key(face: u32, slice: u32, block: u16, ao_key: u32, light: u8) -> u64 {
-    debug_assert!(ao_key < 512, "ao_key {ao_key} exceeds 9 bits; would corrupt slice field");
+    debug_assert!(
+        ao_key < 512,
+        "ao_key {ao_key} exceeds 9 bits; would corrupt slice field"
+    );
     block as u64
         | (ao_key as u64) << 16
         | (slice as u64) << 25
@@ -82,7 +103,11 @@ fn ao_neighborhood(
 fn corner_ao(ao_key: u32) -> [u32; 4] {
     let bit = |i: u32| (ao_key >> i) & 1;
     let rule = |s1: u32, s2: u32, c: u32| {
-        if s1 == 1 && s2 == 1 { 0 } else { 3 - (s1 + s2 + c) }
+        if s1 == 1 && s2 == 1 {
+            0
+        } else {
+            3 - (s1 + s2 + c)
+        }
     };
     [
         rule(bit(1), bit(3), bit(0)),
@@ -157,7 +182,8 @@ impl Mesher {
         occ: &impl Fn(BlockId) -> bool,
         keep: &impl Fn(BlockId) -> bool,
     ) {
-        #[allow(clippy::needless_range_loop)] // axis indexes axis_cols AND FACE_OF; iterator form is less clear
+        #[allow(clippy::needless_range_loop)]
+        // axis indexes axis_cols AND FACE_OF; iterator form is less clear
         for axis in 0..3usize {
             for i in 1..=SIZE {
                 for j in 1..=SIZE {
@@ -244,7 +270,9 @@ fn sweep_plane(
                 plane[row + rw] &= !mask;
                 rw += 1;
             }
-            emit(face, slice, row as u32, b, rw as u32, rb, block, ao_key, light, out);
+            emit(
+                face, slice, row as u32, b, rw as u32, rb, block, ao_key, light, out,
+            );
             b += rb;
         }
     }
@@ -275,7 +303,12 @@ fn emit(
     let ao = corner_ao(ao_key);
     let flip = u32::from(ao[0] + ao[2] > ao[1] + ao[3]);
     out.push(PackedQuad::pack(Quad {
-        x, y, z, face, w, h,
+        x,
+        y,
+        z,
+        face,
+        w,
+        h,
         ao,
         skylight: (light & 0x0F) as u32,
         blocklight: (light >> 4) as u32,
@@ -322,11 +355,17 @@ mod tests {
             op.iter().any(|q| q.texture == SAND.0 as u32 && q.face == 2),
             "seafloor top face must be emitted into the opaque layer"
         );
-        assert!(op.iter().all(|q| q.texture != WATER.0 as u32), "opaque layer holds no water");
+        assert!(
+            op.iter().all(|q| q.texture != WATER.0 as u32),
+            "opaque layer holds no water"
+        );
         // Water layer is only WATER, has a top surface, and no bottom (culled by the sand).
         assert!(!wq.is_empty() && wq.iter().all(|q| q.texture == WATER.0 as u32));
         assert!(wq.iter().any(|q| q.face == 2), "water top surface present");
-        assert!(wq.iter().all(|q| q.face != 3), "water bottom against the sand is culled");
+        assert!(
+            wq.iter().all(|q| q.face != 3),
+            "water bottom against the sand is culled"
+        );
     }
 
     #[test]
@@ -335,8 +374,20 @@ mod tests {
         // Water fully boxed in by stone: no water→air faces anywhere.
         let mut p = PaddedSection::air();
         p.set(6, 6, 6, WATER);
-        for (dx, dy, dz) in [(1, 0, 0), (-1i32, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)] {
-            p.set((6 + dx) as usize, (6 + dy) as usize, (6 + dz) as usize, STONE);
+        for (dx, dy, dz) in [
+            (1, 0, 0),
+            (-1i32, 0, 0),
+            (0, 1, 0),
+            (0, -1, 0),
+            (0, 0, 1),
+            (0, 0, -1),
+        ] {
+            p.set(
+                (6 + dx) as usize,
+                (6 + dy) as usize,
+                (6 + dz) as usize,
+                STONE,
+            );
         }
         let (_, water) = Mesher::new().mesh_layers(&p);
         assert!(water.is_empty(), "enclosed water has no visible surface");
@@ -353,7 +404,12 @@ mod tests {
         assert_eq!(faces, vec![0, 1, 2, 3, 4, 5]);
         for q in &quads {
             assert_eq!((q.w, q.h), (1, 1));
-            assert_eq!((q.x, q.y, q.z), (5, 5, 5), "interior coords, face {}", q.face);
+            assert_eq!(
+                (q.x, q.y, q.z),
+                (5, 5, 5),
+                "interior coords, face {}",
+                q.face
+            );
             assert_eq!(q.texture, STONE.0 as u32);
             assert_eq!(q.skylight, 15);
             assert_eq!(q.blocklight, 0);
@@ -398,7 +454,10 @@ mod tests {
             }
         }
         let quads = mesh(&p);
-        assert!(quads.iter().all(|q| q.face != 3), "bottom faces must be culled by the apron");
+        assert!(
+            quads.iter().all(|q| q.face != 3),
+            "bottom faces must be culled by the apron"
+        );
         assert_eq!(quads.iter().filter(|q| q.face == 2).count(), 1);
     }
 
@@ -464,7 +523,10 @@ mod tests {
         p.set(6, 6, 6, STONE); // ground, padded coords
         p.set(7, 7, 6, STONE); // wall above-right (padded)
         let quads = mesh(&p);
-        let top = quads.iter().find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5)).unwrap();
+        let top = quads
+            .iter()
+            .find(|q| q.face == 2 && (q.x, q.y, q.z) == (5, 5, 5))
+            .unwrap();
         assert_eq!(top.ao, [3, 3, 2, 2]);
     }
 
@@ -558,9 +620,17 @@ mod tests {
         }
         let quads = mesh(&p);
         let pos_x = quads.iter().find(|q| q.face == 0).unwrap();
-        assert_eq!((pos_x.w, pos_x.h), (3, 2), "+X face: w spans Y(U), h spans Z(V)");
+        assert_eq!(
+            (pos_x.w, pos_x.h),
+            (3, 2),
+            "+X face: w spans Y(U), h spans Z(V)"
+        );
         let neg_x = quads.iter().find(|q| q.face == 1).unwrap();
-        assert_eq!((neg_x.w, neg_x.h), (2, 3), "-X face: w spans Z(U), h spans Y(V)");
+        assert_eq!(
+            (neg_x.w, neg_x.h),
+            (2, 3),
+            "-X face: w spans Z(U), h spans Y(V)"
+        );
     }
 
     #[test]
@@ -658,7 +728,10 @@ mod tests {
             }
         }
         let quads = mesh(&p);
-        assert_eq!(quads.iter().filter(|q| q.face == 2).count(), 1,
-            "uniform light must not split the slab merge");
+        assert_eq!(
+            quads.iter().filter(|q| q.face == 2).count(),
+            1,
+            "uniform light must not split the slab merge"
+        );
     }
 }

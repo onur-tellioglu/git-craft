@@ -74,10 +74,14 @@ impl GtaoPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_group =
-            Self::build_bind_group(device, &layout, depth_view, gbuf_view, &uniform);
+        let bind_group = Self::build_bind_group(device, &layout, depth_view, gbuf_view, &uniform);
         let pipeline = Self::build_pipeline(device, &layout, shader_source);
-        Self { pipeline, layout, bind_group, uniform }
+        Self {
+            pipeline,
+            layout,
+            bind_group,
+            uniform,
+        }
     }
 
     fn build_bind_group(
@@ -99,7 +103,10 @@ impl GtaoPass {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(gbuf_view),
                 },
-                wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform.as_entire_binding(),
+                },
             ],
         })
     }
@@ -155,13 +162,8 @@ impl GtaoPass {
         depth_view: &wgpu::TextureView,
         gbuf_view: &wgpu::TextureView,
     ) {
-        self.bind_group = Self::build_bind_group(
-            device,
-            &self.layout,
-            depth_view,
-            gbuf_view,
-            &self.uniform,
-        );
+        self.bind_group =
+            Self::build_bind_group(device, &self.layout, depth_view, gbuf_view, &self.uniform);
     }
 
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
@@ -263,10 +265,14 @@ impl BlurPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_group =
-            Self::build_bind_group(device, &layout, ao_raw_view, depth_view, &uniform);
+        let bind_group = Self::build_bind_group(device, &layout, ao_raw_view, depth_view, &uniform);
         let pipeline = Self::build_pipeline(device, &layout, shader_source);
-        Self { pipeline, layout, bind_group, uniform }
+        Self {
+            pipeline,
+            layout,
+            bind_group,
+            uniform,
+        }
     }
 
     fn build_bind_group(
@@ -288,7 +294,10 @@ impl BlurPass {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(depth_view),
                 },
-                wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: uniform.as_entire_binding(),
+                },
             ],
         })
     }
@@ -335,7 +344,11 @@ impl BlurPass {
     }
 
     pub fn prepare(&self, queue: &wgpu::Queue, params: [f32; 4]) {
-        queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&BlurUniform { params }));
+        queue.write_buffer(
+            &self.uniform,
+            0,
+            bytemuck::bytes_of(&BlurUniform { params }),
+        );
     }
 
     pub fn rebuild_bind_group(
@@ -523,7 +536,13 @@ impl CompositePass {
             &uniform,
         );
         let pipeline = Self::build_pipeline(device, &layout, shader_source);
-        Self { pipeline, layout, bind_group, sampler, uniform }
+        Self {
+            pipeline,
+            layout,
+            bind_group,
+            sampler,
+            uniform,
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -558,7 +577,10 @@ impl CompositePass {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
-                wgpu::BindGroupEntry { binding: 4, resource: uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: uniform.as_entire_binding(),
+                },
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::TextureView(froxel_view),

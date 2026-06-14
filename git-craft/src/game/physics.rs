@@ -22,7 +22,10 @@ impl Aabb {
     }
 
     pub fn translated(self, t: Vec3) -> Self {
-        Self { min: self.min + t, max: self.max + t }
+        Self {
+            min: self.min + t,
+            max: self.max + t,
+        }
     }
 
     /// Does this box overlap the unit voxel at `cell`? (Strict inequality:
@@ -92,11 +95,7 @@ fn sweep_axis(b: Aabb, axis: usize, delta: f32, is_solid: &impl Fn(IVec3) -> boo
 /// Move `aabb` by `delta` with axis-separated swept collision, Y first
 /// (grounding must resolve before horizontal sliding), then X, then Z.
 /// Returns the moved box and per-axis hit flags `[x, y, z]`.
-pub fn move_aabb(
-    aabb: Aabb,
-    delta: Vec3,
-    is_solid: &impl Fn(IVec3) -> bool,
-) -> (Aabb, [bool; 3]) {
+pub fn move_aabb(aabb: Aabb, delta: Vec3, is_solid: &impl Fn(IVec3) -> bool) -> (Aabb, [bool; 3]) {
     let mut b = aabb;
     let mut hit = [false; 3];
     for axis in [1usize, 0, 2] {
@@ -146,8 +145,14 @@ mod tests {
     fn intersects_cell_checks_unit_voxel_overlap() {
         let b = Aabb::from_feet(Vec3::new(0.5, 64.0, 0.5), W, H);
         assert!(b.intersects_cell(IVec3::new(0, 64, 0)));
-        assert!(b.intersects_cell(IVec3::new(0, 65, 0)), "1.8 tall spans two cells");
-        assert!(!b.intersects_cell(IVec3::new(0, 66, 0)), "head ends at 65.8");
+        assert!(
+            b.intersects_cell(IVec3::new(0, 65, 0)),
+            "1.8 tall spans two cells"
+        );
+        assert!(
+            !b.intersects_cell(IVec3::new(0, 66, 0)),
+            "head ends at 65.8"
+        );
         assert!(!b.intersects_cell(IVec3::new(2, 64, 0)));
     }
 
@@ -165,7 +170,10 @@ mod tests {
         // must clamp at the floor, not tunnel through it.
         let b = Aabb::from_feet(Vec3::new(0.5, 100.0, 0.5), W, H);
         let (moved, hit) = move_aabb(b, Vec3::new(0.0, -200.0, 0.0), &floor_at(63));
-        assert!((moved.min.y - 64.0).abs() < 1e-3, "rests on top of y=63 cells");
+        assert!(
+            (moved.min.y - 64.0).abs() < 1e-3,
+            "rests on top of y=63 cells"
+        );
         assert!(hit[1]);
         assert!(!hit[0] && !hit[2]);
     }
@@ -176,7 +184,10 @@ mod tests {
         // distance — the classic no-corner-snag behavior.
         let b = Aabb::from_feet(Vec3::new(4.5, 0.0, 0.5), W, H);
         let (moved, hit) = move_aabb(b, Vec3::new(1.0, 0.0, 2.0), &wall_at(5));
-        assert!((moved.max.x - 5.0).abs() < 1e-3, "stopped at the wall plane");
+        assert!(
+            (moved.max.x - 5.0).abs() < 1e-3,
+            "stopped at the wall plane"
+        );
         assert!(hit[0]);
         assert!((moved.min.z - 2.2).abs() < 1e-4, "z slid the full 2.0");
         assert!(!hit[2]);
@@ -205,7 +216,10 @@ mod tests {
     fn ceiling_stops_upward_motion() {
         let b = Aabb::from_feet(Vec3::new(0.5, 64.0, 0.5), W, H);
         let (moved, hit) = move_aabb(b, Vec3::new(0.0, 5.0, 0.0), &floor_at(67));
-        assert!((moved.max.y - 67.0).abs() < 1e-3, "head clamped under y=67 cells");
+        assert!(
+            (moved.max.y - 67.0).abs() < 1e-3,
+            "head clamped under y=67 cells"
+        );
         assert!(hit[1]);
     }
 

@@ -1,9 +1,7 @@
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
 use glam::IVec3;
 
-use crate::world::block::{
-    BlockId, AIR, DIRT, GRASS, SAND, SNOW_GRASS, STONE, WATER,
-};
+use crate::world::block::{AIR, BlockId, DIRT, GRASS, SAND, SNOW_GRASS, STONE, WATER};
 use crate::world::decor::{cactus_plant, hash_pos, oak_tree, spruce_tree};
 use crate::world::section::Section;
 
@@ -48,8 +46,15 @@ pub fn apply_write(sections: &mut [Section], write: StructureWrite) {
 pub fn apply_write_to_section(section: &mut Section, write: StructureWrite) {
     // rem_euclid silently wraps an out-of-world y into a valid slot — the
     // caller must have ranged-checked pos.y when picking the section.
-    debug_assert!((0..WORLD_HEIGHT).contains(&write.pos.y), "write y {} out of world", write.pos.y);
-    let (lx, lz) = (write.pos.x.rem_euclid(32) as usize, write.pos.z.rem_euclid(32) as usize);
+    debug_assert!(
+        (0..WORLD_HEIGHT).contains(&write.pos.y),
+        "write y {} out of world",
+        write.pos.y
+    );
+    let (lx, lz) = (
+        write.pos.x.rem_euclid(32) as usize,
+        write.pos.z.rem_euclid(32) as usize,
+    );
     let ly = write.pos.y.rem_euclid(32) as usize;
     if write.only_air && section.get(lx, ly, lz) != AIR {
         return;
@@ -78,7 +83,13 @@ impl Clone for WorldGen {
     }
 }
 
-fn noise(seed: i32, salt: i32, freq: f32, fractal: Option<FractalType>, octaves: i32) -> FastNoiseLite {
+fn noise(
+    seed: i32,
+    salt: i32,
+    freq: f32,
+    fractal: Option<FractalType>,
+    octaves: i32,
+) -> FastNoiseLite {
     let mut n = FastNoiseLite::with_seed(seed.wrapping_add(salt));
     n.set_noise_type(Some(NoiseType::OpenSimplex2));
     n.set_frequency(Some(freq));
@@ -130,7 +141,11 @@ impl WorldGen {
         if height < SEA_LEVEL - 1 {
             Biome::Ocean
         } else if height > 108 {
-            if t < 0.0 { Biome::SnowyMountains } else { Biome::Mountains }
+            if t < 0.0 {
+                Biome::SnowyMountains
+            } else {
+                Biome::Mountains
+            }
         } else if t > 0.35 && hu < 0.0 {
             Biome::Desert
         } else if hu > 0.05 {
@@ -215,14 +230,22 @@ impl WorldGen {
                     continue; // surface must be intact (paranoia guard)
                 }
                 let roll = hash_pos(self.seed, wx, wz, 0xDEC0) % 1000;
-                let trunk = |salt: u64, base: i32, spread: u64| base + (hash_pos(self.seed, wx, wz, salt) % spread) as i32;
+                let trunk = |salt: u64, base: i32, spread: u64| {
+                    base + (hash_pos(self.seed, wx, wz, salt) % spread) as i32
+                };
                 let structure = match biome {
-                    Biome::Forest if roll < 60 => Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3))),
-                    Biome::Plains if roll < 4 => Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3))),
+                    Biome::Forest if roll < 60 => {
+                        Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3)))
+                    }
+                    Biome::Plains if roll < 4 => {
+                        Some(oak_tree(IVec3::new(wx, h, wz), trunk(2, 4, 3)))
+                    }
                     Biome::SnowyMountains if roll < 25 && h < 140 => {
                         Some(spruce_tree(IVec3::new(wx, h, wz), trunk(3, 5, 3)))
                     }
-                    Biome::Desert if roll < 12 => Some(cactus_plant(IVec3::new(wx, h, wz), trunk(4, 1, 3))),
+                    Biome::Desert if roll < 12 => {
+                        Some(cactus_plant(IVec3::new(wx, h, wz), trunk(4, 1, 3)))
+                    }
                     _ => None,
                 };
                 let Some(structure) = structure else { continue };
@@ -281,7 +304,10 @@ mod tests {
     fn different_seeds_differ() {
         let a = WorldGen::new(1).generate_column(0, 0);
         let b = WorldGen::new(2).generate_column(0, 0);
-        assert_ne!(a.0.sections, b.0.sections, "two seeds producing identical terrain is wrong");
+        assert_ne!(
+            a.0.sections, b.0.sections,
+            "two seeds producing identical terrain is wrong"
+        );
     }
 
     #[test]
@@ -300,7 +326,11 @@ mod tests {
         let h = wg.height(5, 5);
         let block_at = |y: i32| col.sections[(y / 32) as usize].get(5, (y % 32) as usize, 5);
         assert_eq!(block_at(1), STONE, "deep underground is stone");
-        assert_ne!(block_at(h), AIR, "surface block exists at the heightmap value");
+        assert_ne!(
+            block_at(h),
+            AIR,
+            "surface block exists at the heightmap value"
+        );
         if h >= SEA_LEVEL {
             assert_eq!(block_at(h + 1), AIR, "air above land surface");
         }
@@ -320,13 +350,19 @@ mod tests {
                     let (col, _) = wg.generate_column(cx, cz);
                     let sea = SEA_LEVEL as usize;
                     let b = col.sections[sea / 32].get(16, sea % 32, 16);
-                    assert_eq!(b, WATER, "cell above ocean floor at sea level must be water");
+                    assert_eq!(
+                        b, WATER,
+                        "cell above ocean floor at sea level must be water"
+                    );
                     found = true;
                     break 'outer;
                 }
             }
         }
-        assert!(found, "no ocean found in 128×128 columns — heightmap tuning is broken");
+        assert!(
+            found,
+            "no ocean found in 128×128 columns — heightmap tuning is broken"
+        );
     }
 
     #[test]
@@ -352,8 +388,16 @@ mod tests {
         }
         assert!(total > 0);
         let pct = carved as f32 / total as f32;
-        assert!(pct > 0.005, "deep stone is {:.3}% carved — caves missing", pct * 100.0);
-        assert!(pct < 0.35, "deep stone is {:.1}% carved — world is swiss cheese", pct * 100.0);
+        assert!(
+            pct > 0.005,
+            "deep stone is {:.3}% carved — caves missing",
+            pct * 100.0
+        );
+        assert!(
+            pct < 0.35,
+            "deep stone is {:.1}% carved — world is swiss cheese",
+            pct * 100.0
+        );
     }
 
     #[test]

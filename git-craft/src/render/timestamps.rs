@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Convert raw timestamp ticks (one begin/end pair per pass) to per-pass
 /// milliseconds. An invalid pair (end <= begin: pass skipped this frame, or
@@ -85,37 +85,41 @@ impl GpuTimer {
     }
 
     pub fn render_writes(&self, pass: usize) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
-        self.query_set_for(pass).map(|qs| wgpu::RenderPassTimestampWrites {
-            query_set: qs,
-            beginning_of_pass_write_index: Some((pass * 2) as u32),
-            end_of_pass_write_index: Some((pass * 2 + 1) as u32),
-        })
+        self.query_set_for(pass)
+            .map(|qs| wgpu::RenderPassTimestampWrites {
+                query_set: qs,
+                beginning_of_pass_write_index: Some((pass * 2) as u32),
+                end_of_pass_write_index: Some((pass * 2 + 1) as u32),
+            })
     }
 
     /// Begin-only / end-only writes: one timing slot spanning a chain of
     /// passes (first pass gets begin, last pass gets end — used by bloom).
     pub fn render_writes_begin(&self, pass: usize) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
-        self.query_set_for(pass).map(|qs| wgpu::RenderPassTimestampWrites {
-            query_set: qs,
-            beginning_of_pass_write_index: Some((pass * 2) as u32),
-            end_of_pass_write_index: None,
-        })
+        self.query_set_for(pass)
+            .map(|qs| wgpu::RenderPassTimestampWrites {
+                query_set: qs,
+                beginning_of_pass_write_index: Some((pass * 2) as u32),
+                end_of_pass_write_index: None,
+            })
     }
 
     pub fn render_writes_end(&self, pass: usize) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
-        self.query_set_for(pass).map(|qs| wgpu::RenderPassTimestampWrites {
-            query_set: qs,
-            beginning_of_pass_write_index: None,
-            end_of_pass_write_index: Some((pass * 2 + 1) as u32),
-        })
+        self.query_set_for(pass)
+            .map(|qs| wgpu::RenderPassTimestampWrites {
+                query_set: qs,
+                beginning_of_pass_write_index: None,
+                end_of_pass_write_index: Some((pass * 2 + 1) as u32),
+            })
     }
 
     pub fn compute_writes(&self, pass: usize) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
-        self.query_set_for(pass).map(|qs| wgpu::ComputePassTimestampWrites {
-            query_set: qs,
-            beginning_of_pass_write_index: Some((pass * 2) as u32),
-            end_of_pass_write_index: Some((pass * 2 + 1) as u32),
-        })
+        self.query_set_for(pass)
+            .map(|qs| wgpu::ComputePassTimestampWrites {
+                query_set: qs,
+                beginning_of_pass_write_index: Some((pass * 2) as u32),
+                end_of_pass_write_index: Some((pass * 2 + 1) as u32),
+            })
     }
 
     pub fn resolve(&self, encoder: &mut wgpu::CommandEncoder) {
@@ -142,12 +146,13 @@ impl GpuTimer {
         if !self.pending {
             let done = self.map_done.clone();
             let ok = self.map_ok.clone();
-            self.read_buffer.map_async(wgpu::MapMode::Read, .., move |result| {
-                // Signal completion even on failure, or `pending` locks forever
-                // and the timer silently stops measuring.
-                ok.store(result.is_ok(), Ordering::Release);
-                done.store(true, Ordering::Release);
-            });
+            self.read_buffer
+                .map_async(wgpu::MapMode::Read, .., move |result| {
+                    // Signal completion even on failure, or `pending` locks forever
+                    // and the timer silently stops measuring.
+                    ok.store(result.is_ok(), Ordering::Release);
+                    done.store(true, Ordering::Release);
+                });
             self.pending = true;
             return;
         }

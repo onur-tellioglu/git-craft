@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use wgpu::util::DeviceExt;
 
-use crate::mesh::quad::{build_quad_indices, PackedQuad};
+use crate::mesh::quad::{PackedQuad, build_quad_indices};
 use crate::render::arena::Arena;
 use crate::render::depth::DEPTH_FORMAT;
 use crate::render::frustum::Frustum;
@@ -55,8 +55,8 @@ struct SectionInfo {
 
 struct SectionEntry {
     slot: u32,
-    offset: u32, // opaque quads: arena offset
-    len: u32,    // opaque quads: count (0 = water-only section)
+    offset: u32,       // opaque quads: arena offset
+    len: u32,          // opaque quads: count (0 = water-only section)
     water_offset: u32, // water quads: arena offset
     water_len: u32,    // water quads: count (0 = no water surface)
 }
@@ -113,7 +113,11 @@ pub struct TerrainRenderer {
 }
 
 impl TerrainRenderer {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, shader_source: &str) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        shader_source: &str,
+    ) -> Self {
         let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("camera"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -227,7 +231,10 @@ impl TerrainRenderer {
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("camera"),
             layout: &camera_layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera_buffer.as_entire_binding(),
+            }],
         });
 
         let quads_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -259,8 +266,14 @@ impl TerrainRenderer {
             label: Some("quads"),
             layout: &quads_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: quads_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: section_info_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: quads_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: section_info_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -272,7 +285,15 @@ impl TerrainRenderer {
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        let pipeline = Self::build_pipeline(device, surface_format, &camera_layout, &quads_layout, &shadow_layout, &aerial_layout, shader_source);
+        let pipeline = Self::build_pipeline(
+            device,
+            surface_format,
+            &camera_layout,
+            &quads_layout,
+            &shadow_layout,
+            &aerial_layout,
+            shader_source,
+        );
 
         Self {
             pipeline,
@@ -316,7 +337,12 @@ impl TerrainRenderer {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain"),
-            bind_group_layouts: &[Some(camera_layout), Some(quads_layout), Some(shadow_layout), Some(aerial_layout)],
+            bind_group_layouts: &[
+                Some(camera_layout),
+                Some(quads_layout),
+                Some(shadow_layout),
+                Some(aerial_layout),
+            ],
             immediate_size: 0,
         });
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -367,7 +393,13 @@ impl TerrainRenderer {
     /// Replace the pipeline with one built from new shader source (hot-reload).
     pub fn swap_shader(&mut self, device: &wgpu::Device, shader_source: &str) {
         self.pipeline = Self::build_pipeline(
-            device, self.surface_format, &self.camera_layout, &self.quads_layout, &self.shadow_layout, &self.aerial_layout, shader_source,
+            device,
+            self.surface_format,
+            &self.camera_layout,
+            &self.quads_layout,
+            &self.shadow_layout,
+            &self.aerial_layout,
+            shader_source,
         );
     }
 
@@ -377,9 +409,19 @@ impl TerrainRenderer {
             inv_view_proj: p.view_proj.inverse().to_cols_array_2d(),
             camera: [p.camera_pos.x, p.camera_pos.y, p.camera_pos.z, 0.0],
             sky: [p.sky_color.x, p.sky_color.y, p.sky_color.z, p.day_factor],
-            sun: [p.light_dir.x, p.light_dir.y, p.light_dir.z, p.light_is_sun as u32 as f32],
+            sun: [
+                p.light_dir.x,
+                p.light_dir.y,
+                p.light_dir.z,
+                p.light_is_sun as u32 as f32,
+            ],
             sun_color: [p.light_color.x, p.light_color.y, p.light_color.z, 0.0],
-            params: [p.viewport.0 as f32, p.viewport.1 as f32, crate::render::atmosphere::AP_KM_PER_METER, 0.0],
+            params: [
+                p.viewport.0 as f32,
+                p.viewport.1 as f32,
+                crate::render::atmosphere::AP_KM_PER_METER,
+                0.0,
+            ],
         };
         queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
     }
@@ -437,7 +479,11 @@ impl TerrainRenderer {
             return;
         };
         if len > 0 {
-            queue.write_buffer(&self.quads_buffer, offset as u64 * 8, bytemuck::cast_slice(opaque));
+            queue.write_buffer(
+                &self.quads_buffer,
+                offset as u64 * 8,
+                bytemuck::cast_slice(opaque),
+            );
         }
         if water_len > 0 {
             queue.write_buffer(
@@ -447,13 +493,24 @@ impl TerrainRenderer {
             );
         }
         let o = pos.origin();
-        let info = SectionInfo { origin: [o.x, o.y, o.z, 0] };
+        let info = SectionInfo {
+            origin: [o.x, o.y, o.z, 0],
+        };
         queue.write_buffer(
             &self.section_info_buffer,
             slot as u64 * std::mem::size_of::<SectionInfo>() as u64,
             bytemuck::bytes_of(&info),
         );
-        self.entries.insert(pos, SectionEntry { slot, offset, len, water_offset, water_len });
+        self.entries.insert(
+            pos,
+            SectionEntry {
+                slot,
+                offset,
+                len,
+                water_offset,
+                water_len,
+            },
+        );
     }
 
     pub fn remove_section(&mut self, pos: SectionPos) {
@@ -508,7 +565,11 @@ impl TerrainRenderer {
             queue.write_buffer(&self.indirect_buffer, 0, bytemuck::cast_slice(&args));
         }
         if !water_args.is_empty() {
-            queue.write_buffer(&self.water_indirect_buffer, 0, bytemuck::cast_slice(&water_args));
+            queue.write_buffer(
+                &self.water_indirect_buffer,
+                0,
+                bytemuck::cast_slice(&water_args),
+            );
         }
         self.visible_count = args.len() as u32;
         self.water_visible_count = water_args.len() as u32;
@@ -595,9 +656,18 @@ impl TerrainRenderer {
             label: Some("terrain shadow"),
             layout: &self.shadow_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(map) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.shadow_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(map),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&self.shadow_sampler),
+                },
             ],
         }));
     }
@@ -608,8 +678,14 @@ impl TerrainRenderer {
             label: Some("terrain aerial"),
             layout: &self.aerial_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(lut) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.aerial_sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(lut),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.aerial_sampler),
+                },
             ],
         }));
     }
@@ -659,13 +735,19 @@ mod tests {
         assert_eq!(args.index_count, 24 * 6, "6 indices per quad");
         assert_eq!(args.instance_count, 1);
         assert_eq!(args.first_index, 0);
-        assert_eq!(args.base_vertex, 4000, "4 vertices per quad, offset in quads");
+        assert_eq!(
+            args.base_vertex, 4000,
+            "4 vertices per quad, offset in quads"
+        );
         assert_eq!(args.first_instance, 7, "slot rides in first_instance");
     }
 
     #[test]
     fn packed_args_are_20_bytes() {
-        assert_eq!(std::mem::size_of::<wgpu::util::DrawIndexedIndirectArgs>(), 20);
+        assert_eq!(
+            std::mem::size_of::<wgpu::util::DrawIndexedIndirectArgs>(),
+            20
+        );
     }
 
     #[test]
@@ -678,7 +760,10 @@ mod tests {
             drawn_quads: 100,
             cave_culled: 3,
         };
-        assert_eq!(stats.resident_sections - stats.cave_culled - stats.visible_sections, 3,
-            "remaining 3 are frustum-culled");
+        assert_eq!(
+            stats.resident_sections - stats.cave_culled - stats.visible_sections,
+            3,
+            "remaining 3 are frustum-culled"
+        );
     }
 }

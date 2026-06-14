@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::mesh::padded::PaddedSection;
-use crate::world::block::{BlockId, AIR};
-use crate::world::light::{pack_light, LightData, MAX_LIGHT};
+use crate::world::block::{AIR, BlockId};
+use crate::world::light::{LightData, MAX_LIGHT, pack_light};
 use crate::world::section::Section;
 
 /// The 3×3×3 sections around a mesh target, captured as Arc clones so the
@@ -78,8 +78,9 @@ impl MeshNeighborhood {
             .as_ref()
             .expect("mesh job scheduled without a center section");
         let default_light = LightData::uniform(MAX_LIGHT, 0);
-        let center_light: &LightData =
-            self.light[Self::index(0, 0, 0)].as_deref().unwrap_or(&default_light);
+        let center_light: &LightData = self.light[Self::index(0, 0, 0)]
+            .as_deref()
+            .unwrap_or(&default_light);
         PaddedSection::build(center, center_light, |x, y, z| {
             (self.get(x, y, z), self.get_light(x, y, z))
         })
@@ -102,7 +103,11 @@ mod tests {
         hood.sections[MeshNeighborhood::index(0, 0, 0)] = Some(std::sync::Arc::new(center));
         hood.sections[MeshNeighborhood::index(-1, 0, 0)] = Some(std::sync::Arc::new(west));
         assert_eq!(hood.get(0, 0, 0), STONE);
-        assert_eq!(hood.get(-1, 5, 5), STONE, "x=-1 reads the west neighbor's x=31");
+        assert_eq!(
+            hood.get(-1, 5, 5),
+            STONE,
+            "x=-1 reads the west neighbor's x=31"
+        );
         assert_eq!(hood.get(32, 5, 5), AIR, "missing east neighbor is air");
     }
 
@@ -132,7 +137,15 @@ mod tests {
         west_l.set_sky(31, 5, 5, 7);
         hood.light[MeshNeighborhood::index(-1, 0, 0)] = Some(Arc::new(west_l));
         assert_eq!(hood.get_light(3, 3, 3), 9 << 4);
-        assert_eq!(hood.get_light(-1, 5, 5), 7, "x=-1 reads the west neighbor's x=31");
-        assert_eq!(hood.get_light(32, 5, 5), 0x0F, "missing neighbor = open sky (world top apron)");
+        assert_eq!(
+            hood.get_light(-1, 5, 5),
+            7,
+            "x=-1 reads the west neighbor's x=31"
+        );
+        assert_eq!(
+            hood.get_light(32, 5, 5),
+            0x0F,
+            "missing neighbor = open sky (world top apron)"
+        );
     }
 }

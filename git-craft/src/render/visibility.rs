@@ -8,8 +8,14 @@ use crate::mesh::padded::PaddedSection;
 use crate::world::chunks::SectionPos;
 
 /// Face index → step direction, mesher face order.
-const FACE_STEP: [(i32, i32, i32); 6] =
-    [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)];
+const FACE_STEP: [(i32, i32, i32); 6] = [
+    (1, 0, 0),
+    (-1, 0, 0),
+    (0, 1, 0),
+    (0, -1, 0),
+    (0, 0, 1),
+    (0, 0, -1),
+];
 const OPPOSITE: [usize; 6] = [1, 0, 3, 2, 5, 4];
 
 /// Per-frame cave-culling BFS (spec §6). Walk outward from the camera's
@@ -26,7 +32,11 @@ pub fn visible_set(
     radius: i32,
     mask_of: impl Fn(SectionPos) -> Option<u16>,
 ) -> HashSet<SectionPos> {
-    let start = SectionPos { x: camera.x, y: camera.y.clamp(0, 7), z: camera.z };
+    let start = SectionPos {
+        x: camera.x,
+        y: camera.y.clamp(0, 7),
+        z: camera.z,
+    };
     let r2 = radius * radius;
     let mut visited: HashSet<SectionPos> = HashSet::new();
     // (section, face we entered through, directions traveled so far)
@@ -49,7 +59,11 @@ pub fn visible_set(
                 }
             }
             let (dx, dy, dz) = FACE_STEP[f];
-            let n = SectionPos { x: pos.x + dx, y: pos.y + dy, z: pos.z + dz };
+            let n = SectionPos {
+                x: pos.x + dx,
+                y: pos.y + dy,
+                z: pos.z + dz,
+            };
             if !(0..8).contains(&n.y) {
                 continue;
             }
@@ -105,15 +119,32 @@ pub fn face_connectivity(padded: &PaddedSection) -> u16 {
                 visited[i / 64] |= 1 << (i % 64);
                 stack.push((sx, sy, sz));
                 while let Some((x, y, z)) = stack.pop() {
-                    if x == SIZE - 1 { faces |= 1; }      // +X
-                    if x == 0        { faces |= 1 << 1; } // -X
-                    if y == SIZE - 1 { faces |= 1 << 2; } // +Y
-                    if y == 0        { faces |= 1 << 3; } // -Y
-                    if z == SIZE - 1 { faces |= 1 << 4; } // +Z
-                    if z == 0        { faces |= 1 << 5; } // -Z
-                    for (dx, dy, dz) in
-                        [(1i32, 0i32, 0i32), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
-                    {
+                    if x == SIZE - 1 {
+                        faces |= 1;
+                    } // +X
+                    if x == 0 {
+                        faces |= 1 << 1;
+                    } // -X
+                    if y == SIZE - 1 {
+                        faces |= 1 << 2;
+                    } // +Y
+                    if y == 0 {
+                        faces |= 1 << 3;
+                    } // -Y
+                    if z == SIZE - 1 {
+                        faces |= 1 << 4;
+                    } // +Z
+                    if z == 0 {
+                        faces |= 1 << 5;
+                    } // -Z
+                    for (dx, dy, dz) in [
+                        (1i32, 0i32, 0i32),
+                        (-1, 0, 0),
+                        (0, 1, 0),
+                        (0, -1, 0),
+                        (0, 0, 1),
+                        (0, 0, -1),
+                    ] {
                         let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
                         if !(0..SIZE as i32).contains(&nx)
                             || !(0..SIZE as i32).contains(&ny)
@@ -256,7 +287,11 @@ mod tests {
                 }
             }
         }
-        assert_eq!(face_connectivity(&p), 0, "single-face component yields no pair");
+        assert_eq!(
+            face_connectivity(&p),
+            0,
+            "single-face component yields no pair"
+        );
     }
 
     use crate::world::chunks::SectionPos;
@@ -297,11 +332,11 @@ mod tests {
     #[test]
     fn tunnel_masks_gate_by_entry_face() {
         // Section (1,4,0) connects only -X↔+X; camera at origin:
-        let masks: HashMap<SectionPos, u16> = HashMap::from([
-            (sp(1, 4, 0), pair_bit(0, 1)),
-        ]);
+        let masks: HashMap<SectionPos, u16> = HashMap::from([(sp(1, 4, 0), pair_bit(0, 1))]);
         let default_open = 0x7FFF;
-        let vis = visible_set(sp(0, 4, 0), 3, |p| Some(*masks.get(&p).unwrap_or(&default_open)));
+        let vis = visible_set(sp(0, 4, 0), 3, |p| {
+            Some(*masks.get(&p).unwrap_or(&default_open))
+        });
         assert!(vis.contains(&sp(2, 4, 0)), "straight through the X tunnel");
         // (1,4,1) is reachable from (0,4,0) via (0,4,1) — open sections —
         // but NOT through the tunnel section's +Z face:
@@ -315,9 +350,17 @@ mod tests {
             (sp(0, 5, 0), 0u16),
             (sp(-1, 4, 0), 0u16),
         ]);
-        let vis2 = visible_set(sp(0, 4, 0), 3, |p| Some(*masks2.get(&p).unwrap_or(&default_open)));
-        assert!(vis2.contains(&sp(2, 4, 0)), "tunnel pass-through still works");
-        assert!(!vis2.contains(&sp(1, 4, 1)), "tunnel's +Z face is not connected to its -X entry");
+        let vis2 = visible_set(sp(0, 4, 0), 3, |p| {
+            Some(*masks2.get(&p).unwrap_or(&default_open))
+        });
+        assert!(
+            vis2.contains(&sp(2, 4, 0)),
+            "tunnel pass-through still works"
+        );
+        assert!(
+            !vis2.contains(&sp(1, 4, 1)),
+            "tunnel's +Z face is not connected to its -X entry"
+        );
     }
 
     #[test]

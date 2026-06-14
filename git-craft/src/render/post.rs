@@ -71,7 +71,13 @@ impl PostPass {
         let bind_group =
             Self::build_bind_group(device, &layout, hdr_view, bloom_view, exposure, &sampler);
         let pipeline = Self::build_pipeline(device, surface_format, &layout, shader_source);
-        Self { pipeline, layout, bind_group, sampler, surface_format }
+        Self {
+            pipeline,
+            layout,
+            bind_group,
+            sampler,
+            surface_format,
+        }
     }
 
     fn build_bind_group(

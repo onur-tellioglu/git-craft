@@ -12,7 +12,12 @@ impl Camera {
     const MOUSE_SENSITIVITY: f32 = 0.0022;
 
     pub fn new(position: Vec3) -> Self {
-        Self { position, yaw: 0.0, pitch: 0.0, fov_y: 70f32.to_radians() }
+        Self {
+            position,
+            yaw: 0.0,
+            pitch: 0.0,
+            fov_y: 70f32.to_radians(),
+        }
     }
 
     pub fn forward(&self) -> Vec3 {
@@ -76,8 +81,15 @@ mod tests {
         let vp = cam.view_proj(16.0 / 9.0);
         let clip = vp * Vec4::new(0.0, 0.0, -10.0, 1.0); // 10 units ahead
         let ndc = clip / clip.w;
-        assert!(ndc.x.abs() < 1e-5 && ndc.y.abs() < 1e-5, "centered point stays centered");
-        assert!(ndc.z > 0.0 && ndc.z < 1.0, "wgpu depth range is 0..1, got {}", ndc.z);
+        assert!(
+            ndc.x.abs() < 1e-5 && ndc.y.abs() < 1e-5,
+            "centered point stays centered"
+        );
+        assert!(
+            ndc.z > 0.0 && ndc.z < 1.0,
+            "wgpu depth range is 0..1, got {}",
+            ndc.z
+        );
     }
 
     #[test]
@@ -86,5 +98,4 @@ mod tests {
         // sqrt(384² + 384² + 256²) ≈ 601. Far must comfortably exceed it.
         const { assert!(Camera::FAR_PLANE >= 700.0) }
     }
-
 }

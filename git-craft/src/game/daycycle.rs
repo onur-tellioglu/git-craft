@@ -22,7 +22,10 @@ impl DayCycle {
 
     pub fn new() -> Self {
         // Start mid-morning: bright, with the sun low enough to show shading.
-        Self { time: 0.1, cycle_secs: Self::DEFAULT_CYCLE_SECS }
+        Self {
+            time: 0.1,
+            cycle_secs: Self::DEFAULT_CYCLE_SECS,
+        }
     }
 
     pub fn advance(&mut self, dt: f32) {
@@ -69,22 +72,35 @@ mod tests {
     use super::*;
 
     fn at(time: f32) -> DayCycle {
-        DayCycle { time, cycle_secs: DayCycle::DEFAULT_CYCLE_SECS }
+        DayCycle {
+            time,
+            cycle_secs: DayCycle::DEFAULT_CYCLE_SECS,
+        }
     }
 
     #[test]
     fn advance_wraps_and_is_proportional() {
         let mut d = at(0.9);
         d.advance(DayCycle::DEFAULT_CYCLE_SECS * 0.2); // +0.2 of a day
-        assert!((d.time - 0.1).abs() < 1e-4, "wrapped past 1.0, got {}", d.time);
+        assert!(
+            (d.time - 0.1).abs() < 1e-4,
+            "wrapped past 1.0, got {}",
+            d.time
+        );
     }
 
     #[test]
     fn noon_is_full_midnight_is_floor() {
         assert!((at(0.25).day_factor() - 1.0).abs() < 1e-3, "noon");
-        assert!((at(0.75).day_factor() - 0.03).abs() < 1e-3, "midnight floor");
+        assert!(
+            (at(0.75).day_factor() - 0.03).abs() < 1e-3,
+            "midnight floor"
+        );
         assert!(at(0.5).day_factor() < 0.6, "sunset is dimmer than midday");
-        assert!(at(0.05).day_factor() > at(0.0).day_factor(), "brightening after sunrise");
+        assert!(
+            at(0.05).day_factor() > at(0.0).day_factor(),
+            "brightening after sunrise"
+        );
     }
 
     #[test]
@@ -112,8 +128,14 @@ mod tests {
         let noon = at(0.25).sky_color();
         assert!(noon.z > noon.x, "noon sky is blue-dominant");
         let midnight = at(0.75).sky_color();
-        assert!(midnight.max_element() < 0.08, "midnight is near-black, got {midnight}");
+        assert!(
+            midnight.max_element() < 0.08,
+            "midnight is near-black, got {midnight}"
+        );
         let sunset = at(0.5).sky_color();
-        assert!(sunset.x > sunset.z, "sunset is warm (red over blue), got {sunset}");
+        assert!(
+            sunset.x > sunset.z,
+            "sunset is warm (red over blue), got {sunset}"
+        );
     }
 }

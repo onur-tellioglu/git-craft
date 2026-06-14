@@ -20,7 +20,11 @@ fn lut_texture(device: &wgpu::Device, label: &str, w: u32, h: u32) -> wgpu::Text
     device
         .create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -111,7 +115,11 @@ impl SkyLuts {
         let skyview_view = lut_texture(device, "skyview lut", 192, 108);
         let aerial = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aerial lut"),
-            size: wgpu::Extent3d { width: 32, height: 32, depth_or_array_layers: 32 },
+            size: wgpu::Extent3d {
+                width: 32,
+                height: 32,
+                depth_or_array_layers: 32,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D3,
@@ -201,7 +209,10 @@ impl SkyLuts {
             label: Some("cs_multiscatter in"),
             layout: &in_layout_ms,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
@@ -237,7 +248,12 @@ impl SkyLuts {
         // skyview: uniform(0), transmittance sampled(1), multiscatter sampled(2), sampler(3)
         let in_layout_sv = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("cs_skyview in"),
-            entries: &[uniform_entry(0), sampled_entry(1), sampled_entry(2), sampler_entry(3)],
+            entries: &[
+                uniform_entry(0),
+                sampled_entry(1),
+                sampled_entry(2),
+                sampler_entry(3),
+            ],
         });
         let out_layout_sv = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("cs_skyview out"),
@@ -247,7 +263,10 @@ impl SkyLuts {
             label: Some("cs_skyview in"),
             layout: &in_layout_sv,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
@@ -287,7 +306,12 @@ impl SkyLuts {
         // aerial: uniform(0), transmittance sampled(1), multiscatter sampled(2), sampler(3)
         let in_layout_ap = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("cs_aerial in"),
-            entries: &[uniform_entry(0), sampled_entry(1), sampled_entry(2), sampler_entry(3)],
+            entries: &[
+                uniform_entry(0),
+                sampled_entry(1),
+                sampled_entry(2),
+                sampler_entry(3),
+            ],
         });
         let out_layout_ap = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("cs_aerial out"),
@@ -297,7 +321,10 @@ impl SkyLuts {
             label: Some("cs_aerial in"),
             layout: &in_layout_ap,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: self.uniform.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.uniform.as_entire_binding(),
+                },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&self.transmittance_view),
@@ -452,7 +479,11 @@ impl SkyPass {
             ],
         });
         let pipeline = Self::build_pipeline(device, camera_layout, &lut_layout, shader_source);
-        Self { pipeline, lut_layout, lut_bind_group }
+        Self {
+            pipeline,
+            lut_layout,
+            lut_bind_group,
+        }
     }
 
     fn build_pipeline(
@@ -612,7 +643,11 @@ impl Atmosphere {
     /// `cos_zenith`; zero when the ray hits the planet.
     pub fn transmittance(&self, altitude: f32, cos_zenith: f32) -> Vec3 {
         let pos = Vec3::new(0.0, self.ground_radius + altitude.max(1e-4), 0.0);
-        let dir = Vec3::new((1.0 - cos_zenith * cos_zenith).max(0.0).sqrt(), cos_zenith, 0.0);
+        let dir = Vec3::new(
+            (1.0 - cos_zenith * cos_zenith).max(0.0).sqrt(),
+            cos_zenith,
+            0.0,
+        );
         if ray_sphere(pos, dir, self.ground_radius).is_some() {
             return Vec3::ZERO;
         }
@@ -679,7 +714,10 @@ mod tests {
 
     #[test]
     fn below_horizon_from_ground_level_is_black() {
-        assert_eq!(Atmosphere::default().transmittance(0.0001, -0.1), Vec3::ZERO);
+        assert_eq!(
+            Atmosphere::default().transmittance(0.0001, -0.1),
+            Vec3::ZERO
+        );
     }
 
     #[test]
@@ -688,7 +726,10 @@ mod tests {
         let mut prev = Vec3::ZERO;
         for i in 0..=20 {
             let t = atm.transmittance(0.1, i as f32 / 20.0);
-            assert!(t.x >= prev.x - 1e-4 && t.z >= prev.z - 1e-4, "mu step {i}: {t} < {prev}");
+            assert!(
+                t.x >= prev.x - 1e-4 && t.z >= prev.z - 1e-4,
+                "mu step {i}: {t} < {prev}"
+            );
             prev = t;
         }
     }
@@ -698,10 +739,16 @@ mod tests {
         let atm = Atmosphere::default();
         let (dir, color, is_sun) = dominant_light(&atm, sun_at(0.25), 0.1);
         assert!(is_sun && dir.y > 0.9, "noon: sun overhead");
-        assert!(color.x >= color.z && lum(color) > 1.0, "noon sun is warm and strong: {color}");
+        assert!(
+            color.x >= color.z && lum(color) > 1.0,
+            "noon sun is warm and strong: {color}"
+        );
 
         let (dir, color, is_sun) = dominant_light(&atm, sun_at(0.75), 0.1);
-        assert!(!is_sun && dir.y > 0.9, "midnight: moon overhead (moon = -sun)");
+        assert!(
+            !is_sun && dir.y > 0.9,
+            "midnight: moon overhead (moon = -sun)"
+        );
         assert!(color.z > color.x, "moonlight is bluish: {color}");
         assert!(lum(color) < 0.05, "moonlight is weak: {color}");
     }
@@ -713,7 +760,10 @@ mod tests {
         for i in 1..=60 {
             let t = 0.47 + 0.06 * i as f32 / 60.0; // sweep through sunset
             let c = dominant_light(&atm, sun_at(t), 0.1).1;
-            assert!(lum(c - prev).abs() < 0.25, "luminance jump at t={t}: {prev} -> {c}");
+            assert!(
+                lum(c - prev).abs() < 0.25,
+                "luminance jump at t={t}: {prev} -> {c}"
+            );
             prev = c;
         }
     }
