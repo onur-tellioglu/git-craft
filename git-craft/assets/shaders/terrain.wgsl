@@ -112,8 +112,8 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) slot: u32) -
     return out;
 }
 
-// 5×5 PCF over the selected cascade; each tap is hardware 2×2 PCF, so the
-// effective penumbra is ~6 texels. The wider kernel turns hard one-texel edges
+// 3×3 PCF over the selected cascade; each tap is hardware 2×2 PCF, so the
+// effective penumbra is ~4 texels. The kernel turns hard one-texel edges
 // into a gradient, which stops the edge from flickering on/off under motion.
 fn shadow_factor(world_pos: vec3<f32>, normal: vec3<f32>, view_dist: f32) -> f32 {
     var c: u32 = 3u;
@@ -133,13 +133,13 @@ fn shadow_factor(world_pos: vec3<f32>, normal: vec3<f32>, view_dist: f32) -> f32
         return 1.0;
     }
     var sum = 0.0;
-    for (var dy = -2; dy <= 2; dy++) {
-        for (var dx = -2; dx <= 2; dx++) {
+    for (var dy = -1; dy <= 1; dy++) {
+        for (var dx = -1; dx <= 1; dx++) {
             let o = vec2(f32(dx), f32(dy)) * SHADOW_TEXEL;
             sum += textureSampleCompareLevel(shadow_map, shadow_samp, uv + o, c, p.z);
         }
     }
-    return sum / 25.0;
+    return sum / 9.0;
 }
 
 struct FragOut {
