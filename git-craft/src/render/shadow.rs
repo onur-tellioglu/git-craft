@@ -5,7 +5,7 @@
 use glam::{Mat4, Vec3};
 
 pub const CASCADE_COUNT: usize = 3;
-pub const SHADOW_RESOLUTION: u32 = 2048;
+pub const SHADOW_RESOLUTION: u32 = 1536;
 /// View distance covered by the cascades. Beyond it the flood-fill skylight
 /// guard takes over as the only darkening term (spec §6).
 pub const SHADOW_FAR: f32 = 360.0;

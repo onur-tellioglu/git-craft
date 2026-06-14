@@ -62,7 +62,7 @@ const CORNER_UV = array<vec2<f32>, 4>(
     vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(1.0, 1.0), vec2(0.0, 1.0),
 );
 
-const SHADOW_TEXEL: f32 = 1.0 / 2048.0;
+const SHADOW_TEXEL: f32 = 1.0 / 1536.0;
 
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
