@@ -7,7 +7,7 @@ targeting modern shader-pack visuals at a 384-block render distance and 120 fps 
 > endorsed by, or associated with Mojang Studios or Microsoft. "Minecraft" is a trademark of
 > Mojang Synergies AB.
 
-<!-- TODO: add a screenshot or GIF here before going public — first impression matters. -->
+![git-craft — voxel terrain with soft shadows, atmospheric lighting, and reflective water](docs/screenshot.png)
 
 ## Why git-craft?
 
