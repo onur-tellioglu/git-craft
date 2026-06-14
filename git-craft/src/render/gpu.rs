@@ -38,10 +38,18 @@ impl Gpu {
         );
         required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
 
+        // The terrain pipeline binds 5 groups (camera, quads, shadow, aerial,
+        // material). The conservative default caps at 4; Apple Silicon Metal
+        // supports well beyond 5, so raise just this one limit.
+        let required_limits = wgpu::Limits {
+            max_bind_groups: 5,
+            ..wgpu::Limits::default()
+        };
+
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: None,
             required_features,
-            required_limits: wgpu::Limits::default(),
+            required_limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::Off,

@@ -10,6 +10,20 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Added
+
+- Procedural per-block material textures (M6c): the flat per-block palette color is replaced
+  by code-generated materials — per-block albedo detail, a tangent-space normal map, and a
+  roughness channel — sampled in the terrain pass. Lighting gains normal-mapped surface relief
+  and a roughness-controlled specular highlight. Materials are generated deterministically from
+  each block's own base color (no external or proprietary art), with a full CPU-built mip chain
+  so terrain tiling doesn't shimmer at distance.
+
+### Changed
+
+- The device now requests `max_bind_groups = 5` (the terrain pipeline binds camera, quads,
+  shadow, aerial, and the new material group); Apple Silicon Metal supports this comfortably.
+
 ## [0.5.0] - 2026-06-14
 
 First public release, at milestone M5 (the full shader ladder).

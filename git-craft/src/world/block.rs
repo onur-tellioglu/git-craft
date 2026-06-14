@@ -126,50 +126,6 @@ mod tests {
     }
 
     #[test]
-    fn colors_match_the_shader_palette() {
-        // Parse the PALETTE table out of terrain.wgsl and compare every
-        // entry: the Rust table and the shader table must never drift.
-        let wgsl = std::fs::read_to_string(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/assets/shaders/terrain.wgsl"
-        ))
-        .unwrap();
-        let table = wgsl
-            .split("const PALETTE")
-            .nth(1)
-            .expect("PALETTE table present")
-            .split("\n);")
-            .next()
-            .unwrap(); // the array body only, up to its closing paren
-        let palette: Vec<[f32; 3]> = table
-            .split("vec3(")
-            .skip(1) // text before the first vec3
-            .map(|chunk| {
-                let nums: Vec<f32> = chunk
-                    .split(')')
-                    .next()
-                    .unwrap()
-                    .split(',')
-                    .map(|n| n.trim().parse().unwrap())
-                    .collect();
-                [nums[0], nums[1], nums[2]]
-            })
-            .collect();
-        assert_eq!(
-            palette.len() as u16,
-            max_block_id() + 1,
-            "one entry per block id"
-        );
-        for (id, expected) in palette.iter().enumerate() {
-            assert_eq!(
-                BlockId(id as u16).color(),
-                *expected,
-                "color drift for block {id} vs terrain.wgsl"
-            );
-        }
-    }
-
-    #[test]
     fn ids_are_stable() {
         // Persisted worlds (M6) depend on these exact values; never renumber.
         let expected: [(BlockId, u16); 13] = [
