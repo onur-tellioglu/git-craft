@@ -164,16 +164,24 @@ fn fs_main(in: VsOut) -> FragOut {
     let view_dist = length(in.world_pos - frame.camera.xyz);
     let ndotl = max(dot(normal, frame.sun.xyz), 0.0);
 
+    // Geometric back-face guard: even if the perturbed normal deviates far
+    // enough to produce ndotl > 0, the face is in permanent shadow when the
+    // unperturbed geometric normal faces away from the sun. Gate the entire
+    // direct + specular contribution so the dark side of walls stays purely
+    // ambient (no light-leak halo near the sun terminator).
+    let ndotl_geo = max(dot(geo_normal, frame.sun.xyz), 0.0);
+    let geo_lit = step(0.001, ndotl_geo);
+
     // Flood-fill skylight gates the direct term beyond shadow range and
     // underground (spec §6): caves stay dark at noon, shafts of light need
     // actual sky exposure. Shadow bias uses the geometric face normal (the
     // perturbed normal would reintroduce acne).
     let guard = smoothstep(0.0, 0.5, in.light.x);
     var shadow_f = 0.0;
-    if ndotl > 0.0 && guard > 0.0 {
+    if ndotl > 0.0 && guard > 0.0 && geo_lit > 0.0 {
         shadow_f = shadow_factor(in.world_pos, geo_normal, view_dist);
     }
-    let sun_vis = min(shadow_f, guard);
+    let sun_vis = min(shadow_f, guard) * geo_lit;
 
     let ao = mix(0.35, 1.0, in.ao);
     let direct = frame.sun_color.rgb * ndotl * sun_vis;

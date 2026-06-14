@@ -19,6 +19,13 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
   each block's own base color (no external or proprietary art), with a full CPU-built mip chain
   so terrain tiling doesn't shimmer at distance.
 
+### Fixed
+
+- Normal mapping no longer leaks diffuse/specular light onto geometrically back-facing surfaces
+  (dark side of walls near the sun terminator was incorrectly lit). A geometric back-face guard
+  (`ndotl_geo = dot(geo_normal, sun)`) now gates the entire direct + specular contribution so
+  back faces receive only ambient light.
+
 ### Changed
 
 - The device now requests `max_bind_groups = 5` (the terrain pipeline binds camera, quads,
