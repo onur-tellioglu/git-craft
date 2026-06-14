@@ -1,0 +1,40 @@
+name: Bug report
+description: Report a crash, rendering glitch, or incorrect behavior
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Launch the game
+        2. ...
+        3. See the issue
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, GPU / Apple Silicon model, Rust version (`rustc --version`), render-scale setting, and the F3 HUD readout if relevant.
+      placeholder: |
+        - OS: macOS 15.5
+        - GPU: Apple M4
+        - rustc: 1.85.0
+        - Render scale: 1.0
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images here for rendering issues (optional).
+    validations:
+      required: false
