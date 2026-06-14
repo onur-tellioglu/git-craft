@@ -38,7 +38,9 @@ struct ShadowUniform {
 
 const VOL_W: u32 = 160u;
 const VOL_H: u32 = 90u;
-const VOL_D: u32 = 64u;
+// Reduced from 64u to 48u (25% cut) to stay within GPU budget at 0.75× render-scale;
+// per-pass tuning in M7 render-scale-default slice (Task 4C). Must mirror src/render/volumetric.rs.
+const VOL_D: u32 = 48u;
 const VOL_NEAR: f32 = 0.5;
 const VOL_FAR: f32 = 360.0;
 const PI: f32 = 3.14159265;

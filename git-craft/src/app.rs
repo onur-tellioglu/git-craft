@@ -331,7 +331,7 @@ impl App {
             cave_culling: true,
             gtao_debug: false,
             vol_debug: false,
-            render_scale: 1.0,
+            render_scale: 0.75,
             stats: FrameStats::default(),
             bench: bench_cfg.map(BenchRun::new),
             should_exit: false,
@@ -1786,7 +1786,7 @@ impl ApplicationHandler for App {
                         self.hud_visible = !self.hud_visible;
                         return;
                     }
-                    // R cycles the render scale (1.0 → 0.75 → 0.5): the §11
+                    // R cycles the render scale (0.75 → 0.5 → 1.0): the §11
                     // performance safety valve. Rebuilds the offscreen chain.
                     PhysicalKey::Code(KeyCode::KeyR) => {
                         self.render_scale = next_render_scale(self.render_scale);

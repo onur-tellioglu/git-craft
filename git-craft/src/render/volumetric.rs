@@ -11,7 +11,9 @@
 /// Froxel grid resolution. Mirrors the `VOL_*` consts in volumetric.wgsl.
 pub const VOL_W: u32 = 160;
 pub const VOL_H: u32 = 90;
-pub const VOL_D: u32 = 64;
+// Reduced from 64 to 48 (25% cut) to stay within GPU budget at 0.75× render-scale;
+// per-pass tuning in M7 render-scale-default slice (Task 4C).
+pub const VOL_D: u32 = 48;
 /// Near/far view distances the grid spans, in world meters (1 block = 1 m).
 /// VOL_FAR matches shadow::SHADOW_FAR — beyond the cascades the shaft term is
 /// 1.0 anyway, so there is no point marching god rays farther.

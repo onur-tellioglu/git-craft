@@ -10,6 +10,18 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Changed
+
+- Default render scale changed from 1.0 to 0.75 (spec §6 safety valve): internal HDR
+  passes now render at 75% of the window and TAA upsamples to full swapchain resolution.
+  UI/HUD (egui) renders directly at full swapchain resolution and is unaffected.
+  `--bench` at 1280×720: GPU p50 12.85 ms → 9.70 ms / p99 16.27 ms → 15.13 ms
+  (target: p99 ≤ 8.33 ms, p50 ≤ 7.0 ms). Verdict: FAIL — target not met after one
+  allowed per-pass tuning (VOL_D 64→48); further GPU optimization is out of scope for
+  this slice. The `R` key still cycles through all three render-scale tiers (0.75 → 0.5 → 1.0 → 0.75).
+- Volumetric froxel depth (VOL_D) reduced from 64 to 48 slices (25% cut) to reduce
+  fixed-resolution GPU cost at 0.75× render-scale. Fog quality is minimally impacted.
+
 ## [0.6.0] - 2026-06-14
 
 Milestone M6: region persistence, procedural material textures, and a measurable --bench harness.
