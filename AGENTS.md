@@ -34,7 +34,8 @@ cargo fmt                                     # format (CI checks with --check)
   `gen`, `decor`, `light` / `light_engine`, `jobs` (streaming).
 - `src/render/` — wgpu pipelines and passes: `gpu`, `targets`, `terrain`, `shadow`, `gtao`,
   `taa`, `volumetric`, `bloom`, `exposure`, `post`, `atmosphere`, `water`, `outline`,
-  `frustum`, `visibility`, `timestamps`, `egui_layer`, `game_ui`, `hot_reload`, `arena`.
+  `frustum`, `visibility`, `timestamps`, `egui_layer`, `game_ui`, `hot_reload`, `arena`,
+  `material` (procedurally-generated per-block albedo/normal/roughness texture arrays).
 - `assets/shaders/*.wgsl` — WGSL shaders, loaded (and hot-reloadable) at runtime.
 
 ## Conventions (hard rules)

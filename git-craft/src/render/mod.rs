@@ -9,6 +9,7 @@ pub mod game_ui;
 pub mod gpu;
 pub mod gtao;
 pub mod hot_reload;
+pub mod material;
 pub mod outline;
 pub mod post;
 pub mod shadow;
