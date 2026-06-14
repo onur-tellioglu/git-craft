@@ -11,6 +11,26 @@ voxel engine written in Rust on wgpu, targeting modern shader-pack visuals (CSM
 shadows, GTAO, TAA, volumetrics, bloom, ACES tone mapping, Hillaire atmosphere,
 screen-space water reflections) at a 384-block render distance / 120 fps on Apple M4.
 
+### Mission
+
+git-craft is not just an open-source voxel engine — it is a deliberate experiment in
+**community-and-agent-driven game development**. The premise:
+
+- Minecraft's direction under Mojang/Microsoft no longer matches what many players and
+  builders actually want; the modding/creative community keeps outrunning the official
+  game but cannot touch the engine itself.
+- AI coding agents have matured, and tools like Claude Code are now in many developers'
+  hands. A meaningful contribution no longer requires deep prior knowledge of the codebase —
+  an agent, pointed at good docs and guardrails, can carry real work.
+- So the goal is to find out **what a community can build on its own, in the open, with
+  agents as force-multipliers** — a sandbox game that grows by contribution rather than by
+  a single studio's roadmap.
+
+This mission shapes the design: the repository is structured so that a contributor (human
+or their AI agent) can arrive cold, understand the project from its docs, and ship a
+correct change. Documentation is a permanent, first-class part of the repo — not an
+afterthought — and the contribution path is explicitly built for agent-assisted work.
+
 This effort opens the project as a public, contribution-ready repository. It does
 four things:
 
@@ -30,7 +50,14 @@ design docs under `docs/superpowers/` are kept as-is and linked from the README.
 
 **Goals**
 - A stranger can clone the repo, read the README, and run the game with `cargo run --release`.
-- A contributor can read CONTRIBUTING and know how to build, test, lint, and submit a PR.
+- The project's mission and motivation are clearly stated, so contributors understand
+  *why* it exists and what it is trying to prove.
+- A contributor — human or AI agent — can read the docs, build, test, lint, and submit a PR
+  without prior context.
+- The contribution workflow is explicitly designed for agent-assisted work; contributors
+  who lack the maintainer's personal tooling still get useful, repo-local guidance.
+- `main` is protected: changes land only through reviewed PRs with green CI.
+- Releases are versioned (SemVer) and tracked in a changelog.
 - Licensing and trademark posture are unambiguous and legally clean.
 - CI verifies formatting, lints, and tests on every push/PR.
 - The project name is consistent everywhere a user or contributor will look.
@@ -212,9 +239,19 @@ steps require the maintainer's go-ahead at execution time):
   filenames and path references to them.
 - `cargo build --release` produces a binary named `git-craft`; `cargo test`, `cargo
   clippy --all-targets -- -D warnings`, and `cargo fmt --check` all pass.
-- Repo root contains `README.md`, `LICENSE-MIT`, `LICENSE-APACHE`, `CONTRIBUTING.md`,
-  `CODE_OF_CONDUCT.md`, and `.github/` with issue templates, a PR template, and `ci.yml`.
+- Repo root contains `README.md`, `VISION.md`, `CHANGELOG.md`, `AGENTS.md`, `CLAUDE.md`,
+  `LICENSE-MIT`, `LICENSE-APACHE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`,
+  and `.github/` with issue templates, a PR template, `CODEOWNERS`, `ci.yml`, and
+  `release.yml`; plus `.claude/commands/contribute.md` and `.claude/settings.json`.
 - CI runs green on the first push/PR.
+- README states the mission ("Why git-craft?") and links to `VISION.md`; the repo
+  description/topics carry the positioning.
+- `CHANGELOG.md` exists with `[Unreleased]` + a `[0.1.0]` baseline; the release workflow is
+  in place.
+- `main` is protected (PR required, CI must pass, review required) once public; `CODEOWNERS`
+  routes review to the maintainer.
+- `AGENTS.md` lets a cold AI agent build, locate code, follow conventions, and open a
+  correct PR without the maintainer's personal setup; `/contribute` guides Claude Code users.
 - README lets a newcomer build, run, and understand the project; CONTRIBUTING lets a
   contributor submit a correct PR; license and trademark posture are unambiguous.
 
@@ -230,3 +267,85 @@ steps require the maintainer's go-ahead at execution time):
   performs the public flip after review (per the chosen publishing option).
 - **Personal info exposure.** Mitigation: CoC uses GitHub Issues, not a personal email;
   the only personal data published is the copyright name `Onur Tellioğlu` (intended).
+- **Branch protection not enforceable while private on a free plan.** Mitigation: classic
+  protected branches / rulesets are free for public repos; configure the ruleset when (or
+  right after) flipping to public. The bootstrap PR may merge before protection is live —
+  acceptable for the very first commit.
+- **Vendored `.claude/` tooling drifting from the maintainer's setup.** Mitigation: keep
+  the repo-local command small and self-contained (one guided contribute flow), documented
+  as tool-optional; `AGENTS.md` is the canonical, tool-agnostic source of truth.
+
+## 10. Vision Artifacts (mission baked in)
+
+The mission (see §1) is expressed in three places so it is unavoidable:
+
+- **`VISION.md`** (repo root) — the manifesto. Long-form statement of: the post-Mojang gap,
+  the agent-era thesis ("anyone with an agent can contribute"), the experiment ("what can a
+  community build on its own, in the open"), the principles (open by default, docs are
+  permanent and first-class, small reviewed PRs, validate with data), and an explicit
+  invitation to contribute. Written to inspire without overclaiming — honest about the
+  project being early.
+- **README "Why git-craft?" section** — a tight 3–5 sentence condensation at the top of the
+  README (right after the title/disclaimer), linking to `VISION.md`.
+- **GitHub repo description + topics** — the one-line description carries the positioning;
+  topics include `voxel`, `game-engine`, `rust`, `wgpu`, `sandbox`, `open-source`,
+  `ai-agents`, `community-driven`.
+
+## 11. Versioning & Releases
+
+- **SemVer.** `Cargo.toml` `version` is the single source of truth (starts at `0.1.0`; the
+  `0.x` line signals "early, expect breaking changes").
+- **`CHANGELOG.md`** (repo root) — [Keep a Changelog](https://keepachangelog.com) format:
+  an `[Unreleased]` section at the top that contributors append to, plus a baseline
+  `[0.1.0]` entry summarizing the current M1–M5 state. PRs that change behavior add a line
+  under `[Unreleased]`.
+- **Git tags** — releases are tagged `vX.Y.Z`. Cutting a release = move `[Unreleased]`
+  entries under a new `[X.Y.Z] - YYYY-MM-DD` heading, bump `Cargo.toml`, tag, push the tag.
+  This process is documented in CONTRIBUTING (a short "Releases" subsection).
+- **`.github/workflows/release.yml`** — on a pushed tag matching `v*`, create a GitHub
+  Release whose body is the matching `CHANGELOG.md` section. Low-maintenance automation that
+  keeps releases consistent.
+
+## 12. Repository Governance
+
+The repo is expected to receive PRs authored by *other people's agents*, so `main` must be
+defended and review must be routed to the maintainer.
+
+- **Branch protection / ruleset on `main`** (applied at/after the public flip): require a PR
+  before merging; require the `CI / fmt + clippy + test` status check to pass; require the
+  branch to be up to date; block force-pushes and deletion; require at least **one approving
+  review** (so an agent cannot self-merge to `main`). Configured via `gh api` (ruleset or
+  classic protection endpoint).
+- **`.github/CODEOWNERS`** — the maintainer (`@<gh-login>`) owns the whole tree, so every PR
+  auto-requests their review. This pairs with the "require review" rule above.
+- **`SECURITY.md`** — short policy: how to report a vulnerability (privately, via GitHub
+  security advisories / a private report), and that the project is early and best-effort.
+
+## 13. Agent Enablement (chosen: docs + lightweight `.claude/`)
+
+Contributors will often work through an AI agent that does **not** have the maintainer's
+global Claude setup (skills, commands, global `CLAUDE.md`). The repo therefore ships its own
+guidance and a small, tool-optional helper:
+
+- **`AGENTS.md`** (repo root) — the **canonical, tool-agnostic** agent guide, following the
+  emerging `AGENTS.md` convention many agentic tools read. Contents: project one-liner +
+  link to VISION; how to build/run/test/lint (exact commands); architecture map (where the
+  engine core, render passes, shaders, worldgen live); the hard conventions (pure-function
+  TDD core, validate rendering via the F3 HUD/`--bench` not by feel, Apple TBDR discipline);
+  guardrails (don't commit proprietary assets, don't push to `main`, keep PRs small); and
+  "read the design spec first" pointers.
+- **`CLAUDE.md`** (repo root) — kept (Claude Code auto-loads it), but trimmed to a short
+  pointer: "This project's agent guidance lives in `AGENTS.md` — read it first," plus any
+  Claude-Code-specific notes. `AGENTS.md` stays canonical to avoid drift.
+- **CONTRIBUTING "Building with an AI agent" section** — human-facing: this project is
+  designed to be built with agents; point your agent at `AGENTS.md` + the design spec +
+  milestone plans, work in a small branch, let CI gate you, open a PR.
+- **`.claude/commands/contribute.md`** — a project-scoped slash command (`/contribute`) that
+  Claude Code contributors get automatically when they open the repo. It encodes the loop:
+  read `AGENTS.md` and the relevant spec/plan → pick or confirm scope → create a feature
+  branch → implement test-first → run `cargo fmt`/`clippy`/`test` → open a PR with the
+  template. Self-contained; does not depend on the maintainer's personal skills.
+- **`.claude/settings.json`** — minimal project settings: an allowlist for the safe, common
+  commands a contributing agent runs (`cargo build`/`test`/`clippy`/`fmt`, `git status`/
+  `diff`/`add`/`commit`, `gh pr`...), to reduce permission friction without granting
+  anything dangerous. No secrets, no destructive permissions.
