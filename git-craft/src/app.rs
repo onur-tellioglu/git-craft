@@ -242,7 +242,9 @@ pub struct App {
     /// Player edits are persisted to region files on disk via a background
     /// worker (no main-thread I/O). Columns the player has touched are tracked
     /// and saved when they unload or the app exits.
-    persistence: crate::world::persistence::Persistence,
+    /// `None` in bench mode (M6a will construct `None` when `--bench` is passed)
+    /// so benchmark flights do not pollute `saves/region/` or skew reproducibility.
+    persistence: Option<crate::world::persistence::Persistence>,
     /// Columns with a payload on disk: stream them in by loading, not generating.
     saved_columns: HashSet<crate::world::chunks::ColumnPos>,
     /// Columns edited since they were last saved (i.e. since load/eviction).
@@ -252,8 +254,11 @@ pub struct App {
 impl App {
     pub fn new(instance: wgpu::Instance) -> Self {
         // Open the on-disk world and learn which columns are already saved.
-        let (persistence, saved_columns) =
+        // TODO(M6a): pass `None` here when the `--bench` flag is active so
+        // benchmark flights do not write to saves/region/ and skew results.
+        let (persistence_inner, saved_columns) =
             crate::world::persistence::Persistence::new(PathBuf::from("saves").join("region"));
+        let persistence = Some(persistence_inner);
         Self {
             instance: Some(instance),
             window: None,
@@ -533,29 +538,46 @@ impl App {
             }
         }
 
-        // 1b. Drain finished disk loads. A loaded column takes the same insert
-        // + seam-heal path as a generated one (light recomputed by the worker).
-        for loaded in self.persistence.drain_loaded() {
-            use crate::world::persistence::Loaded;
-            match loaded {
-                Loaded::Column { pos, data, light } => {
-                    let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
-                    if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
-                        continue; // moved away; the unload pass reaps the slot
+        // 1b. Drain finished disk loads and save acknowledgements. A loaded
+        // column takes the same insert + seam-heal path as a generated one
+        // (light recomputed by the worker).
+        if let Some(p) = self.persistence.as_mut() {
+            for loaded in p.drain_loaded() {
+                use crate::world::persistence::Loaded;
+                match loaded {
+                    Loaded::Column { pos, data, light } => {
+                        let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
+                        if d2 > UNLOAD_RADIUS * UNLOAD_RADIUS {
+                            continue; // moved away; the unload pass reaps the slot
+                        }
+                        let touched = self.world.insert_generated(pos, data, *light, Vec::new());
+                        crate::world::light_engine::seed_column_borders(&mut self.world, pos);
+                        for wp in touched {
+                            crate::world::light_engine::on_block_changed(&mut self.world, wp);
+                        }
                     }
-                    let touched = self.world.insert_generated(pos, data, *light, Vec::new());
-                    crate::world::light_engine::seed_column_borders(&mut self.world, pos);
-                    for p in touched {
-                        crate::world::light_engine::on_block_changed(&mut self.world, p);
+                    Loaded::Failed { pos } => {
+                        // Corrupt/missing payload: drop it from the saved set and
+                        // regenerate, unless the player has already moved on.
+                        self.saved_columns.remove(&pos);
+                        let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
+                        if d2 <= UNLOAD_RADIUS * UNLOAD_RADIUS && self.world.contains(pos) {
+                            self.jobs.spawn_gen(self.worldgen.clone(), pos);
+                        }
                     }
-                }
-                Loaded::Failed { pos } => {
-                    // Corrupt/missing payload: drop it from the saved set and
-                    // regenerate, unless the player has already moved on.
-                    self.saved_columns.remove(&pos);
-                    let d2 = (pos.x - center.x).pow(2) + (pos.z - center.z).pow(2);
-                    if d2 <= UNLOAD_RADIUS * UNLOAD_RADIUS && self.world.contains(pos) {
-                        self.jobs.spawn_gen(self.worldgen.clone(), pos);
+                    // Save acknowledgements: only mark a column as saved once the
+                    // worker confirms the write succeeded, so a disk error is never
+                    // silently treated as a successful save.
+                    Loaded::SaveOk { pos } => {
+                        self.saved_columns.insert(pos);
+                    }
+                    Loaded::SaveFailed { pos } => {
+                        log::error!(
+                            "column {pos:?} could not be saved to disk — player edits may be lost"
+                        );
+                        // The column data has already been unloaded; we cannot
+                        // retry the save in this session, but we keep it out of
+                        // saved_columns so the next session does not skip generation.
                     }
                 }
             }
@@ -571,9 +593,10 @@ impl App {
             .copied()
             .collect();
         for col in leaving {
-            if let Some(c) = self.world.ready(col) {
-                self.persistence.request_save(col, c.sections.to_vec());
-                self.saved_columns.insert(col);
+            if let (Some(p), Some(c)) = (self.persistence.as_ref(), self.world.ready(col)) {
+                p.request_save(col, c.sections.to_vec());
+                // Do NOT insert into saved_columns here: wait for SaveOk so a
+                // disk error is not silently treated as a successful save.
             }
             self.edited_columns.remove(&col);
         }
@@ -597,15 +620,19 @@ impl App {
         // 3. Request streaming for nearby missing columns, nearest first.
         // Saved columns load from disk; the rest generate. Both draw on one
         // in-flight budget so loads can't starve generation or vice versa.
-        if self.jobs.gen_in_flight + self.persistence.load_in_flight < MAX_GEN_IN_FLIGHT {
+        let persist_in_flight = self.persistence.as_ref().map_or(0, |p| p.load_in_flight);
+        if self.jobs.gen_in_flight + persist_in_flight < MAX_GEN_IN_FLIGHT {
             for col in columns_in_radius(center, LOAD_RADIUS) {
-                if self.jobs.gen_in_flight + self.persistence.load_in_flight >= MAX_GEN_IN_FLIGHT {
+                let persist_in_flight = self.persistence.as_ref().map_or(0, |p| p.load_in_flight);
+                if self.jobs.gen_in_flight + persist_in_flight >= MAX_GEN_IN_FLIGHT {
                     break;
                 }
                 if !self.world.contains(col) {
                     self.world.mark_generating(col);
                     if self.saved_columns.contains(&col) {
-                        self.persistence.request_load(col);
+                        if let Some(p) = self.persistence.as_mut() {
+                            p.request_load(col);
+                        }
                     } else {
                         self.jobs.spawn_gen(self.worldgen.clone(), col);
                     }
@@ -1768,12 +1795,16 @@ impl ApplicationHandler for App {
     fn exiting(&mut self, _el: &ActiveEventLoop) {
         let edited: Vec<crate::world::chunks::ColumnPos> = self.edited_columns.drain().collect();
         for col in edited {
-            if let Some(c) = self.world.ready(col) {
-                self.persistence.request_save(col, c.sections.to_vec());
-                self.saved_columns.insert(col);
+            if let (Some(p), Some(c)) = (self.persistence.as_ref(), self.world.ready(col)) {
+                p.request_save(col, c.sections.to_vec());
+                // Save acks are flushed by shutdown() (the FIFO channel
+                // processes all queued saves before Shutdown reaches the
+                // worker). saved_columns is not used after exit.
             }
         }
-        self.persistence.shutdown();
+        if let Some(p) = self.persistence.as_mut() {
+            p.shutdown();
+        }
     }
 }
 
