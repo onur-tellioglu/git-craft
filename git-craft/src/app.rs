@@ -269,8 +269,8 @@ pub struct App {
 impl App {
     pub fn new(instance: wgpu::Instance, bench_cfg: Option<BenchConfig>) -> Self {
         // Open the on-disk world and learn which columns are already saved.
-        // Persistence is skipped in bench mode so benchmark flights do not write to
-        // saves/region/ and skew results; see step 4 integration fix.
+        // Persistence is disabled in bench mode so benchmark flights do not write to
+        // saves/region/ and skew reproducibility (review finding #4, M6 integration).
         let (persistence, saved_columns) = if bench_cfg.is_some() {
             (None, HashSet::new())
         } else {
