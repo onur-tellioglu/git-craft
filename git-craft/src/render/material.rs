@@ -221,7 +221,9 @@ mod tests {
     fn albedo_mean_tracks_block_color() {
         // block.color() is the authoritative palette: the detail noise is a
         // symmetric ±12% around the base, so a layer's mean albedo ≈ the base.
-        use crate::world::block::{GRASS, STONE};
+        // Iterate ALL block ids (including those with non-default roughness like
+        // WATER=6, SNOW_GRASS=5, TORCH=12) so a typo in block_roughness or a
+        // wrong id mapping is caught immediately.
         let atlas = build_atlas(ATLAS_SIZE);
         let n = (ATLAS_SIZE * ATLAS_SIZE) as usize;
         let mean = |id: u32| -> [f32; 3] {
@@ -234,14 +236,15 @@ mod tests {
             }
             sum.map(|s| s / n as f32)
         };
-        for id in [STONE, GRASS] {
-            let base = id.color();
-            let m = mean(id.0 as u32);
+        // Tolerance 0.05 is sufficient: detail modulation is ±12.5% (factor
+        // 0.875–1.125), so across 256 texels the mean stays within ~3% of base.
+        for id in 0..ATLAS_LAYERS {
+            let base = crate::world::block::BlockId(id as u16).color();
+            let m = mean(id);
             for c in 0..3 {
                 assert!(
                     (m[c] - base[c]).abs() < 0.05,
-                    "block {} channel {c}: mean {} vs base {}",
-                    id.0,
+                    "block {id} channel {c}: mean {} vs base {}",
                     m[c],
                     base[c]
                 );
