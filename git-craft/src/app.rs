@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
@@ -87,8 +88,34 @@ const WATER_REFLECTION: f32 = 1.0;
 /// Screen-space refraction offset scale (how far the normal bends the lookup).
 const WATER_REFRACTION: f32 = 0.03;
 
+/// Candidate `assets/shaders` directories, most-preferred first.
+///
+/// A `cargo` build finds the live source tree via `CARGO_MANIFEST_DIR`, which keeps
+/// hot-reload pointed at the editable shaders. A shipped binary's manifest path does
+/// not exist on the user's machine, so resolution falls through to the `assets/`
+/// directory bundled next to the executable.
+fn shader_dir_candidates() -> Vec<PathBuf> {
+    let mut bases = vec![PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/assets/shaders"
+    ))];
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        bases.push(dir.join("assets/shaders"));
+    }
+    bases
+}
+
+/// First candidate that is an existing directory. Pure helper so resolution is testable.
+fn pick_existing_dir(candidates: &[PathBuf]) -> Option<PathBuf> {
+    candidates.iter().find(|d| d.is_dir()).cloned()
+}
+
 fn shader_path(name: &str) -> String {
-    format!("{}/assets/shaders/{name}", env!("CARGO_MANIFEST_DIR"))
+    let candidates = shader_dir_candidates();
+    let dir = pick_existing_dir(&candidates).unwrap_or_else(|| candidates[0].clone());
+    dir.join(name).to_string_lossy().into_owned()
 }
 
 /// Offscreen target size for a swapchain size and render scale, clamped to >= 1.
@@ -1662,5 +1689,38 @@ impl ApplicationHandler for App {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pick_existing_dir;
+    use std::path::PathBuf;
+
+    /// Build a unique temp base dir for this test so runs don't collide.
+    fn temp_base(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("gitcraft_{}_{}", tag, std::process::id()))
+    }
+
+    #[test]
+    fn picks_the_first_existing_directory_skipping_missing_ones() {
+        let base = temp_base("pick_first");
+        let missing = base.join("missing");
+        let present = base.join("present");
+        std::fs::create_dir_all(&present).unwrap();
+
+        let chosen = pick_existing_dir(&[missing, present.clone()]);
+
+        assert_eq!(chosen, Some(present.clone()));
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn returns_none_when_no_candidate_directory_exists() {
+        let base = temp_base("pick_none");
+        let a = base.join("a");
+        let b = base.join("b");
+
+        assert_eq!(pick_existing_dir(&[a, b]), None);
     }
 }
