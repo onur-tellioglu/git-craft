@@ -210,6 +210,18 @@ impl Section {
         for _ in 0..words {
             data.push(u64::from_le_bytes(take::<8>(bytes, &mut c)?));
         }
+        // Validate that every packed palette index is in range. An out-of-range
+        // index would panic in unpack_into/get, killing the worker thread and
+        // silently discarding all subsequent saves. Reject the section so
+        // deserialization fails cleanly → the worker returns Loaded::Failed →
+        // the column regenerates (the stated design contract).
+        if bits > 0 {
+            for voxel in 0..VOLUME {
+                if read_index_raw(&data, bits, voxel) >= palette_len {
+                    return None;
+                }
+            }
+        }
         Some((
             Section {
                 palette,
@@ -399,5 +411,29 @@ mod tests {
         assert_eq!(flat[0], GRASS);
         assert_eq!(flat[(31 * SECTION_SIZE + 31) * SECTION_SIZE + 31], STONE);
         assert_eq!(flat[1], AIR);
+    }
+
+    /// A corrupt blob where palette_len=1 but bits=2 and every data word is
+    /// 0xFFFFFFFFFFFFFFFF (packed index 3, out of range) must be rejected rather
+    /// than returned as a valid Section that would panic on unpack.
+    #[test]
+    fn read_bytes_rejects_out_of_range_palette_indices() {
+        let mut buf = Vec::new();
+        // palette_len = 1 (AIR only)
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        // palette entry: AIR = BlockId(0)
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        // bits = 2 (allows indices 0..3, but palette only has index 0)
+        buf.push(2u8);
+        // data words: VOLUME * bits / 64 = 32768 * 2 / 64 = 1024 words,
+        // all 0xFF → every 2-bit field encodes index 3, which is out of range.
+        let words = VOLUME * 2 / 64;
+        for _ in 0..words {
+            buf.extend_from_slice(&u64::MAX.to_le_bytes());
+        }
+        assert!(
+            Section::read_bytes(&buf).is_none(),
+            "out-of-range packed index must cause read_bytes to return None"
+        );
     }
 }
