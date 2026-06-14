@@ -24,6 +24,25 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
   CPU p50 ≈ 4.6 ms / p99 ≈ 8.9 ms. Verdict FAIL — the full M5 shader stack exceeds the
   native-resolution 120 fps budget; the render-scale safety valve and per-pass tuning are
   the follow-up performance work this baseline now measures against.
+- Region save/load persistence (M6b): player edits now survive a restart. Broken/placed
+  blocks are written to region files under `saves/region/` (32×32 columns per file,
+  read-modify-written via a temp file + atomic rename) and reloaded when the player returns,
+  instead of being overwritten by fresh worldgen. Only edited columns are persisted —
+  untouched terrain regenerates deterministically — and lighting is never stored: a loaded
+  column recomputes it through the generation path. All disk I/O runs on a dedicated worker
+  thread, so the frame loop never blocks; edited columns are saved when they unload or on quit.
+
+### Fixed
+
+- Corrupt region file (out-of-range packed palette indices) would panic the worker thread
+  and silently discard all subsequent saves; `Section::read_bytes` now validates every
+  packed index and returns `None` on violation so load fails cleanly to `Loaded::Failed`
+  and the column regenerates instead.
+- Save errors on column eviction were silently treated as success: the worker now sends
+  `SaveOk`/`SaveFailed` acknowledgements over the result channel, and `saved_columns` is
+  only updated once the worker confirms the write.
+- `Persistence` field is now `Option<Persistence>` so bench mode (M6a) can pass `None`
+  without region files polluting benchmark reproducibility.
 
 ## [0.5.0] - 2026-06-14
 
