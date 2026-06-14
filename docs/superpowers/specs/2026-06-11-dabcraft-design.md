@@ -1,4 +1,4 @@
-# dabcraft — Design Specification
+# git-craft — Design Specification
 
 **Date:** 2026-06-11
 **Status:** Approved for planning
@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-dabcraft is a performance-focused Minecraft-style voxel game written in Rust on wgpu. Its differentiator is visual quality: the renderer targets the look of a modern Minecraft shader pack (BSL/Complementary class) out of the box — cascaded soft shadows, volumetric god rays, GTAO, bloom with ACES tonemapping, a physically based atmospheric sky, and screen-space reflective water.
+git-craft is a performance-focused Minecraft-style voxel game written in Rust on wgpu. Its differentiator is visual quality: the renderer targets the look of a modern Minecraft shader pack (BSL/Complementary class) out of the box — cascaded soft shadows, volumetric god rays, GTAO, bloom with ACES tonemapping, a physically based atmospheric sky, and screen-space reflective water.
 
 The project doubles as a performance-engineering exercise: every system is built with measurement-first discipline (per-pass GPU timings, live engine statistics) and modern voxel-engine techniques (binary greedy meshing, vertex pulling, cave culling).
 
@@ -14,7 +14,7 @@ The project doubles as a performance-engineering exercise: every system is built
 
 - Playable creative-mode voxel sandbox: infinite world, block breaking/placing, walking and flying.
 - Modern shader-pack visuals enabled by default.
-- Performance target: **384-block render distance (24 vanilla-Minecraft chunks, i.e., a 12-column radius of dabcraft's 32-block columns) at 120 fps** at native resolution on the M4, with all visual features enabled.
+- Performance target: **384-block render distance (24 vanilla-Minecraft chunks, i.e., a 12-column radius of git-craft's 32-block columns) at 120 fps** at native resolution on the M4, with all visual features enabled.
 - Clean, testable engine core: meshing, lighting, worldgen, and physics are pure functions with unit tests.
 
 ### Non-Goals (v1)
@@ -59,7 +59,7 @@ Notable API constraints to code against:
 Single Rust binary crate.
 
 ```
-dabcraft/
+git-craft/
 ├── Cargo.toml
 ├── build.rs                 # procedural texture generation at build time
 ├── assets/
@@ -135,7 +135,7 @@ TBDR discipline throughout: `LoadOp::Clear` wherever possible, `StoreOp::Discard
 ### Textures
 
 - **2D texture array** (not an atlas): one 32×32 layer per block texture, with albedo, normal, and roughness arrays. No UV bleeding, mipmaps work, greedy quads tile via `fract()`.
-- Textures are **procedurally generated** in `build.rs` (noise + per-block palettes) and embedded/loaded as array layers. dabcraft owns its look; zero licensing concerns.
+- Textures are **procedurally generated** in `build.rs` (noise + per-block palettes) and embedded/loaded as array layers. git-craft owns its look; zero licensing concerns.
 
 ### Culling
 

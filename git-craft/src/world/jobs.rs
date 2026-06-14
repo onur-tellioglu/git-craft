@@ -1,0 +1,141 @@
+// Job system: rayon gen/mesh tasks + crossbeam result channel.
+
+use crossbeam_channel::{Receiver, Sender};
+
+use crate::mesh::greedy::Mesher;
+use crate::mesh::neighborhood::MeshNeighborhood;
+use crate::mesh::quad::PackedQuad;
+use crate::world::chunks::{ColumnPos, SectionPos};
+use crate::world::r#gen::{ColumnData, StructureWrite, WorldGen};
+use crate::world::light::{LightData, light_new_column};
+
+#[derive(Debug)]
+pub enum JobResult {
+    Generated {
+        pos: ColumnPos,
+        data: ColumnData,
+        light: Box<[LightData; 8]>,
+        writes: Vec<StructureWrite>,
+    },
+    /// `version` echoes the caller's per-section counter at spawn time so
+    /// out-of-order completions of two in-flight jobs for the same section
+    /// can be detected — only the latest version may be uploaded.
+    Meshed {
+        pos: SectionPos,
+        version: u64,
+        /// Opaque terrain quads (water excluded; seafloor faces exposed).
+        opaque: Vec<PackedQuad>,
+        /// Water-surface quads, drawn in the transparent pass.
+        water: Vec<PackedQuad>,
+        /// Cave-culling mask; consumed by the BFS traversal in Task 11.
+        #[allow(dead_code)]
+        visibility: u16,
+    },
+}
+
+/// Fire-and-forget rayon jobs with a crossbeam result channel (spec §3).
+/// Priority comes from submission order: the caller submits nearest-first
+/// each frame and caps in-flight counts, so the pool queue stays short and
+/// camera-near work is never stuck behind a distant backlog.
+pub struct Jobs {
+    tx: Sender<JobResult>,
+    rx: Receiver<JobResult>,
+    pub gen_in_flight: usize,
+    pub mesh_in_flight: usize,
+}
+
+impl Jobs {
+    pub fn new() -> Self {
+        let (tx, rx) = crossbeam_channel::unbounded();
+        Self {
+            tx,
+            rx,
+            gen_in_flight: 0,
+            mesh_in_flight: 0,
+        }
+    }
+
+    pub fn spawn_gen(&mut self, worldgen: WorldGen, pos: ColumnPos) {
+        self.gen_in_flight += 1;
+        let tx = self.tx.clone();
+        rayon::spawn(move || {
+            let (data, writes) = worldgen.generate_column(pos.x, pos.z);
+            let light = Box::new(light_new_column(&data.sections));
+            // Send fails only when the app is shutting down; fine to drop.
+            let _ = tx.send(JobResult::Generated {
+                pos,
+                data,
+                light,
+                writes,
+            });
+        });
+    }
+
+    pub fn spawn_mesh(&mut self, pos: SectionPos, version: u64, hood: MeshNeighborhood) {
+        self.mesh_in_flight += 1;
+        let tx = self.tx.clone();
+        rayon::spawn(move || {
+            let padded = hood.build_padded();
+            let (opaque, water) = Mesher::new().mesh_layers(&padded);
+            let visibility = crate::render::visibility::face_connectivity(&padded);
+            let _ = tx.send(JobResult::Meshed {
+                pos,
+                version,
+                opaque,
+                water,
+                visibility,
+            });
+        });
+    }
+
+    /// Non-blocking: everything that finished since the last call.
+    pub fn drain(&mut self) -> Vec<JobResult> {
+        let mut out = Vec::new();
+        while let Ok(r) = self.rx.try_recv() {
+            match &r {
+                JobResult::Generated { .. } => self.gen_in_flight -= 1,
+                JobResult::Meshed { .. } => self.mesh_in_flight -= 1,
+            }
+            out.push(r);
+        }
+        out
+    }
+}
+
+impl Default for Jobs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::chunks::ColumnPos;
+    use crate::world::r#gen::WorldGen;
+
+    #[test]
+    fn gen_job_roundtrips_through_the_channel() {
+        let mut jobs = Jobs::new();
+        jobs.spawn_gen(WorldGen::new(7), ColumnPos { x: 0, z: 0 });
+        assert_eq!(jobs.gen_in_flight, 1);
+        // Worker pool latency: poll up to ~5 s.
+        let mut results = Vec::new();
+        for _ in 0..500 {
+            results.extend(jobs.drain());
+            if !results.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(results.len(), 1);
+        assert_eq!(jobs.gen_in_flight, 0);
+        match &results[0] {
+            JobResult::Generated { pos, data, .. } => {
+                assert_eq!(*pos, ColumnPos { x: 0, z: 0 });
+                assert_eq!(data.sections.len(), 8);
+            }
+            other => panic!("expected Generated, got {other:?}"),
+        }
+    }
+}

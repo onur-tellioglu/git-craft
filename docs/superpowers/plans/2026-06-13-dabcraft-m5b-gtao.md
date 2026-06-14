@@ -1,5 +1,5 @@
 ---
-title: dabcraft M5b — GTAO (ground-truth ambient occlusion)
+title: git-craft M5b — GTAO (ground-truth ambient occlusion)
 date: 2026-06-13
 domain: world-layer
 type: enhancement
@@ -9,16 +9,16 @@ db-migration: false
 rls-affecting: false
 slice: null
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
-touched-files: [dabcraft/src/render/targets.rs, dabcraft/src/render/gtao.rs, dabcraft/src/render/terrain.rs, dabcraft/src/render/atmosphere.rs, dabcraft/src/render/outline.rs, dabcraft/src/app.rs, dabcraft/assets/shaders/terrain.wgsl, dabcraft/assets/shaders/sky.wgsl, dabcraft/assets/shaders/outline.wgsl, dabcraft/assets/shaders/gtao.wgsl, dabcraft/assets/shaders/gtao_blur.wgsl, dabcraft/assets/shaders/composite.wgsl]
+touched-files: [git-craft/src/render/targets.rs, git-craft/src/render/gtao.rs, git-craft/src/render/terrain.rs, git-craft/src/render/atmosphere.rs, git-craft/src/render/outline.rs, git-craft/src/app.rs, git-craft/assets/shaders/terrain.wgsl, git-craft/assets/shaders/sky.wgsl, git-craft/assets/shaders/outline.wgsl, git-craft/assets/shaders/gtao.wgsl, git-craft/assets/shaders/gtao_blur.wgsl, git-craft/assets/shaders/composite.wgsl]
 trigger-tasks-touched: []
-shared-modules-touched: [dabcraft/src/render/targets.rs, dabcraft/src/app.rs]
+shared-modules-touched: [git-craft/src/render/targets.rs, git-craft/src/app.rs]
 ---
 
-# dabcraft M5b — GTAO Implementation Plan
+# git-craft M5b — GTAO Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add ground-truth ambient occlusion (GTAO) to the dabcraft forward renderer — half-res horizon-based AO that darkens only the *ambient* term (not direct sun), temporally stabilized by the existing TAA pass.
+**Goal:** Add ground-truth ambient occlusion (GTAO) to the git-craft forward renderer — half-res horizon-based AO that darkens only the *ambient* term (not direct sun), temporally stabilized by the existing TAA pass.
 
 **Architecture:** The main forward pass gains a second color attachment — a packed G-buffer (`Rgba8Unorm`: `rgb` = world normal, `a` = ambient-brightness fraction). A half-res GTAO render pass reconstructs world position from the (jittered) depth buffer and the G-buffer normal, computes horizon-based occlusion with per-pixel + per-frame noise, and writes an `R8Unorm` AO texture. A depth-aware bilateral blur denoises it. A full-res composite pass darkens the HDR scene by `factor = 1 - ambientWeight*(1 - ao)` — so AO only attenuates ambient light, never the direct sun term — and writes a `composited` HDR target that TAA then consumes (TAA stabilizes the AO noise for free). Bloom/exposure/post are unchanged because they already read the TAA-resolved target downstream.
 
@@ -32,31 +32,31 @@ shared-modules-touched: [dabcraft/src/render/targets.rs, dabcraft/src/app.rs]
 
 **Validation:** Rendering correctness is validated via the F3 HUD per-pass GPU timers and visual inspection (project convention: rendering is never validated "by feel" but via the HUD/`--bench`, not unit tests). Pure helpers (half-res dims, uniform layout sizes, noise determinism) are unit-tested. Quality gates per task: `cargo test` + `cargo clippy --all-targets -- -D warnings`. `cargo fmt` is NOT a gate.
 
-**Environment:** Rust via rustup — every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before `cargo`. Run cargo with `--manifest-path dabcraft/Cargo.toml` from the repo root (`/Users/onurtellioglu/Github/Minecraft`). No git remote — skip push/PR. Branch is already `feat/m5-shaders` (M5 merges as one milestone; do NOT merge to main in this rung).
+**Environment:** Rust via rustup — every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before `cargo`. Run cargo with `--manifest-path git-craft/Cargo.toml` from the repo root (`/Users/onurtellioglu/Github/Minecraft`). No git remote — skip push/PR. Branch is already `feat/m5-shaders` (M5 merges as one milestone; do NOT merge to main in this rung).
 
 ---
 
 ## File Structure
 
-- `dabcraft/src/render/targets.rs` — **modify**: add `GBUF_FORMAT`, `AO_FORMAT`; add `gbuf_view`, `ao_raw_view`, `ao_blur_view`, `composited_view` (+ `composited_texture` if needed), `half_size()` helper.
-- `dabcraft/src/render/gtao.rs` — **create**: `GtaoPass` (AO + blur fullscreen passes), `CompositePass`, `GtaoUniform`, pure helpers `half_res(w,h)` and `ign_known` test hook.
-- `dabcraft/assets/shaders/gtao.wgsl` — **create**: half-res horizon-AO fragment shader.
-- `dabcraft/assets/shaders/gtao_blur.wgsl` — **create**: depth-aware bilateral blur.
-- `dabcraft/assets/shaders/composite.wgsl` — **create**: AO→ambient composite.
-- `dabcraft/assets/shaders/terrain.wgsl` — **modify**: fragment emits 2 targets (color + G-buffer).
-- `dabcraft/assets/shaders/sky.wgsl`, `dabcraft/assets/shaders/outline.wgsl` — **modify**: emit a zeroed 2nd target so the MRT pipeline is valid.
-- `dabcraft/src/render/terrain.rs`, `atmosphere.rs` (SkyPass), `outline.rs` — **modify**: pipelines gain the 2nd `ColorTargetState`.
-- `dabcraft/src/app.rs` — **modify**: main pass 2nd attachment; insert GTAO/blur/composite encode; renumber `PASS_*`; rewire TAA input to `composited_view`; resize rebuilds.
+- `git-craft/src/render/targets.rs` — **modify**: add `GBUF_FORMAT`, `AO_FORMAT`; add `gbuf_view`, `ao_raw_view`, `ao_blur_view`, `composited_view` (+ `composited_texture` if needed), `half_size()` helper.
+- `git-craft/src/render/gtao.rs` — **create**: `GtaoPass` (AO + blur fullscreen passes), `CompositePass`, `GtaoUniform`, pure helpers `half_res(w,h)` and `ign_known` test hook.
+- `git-craft/assets/shaders/gtao.wgsl` — **create**: half-res horizon-AO fragment shader.
+- `git-craft/assets/shaders/gtao_blur.wgsl` — **create**: depth-aware bilateral blur.
+- `git-craft/assets/shaders/composite.wgsl` — **create**: AO→ambient composite.
+- `git-craft/assets/shaders/terrain.wgsl` — **modify**: fragment emits 2 targets (color + G-buffer).
+- `git-craft/assets/shaders/sky.wgsl`, `git-craft/assets/shaders/outline.wgsl` — **modify**: emit a zeroed 2nd target so the MRT pipeline is valid.
+- `git-craft/src/render/terrain.rs`, `atmosphere.rs` (SkyPass), `outline.rs` — **modify**: pipelines gain the 2nd `ColorTargetState`.
+- `git-craft/src/app.rs` — **modify**: main pass 2nd attachment; insert GTAO/blur/composite encode; renumber `PASS_*`; rewire TAA input to `composited_view`; resize rebuilds.
 
 ---
 
 ### Task 1: G-buffer attachment (world normal + ambient weight) on the main pass
 
 **Files:**
-- Modify: `dabcraft/src/render/targets.rs`
-- Modify: `dabcraft/assets/shaders/terrain.wgsl:154-180` (fragment), `dabcraft/assets/shaders/sky.wgsl` (fragment), `dabcraft/assets/shaders/outline.wgsl` (fragment)
-- Modify: `dabcraft/src/render/terrain.rs:336` (targets array), `dabcraft/src/render/atmosphere.rs:495` (SkyPass targets), `dabcraft/src/render/outline.rs:91` (targets array)
-- Modify: `dabcraft/src/app.rs:655-689` (main pass color attachments), `:865-873` + `:1004-1017` (resize), `:957` (target storage)
+- Modify: `git-craft/src/render/targets.rs`
+- Modify: `git-craft/assets/shaders/terrain.wgsl:154-180` (fragment), `git-craft/assets/shaders/sky.wgsl` (fragment), `git-craft/assets/shaders/outline.wgsl` (fragment)
+- Modify: `git-craft/src/render/terrain.rs:336` (targets array), `git-craft/src/render/atmosphere.rs:495` (SkyPass targets), `git-craft/src/render/outline.rs:91` (targets array)
+- Modify: `git-craft/src/app.rs:655-689` (main pass color attachments), `:865-873` + `:1004-1017` (resize), `:957` (target storage)
 
 The main pass currently writes one color target (`hdr_view`). After this task it writes two: `@location(0)` HDR color (unchanged) and `@location(1)` the G-buffer. Every pipeline that draws in the main pass (terrain, sky, outline) must declare both targets or the render pass is invalid.
 
@@ -64,7 +64,7 @@ The main pass currently writes one color target (`hdr_view`). After this task it
 
 - [ ] **Step 1: Add G-buffer format + target to `RenderTargets`**
 
-In `dabcraft/src/render/targets.rs`, add the format constant near `HDR_FORMAT` (line 3):
+In `git-craft/src/render/targets.rs`, add the format constant near `HDR_FORMAT` (line 3):
 
 ```rust
 /// G-buffer: rgb = world normal (*0.5+0.5), a = ambient brightness fraction.
@@ -101,12 +101,12 @@ In `RenderTargets::new`, create the texture right after the `hdr` texture (after
 
 - [ ] **Step 2: Build to confirm the struct compiles**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo build --manifest-path dabcraft/Cargo.toml`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo build --manifest-path git-craft/Cargo.toml`
 Expected: compiles (a warning about `app.rs` not yet using `gbuf_view` is fine until Step 5). Existing `cargo test` still passes.
 
 - [ ] **Step 3: Emit the G-buffer from `terrain.wgsl`**
 
-In `dabcraft/assets/shaders/terrain.wgsl`, replace the fragment signature + return (lines 154-180). Change `fn fs_main(in: VsOut) -> @location(0) vec4<f32>` to return a struct with both targets, and compute `ambientWeight` from the sky-ambient luminance vs total luminance:
+In `git-craft/assets/shaders/terrain.wgsl`, replace the fragment signature + return (lines 154-180). Change `fn fs_main(in: VsOut) -> @location(0) vec4<f32>` to return a struct with both targets, and compute `ambientWeight` from the sky-ambient luminance vs total luminance:
 
 ```wgsl
 struct FragOut {
@@ -155,7 +155,7 @@ fn fs_main(in: VsOut) -> FragOut {
 
 - [ ] **Step 4: Emit a zeroed G-buffer from `sky.wgsl` and `outline.wgsl`**
 
-In `dabcraft/assets/shaders/sky.wgsl`, change the fragment to output both targets. Find the `@fragment fn fs_main(...) -> @location(0) vec4<f32>` and wrap its returns:
+In `git-craft/assets/shaders/sky.wgsl`, change the fragment to output both targets. Find the `@fragment fn fs_main(...) -> @location(0) vec4<f32>` and wrap its returns:
 
 ```wgsl
 struct FragOut {
@@ -170,11 +170,11 @@ Change the signature to `-> FragOut` and replace each `return <expr>;` with:
     out.gbuf = vec4<f32>(0.0);
     return out;
 ```
-Do the identical transform in `dabcraft/assets/shaders/outline.wgsl`.
+Do the identical transform in `git-craft/assets/shaders/outline.wgsl`.
 
 - [ ] **Step 5: Add the 2nd `ColorTargetState` to all three main-pass pipelines**
 
-In `dabcraft/src/render/terrain.rs` (around line 336), the `targets:` array currently has one `Some(ColorTargetState { format: <HDR_FORMAT>, ... })`. Add a second entry:
+In `git-craft/src/render/terrain.rs` (around line 336), the `targets:` array currently has one `Some(ColorTargetState { format: <HDR_FORMAT>, ... })`. Add a second entry:
 
 ```rust
                 targets: &[
@@ -191,11 +191,11 @@ In `dabcraft/src/render/terrain.rs` (around line 336), the `targets:` array curr
                 ],
 ```
 
-(Match the existing struct fields exactly — copy the first entry's `blend`/`write_mask`; the snippet above is the canonical shape.) Apply the same two-entry `targets` array in `dabcraft/src/render/atmosphere.rs:495` (SkyPass `build_pipeline`) and `dabcraft/src/render/outline.rs:91`.
+(Match the existing struct fields exactly — copy the first entry's `blend`/`write_mask`; the snippet above is the canonical shape.) Apply the same two-entry `targets` array in `git-craft/src/render/atmosphere.rs:495` (SkyPass `build_pipeline`) and `git-craft/src/render/outline.rs:91`.
 
 - [ ] **Step 6: Add the 2nd color attachment to the main render pass**
 
-In `dabcraft/src/app.rs`, the main pass (lines 655-689) has a single-element `color_attachments`. Bind `gbuf_view` as the second attachment. First capture it next to `hdr_view` (line 637 area):
+In `git-craft/src/app.rs`, the main pass (lines 655-689) has a single-element `color_attachments`. Bind `gbuf_view` as the second attachment. First capture it next to `hdr_view` (line 637 area):
 
 ```rust
         let hdr_view = &targets.hdr_view;
@@ -229,13 +229,13 @@ Then make `color_attachments` two elements:
 
 - [ ] **Step 7: Build + run existing tests**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: all existing tests pass; clippy clean. (No new behavior is observable yet — the G-buffer is written but unread. A `cargo run --release` should look identical to before, proving the MRT pipelines validate and draw.)
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src/render/targets.rs dabcraft/src/render/terrain.rs dabcraft/src/render/atmosphere.rs dabcraft/src/render/outline.rs dabcraft/assets/shaders/terrain.wgsl dabcraft/assets/shaders/sky.wgsl dabcraft/assets/shaders/outline.wgsl dabcraft/src/app.rs
+git add git-craft/src/render/targets.rs git-craft/src/render/terrain.rs git-craft/src/render/atmosphere.rs git-craft/src/render/outline.rs git-craft/assets/shaders/terrain.wgsl git-craft/assets/shaders/sky.wgsl git-craft/assets/shaders/outline.wgsl git-craft/src/app.rs
 git commit -m "feat: write a normal + ambient-weight g-buffer from the main pass (m5)"
 ```
 
@@ -244,11 +244,11 @@ git commit -m "feat: write a normal + ambient-weight g-buffer from the main pass
 ### Task 2: Half-res GTAO render pass
 
 **Files:**
-- Modify: `dabcraft/src/render/targets.rs` (add `AO_FORMAT`, `ao_raw_view`, `ao_blur_view`, `half_size()`)
-- Create: `dabcraft/src/render/gtao.rs` (`GtaoPass`, `GtaoUniform`, `half_res()`, `ign()` helper + tests)
-- Create: `dabcraft/assets/shaders/gtao.wgsl`
-- Modify: `dabcraft/src/render/mod.rs` (register the `gtao` module)
-- Modify: `dabcraft/src/app.rs` (construct `GtaoPass`, encode it, renumber `PASS_*`, resize, hot-reload)
+- Modify: `git-craft/src/render/targets.rs` (add `AO_FORMAT`, `ao_raw_view`, `ao_blur_view`, `half_size()`)
+- Create: `git-craft/src/render/gtao.rs` (`GtaoPass`, `GtaoUniform`, `half_res()`, `ign()` helper + tests)
+- Create: `git-craft/assets/shaders/gtao.wgsl`
+- Modify: `git-craft/src/render/mod.rs` (register the `gtao` module)
+- Modify: `git-craft/src/app.rs` (construct `GtaoPass`, encode it, renumber `PASS_*`, resize, hot-reload)
 
 This task produces the raw half-res AO texture and wires the pass into the frame graph. The blur + composite (which make the AO visible on screen) land in Task 3 — after this task the AO texture is written but not yet consumed, validated by the new "gtao" HUD timer line appearing with a non-zero time and existing tests passing.
 
@@ -317,7 +317,7 @@ Add `ao_raw_view` and `ao_blur_view` to the returned struct. Add a unit test:
 
 - [ ] **Step 2: Create `gtao.rs` with the uniform + pure helpers + failing tests**
 
-Create `dabcraft/src/render/gtao.rs`. Define the uniform (std140-friendly: mat4 then two vec4) and the pure helpers, plus tests that pin the layout and the noise determinism:
+Create `git-craft/src/render/gtao.rs`. Define the uniform (std140-friendly: mat4 then two vec4) and the pure helpers, plus tests that pin the layout and the noise determinism:
 
 ```rust
 /// Uniform for the GTAO pass. Mirrors `GtaoUniform` in gtao.wgsl.
@@ -355,12 +355,12 @@ mod tests {
 }
 ```
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml gtao`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml gtao`
 Expected: FAIL (module not yet registered) → after Step 3 it passes.
 
 - [ ] **Step 3: Register the module + build the `GtaoPass` struct**
 
-In `dabcraft/src/render/mod.rs`, add `pub mod gtao;` alongside the other render modules.
+In `git-craft/src/render/mod.rs`, add `pub mod gtao;` alongside the other render modules.
 
 Append the `GtaoPass` to `gtao.rs`. It owns a uniform buffer, a bind group layout (depth tex, gbuf tex, non-filtering sampler, uniform), one bind group, and a pipeline. Follow the `PostPass` pattern (fullscreen triangle, `immediate_size: 0`):
 
@@ -554,12 +554,12 @@ impl GtaoPass {
 }
 ```
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml gtao`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml gtao`
 Expected: PASS (3 gtao tests).
 
 - [ ] **Step 4: Write `gtao.wgsl`**
 
-Create `dabcraft/assets/shaders/gtao.wgsl`:
+Create `git-craft/assets/shaders/gtao.wgsl`:
 
 ```wgsl
 // Half-res horizon-based ambient occlusion. Reconstructs world position from
@@ -660,7 +660,7 @@ fn fs_main(in: VsOut) -> @location(0) f32 {
 
 - [ ] **Step 5: Renumber the `PASS_*` constants in `app.rs`**
 
-In `dabcraft/src/app.rs` (lines 18-28), expand `PASS_LABELS` to 11 entries and insert the two new consts, renumbering everything downstream of `PASS_MAIN`:
+In `git-craft/src/app.rs` (lines 18-28), expand `PASS_LABELS` to 11 entries and insert the two new consts, renumbering everything downstream of `PASS_MAIN`:
 
 ```rust
 const PASS_LABELS: &[&str] = &[
@@ -745,13 +745,13 @@ Register the hot-reload watch (near line 886): `shaders.watch("gtao", shader_pat
 
 - [ ] **Step 8: Build, test, smoke-run**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: all pass, clippy clean. A `cargo build --release` succeeds. Visual is still unchanged (AO unread); the F3 HUD now lists a "gtao" timer with a small non-zero ms.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add dabcraft/src/render/targets.rs dabcraft/src/render/gtao.rs dabcraft/src/render/mod.rs dabcraft/assets/shaders/gtao.wgsl dabcraft/src/app.rs
+git add git-craft/src/render/targets.rs git-craft/src/render/gtao.rs git-craft/src/render/mod.rs git-craft/assets/shaders/gtao.wgsl git-craft/src/app.rs
 git commit -m "feat: render half-res horizon AO into a g-buffer-fed target (m5)"
 ```
 
@@ -760,11 +760,11 @@ git commit -m "feat: render half-res horizon AO into a g-buffer-fed target (m5)"
 ### Task 3: Bilateral blur + composite (apply AO to ambient), rewire TAA input
 
 **Files:**
-- Modify: `dabcraft/src/render/targets.rs` (add `composited_view` + `composited_texture`)
-- Modify: `dabcraft/src/render/gtao.rs` (add `BlurPass` + `CompositePass`)
-- Create: `dabcraft/assets/shaders/gtao_blur.wgsl`, `dabcraft/assets/shaders/composite.wgsl`
-- Modify: `dabcraft/src/render/taa.rs` (read `composited_view` instead of `hdr_view`)
-- Modify: `dabcraft/src/app.rs` (construct/encode blur + composite, rewire TAA, resize, hot-reload)
+- Modify: `git-craft/src/render/targets.rs` (add `composited_view` + `composited_texture`)
+- Modify: `git-craft/src/render/gtao.rs` (add `BlurPass` + `CompositePass`)
+- Create: `git-craft/assets/shaders/gtao_blur.wgsl`, `git-craft/assets/shaders/composite.wgsl`
+- Modify: `git-craft/src/render/taa.rs` (read `composited_view` instead of `hdr_view`)
+- Modify: `git-craft/src/app.rs` (construct/encode blur + composite, rewire TAA, resize, hot-reload)
 
 This task makes the AO visible: the blur denoises the half-res AO, and the composite darkens the HDR scene's ambient term by it. The composite writes a new full-res `composited` HDR target, which becomes TAA's input — so TAA temporally stabilizes the AO. After this task, ambient occlusion is on screen: contact shadows in corners, under overhangs, between blocks.
 
@@ -797,7 +797,7 @@ In `RenderTargets::new`, create it at full res with `HDR_FORMAT` (RENDER_ATTACHM
 
 - [ ] **Step 2: Write `gtao_blur.wgsl` (depth-aware bilateral blur)**
 
-Create `dabcraft/assets/shaders/gtao_blur.wgsl`. A single 5×5-ish cross bilateral at half-res, weighting taps by depth similarity so AO does not bleed across silhouettes:
+Create `git-craft/assets/shaders/gtao_blur.wgsl`. A single 5×5-ish cross bilateral at half-res, weighting taps by depth similarity so AO does not bleed across silhouettes:
 
 ```wgsl
 // Depth-aware bilateral blur of the raw half-res AO. Weights neighbors by
@@ -851,7 +851,7 @@ fn fs_main(in: VsOut) -> @location(0) f32 {
 
 - [ ] **Step 3: Write `composite.wgsl` (apply AO to the ambient fraction)**
 
-Create `dabcraft/assets/shaders/composite.wgsl`:
+Create `git-craft/assets/shaders/composite.wgsl`:
 
 ```wgsl
 // Apply AO to the ambient term only: factor = 1 - ambientWeight*(1 - ao).
@@ -918,7 +918,7 @@ Note: the composite's sampler must be `Filtering` and its `gbuf`/`hdr`/`ao` text
 
 - [ ] **Step 5: Rewire TAA to read `composited_view`**
 
-In `dabcraft/src/render/taa.rs`, every place the current-frame texture is bound it currently uses `targets.hdr_view` (lines ~90, ~99, ~262, ~271). Change all four to `targets.composited_view`. The neighborhood clamp and reprojection are unaffected — TAA simply consumes the AO-composited HDR as its "current" frame. Update the module doc comment to say it reads the AO-composited HDR.
+In `git-craft/src/render/taa.rs`, every place the current-frame texture is bound it currently uses `targets.hdr_view` (lines ~90, ~99, ~262, ~271). Change all four to `targets.composited_view`. The neighborhood clamp and reprojection are unaffected — TAA simply consumes the AO-composited HDR as its "current" frame. Update the module doc comment to say it reads the AO-composited HDR.
 
 - [ ] **Step 6: Construct + encode blur and composite in `app.rs`**
 
@@ -999,13 +999,13 @@ Register watches: `shaders.watch("gtao_blur", shader_path("gtao_blur.wgsl"));` a
 
 - [ ] **Step 9: Build, test, smoke-run, eyeball**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: all pass, clippy clean. `cargo run --release` now shows ambient occlusion: soft darkening in block corners, under tree canopies, in crevices — and it should be stable under motion (TAA resolves the half-res noise). Direct sun-lit flat faces stay full-bright (AO only touches ambient). The F3 HUD lists "gtao" and "composite" timers.
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add dabcraft/src/render/targets.rs dabcraft/src/render/gtao.rs dabcraft/src/render/taa.rs dabcraft/assets/shaders/gtao_blur.wgsl dabcraft/assets/shaders/composite.wgsl dabcraft/src/app.rs
+git add git-craft/src/render/targets.rs git-craft/src/render/gtao.rs git-craft/src/render/taa.rs git-craft/assets/shaders/gtao_blur.wgsl git-craft/assets/shaders/composite.wgsl git-craft/src/app.rs
 git commit -m "feat: blur and composite GTAO onto the ambient term, fed through TAA (m5)"
 ```
 
@@ -1014,15 +1014,15 @@ git commit -m "feat: blur and composite GTAO onto the ambient term, fed through 
 ### Task 4: AO debug toggle + GPU-budget validation
 
 **Files:**
-- Modify: `dabcraft/assets/shaders/composite.wgsl` (debug branch)
-- Modify: `dabcraft/src/render/gtao.rs` (`CompositePass` gains a small debug uniform)
-- Modify: `dabcraft/src/app.rs` (a key toggles the debug mode; feed it to composite)
+- Modify: `git-craft/assets/shaders/composite.wgsl` (debug branch)
+- Modify: `git-craft/src/render/gtao.rs` (`CompositePass` gains a small debug uniform)
+- Modify: `git-craft/src/app.rs` (a key toggles the debug mode; feed it to composite)
 
 A debug view that outputs the raw AO factor as grayscale makes tuning the radius/intensity/power constants tractable (and lets the user point at exactly what looks wrong). It is a single uniform flag read by the composite shader. This task also validates the GPU budget via the F3 HUD.
 
 - [ ] **Step 1: Add a debug uniform to the composite shader**
 
-In `dabcraft/assets/shaders/composite.wgsl`, add a uniform and a debug branch. Add the binding (binding 4) and `struct CompUniform { flags: vec4<f32> }` (`flags.x`: 0 = normal, 1 = AO only):
+In `git-craft/assets/shaders/composite.wgsl`, add a uniform and a debug branch. Add the binding (binding 4) and `struct CompUniform { flags: vec4<f32> }` (`flags.x`: 0 = normal, 1 = AO only):
 
 ```wgsl
 @group(0) @binding(4) var<uniform> c: CompUniform;
@@ -1078,12 +1078,12 @@ In `render()`, push the flag to the composite each frame (next to the other `pre
 
 - [ ] **Step 4: Build + test**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: all pass, clippy clean.
 
 - [ ] **Step 5: GPU-budget validation (HUD)**
 
-Run: `cargo run --release --manifest-path dabcraft/Cargo.toml`. Press Fn+F3 (or H) for the HUD. Confirm:
+Run: `cargo run --release --manifest-path git-craft/Cargo.toml`. Press Fn+F3 (or H) for the HUD. Confirm:
 - "gtao" + "composite" timers appear with sane values (gtao should be ~0.5–1.0 ms per the spec budget, composite a fraction of a ms).
 - Total per-pass GPU time stays within the 8.3 ms / 120 fps budget (the shadow draws were already noted near budget; if total now exceeds it, record the numbers — a shadow-pass perf pass is a separate M5b item, not a blocker for GTAO correctness).
 - Press G: the screen switches to the grayscale AO view (white = unoccluded, dark = occluded corners/crevices). Press G again to return.
@@ -1094,7 +1094,7 @@ Record the observed gtao/composite ms and total in the commit body.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dabcraft/assets/shaders/composite.wgsl dabcraft/src/render/gtao.rs dabcraft/src/app.rs
+git add git-craft/assets/shaders/composite.wgsl git-craft/src/render/gtao.rs git-craft/src/app.rs
 git commit -m "feat: add a G-key AO debug view and validate the GTAO GPU budget (m5)"
 ```
 

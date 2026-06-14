@@ -1,5 +1,5 @@
 ---
-title: dabcraft M4 — Light
+title: git-craft M4 — Light
 date: 2026-06-12
 domain: world-layer
 type: enhancement
@@ -10,27 +10,27 @@ rls-affecting: false
 slice: 4
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
 touched-files:
-  - dabcraft/src/world/block.rs
-  - dabcraft/src/world/light.rs
-  - dabcraft/src/world/light_engine.rs
-  - dabcraft/src/world/chunks.rs
-  - dabcraft/src/world/jobs.rs
-  - dabcraft/src/world/mod.rs
-  - dabcraft/src/mesh/padded.rs
-  - dabcraft/src/mesh/neighborhood.rs
-  - dabcraft/src/mesh/greedy.rs
-  - dabcraft/src/render/terrain.rs
-  - dabcraft/src/render/visibility.rs
-  - dabcraft/src/render/mod.rs
-  - dabcraft/src/game/daycycle.rs
-  - dabcraft/src/game/mod.rs
-  - dabcraft/src/app.rs
-  - dabcraft/assets/shaders/terrain.wgsl
+  - git-craft/src/world/block.rs
+  - git-craft/src/world/light.rs
+  - git-craft/src/world/light_engine.rs
+  - git-craft/src/world/chunks.rs
+  - git-craft/src/world/jobs.rs
+  - git-craft/src/world/mod.rs
+  - git-craft/src/mesh/padded.rs
+  - git-craft/src/mesh/neighborhood.rs
+  - git-craft/src/mesh/greedy.rs
+  - git-craft/src/render/terrain.rs
+  - git-craft/src/render/visibility.rs
+  - git-craft/src/render/mod.rs
+  - git-craft/src/game/daycycle.rs
+  - git-craft/src/game/mod.rs
+  - git-craft/src/app.rs
+  - git-craft/assets/shaders/terrain.wgsl
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M4 — Light Implementation Plan
+# git-craft M4 — Light Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -44,7 +44,7 @@ shared-modules-touched: []
 
 **No git remote exists** — skip all push/PR/issue steps (issue gate skipped for the same reason). Commit locally on branch `feat/m4-light`.
 
-**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root (`~/Github/Minecraft`) with `--manifest-path dabcraft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill. `gen` is a reserved keyword in edition 2024 — the worldgen module path is `crate::world::r#gen`.
+**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root (`~/Github/Minecraft`) with `--manifest-path git-craft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill. `gen` is a reserved keyword in edition 2024 — the worldgen module path is `crate::world::r#gen`.
 
 ---
 
@@ -68,29 +68,29 @@ Commands:
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --manifest-path dabcraft/Cargo.toml                 # all tests
-cargo test --manifest-path dabcraft/Cargo.toml light::         # one module
-cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml        # play (debug too slow)
+cargo test --manifest-path git-craft/Cargo.toml                 # all tests
+cargo test --manifest-path git-craft/Cargo.toml light::         # one module
+cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml        # play (debug too slow)
 ```
 
 ## File structure
 
 | File | Status | Responsibility |
 |---|---|---|
-| `dabcraft/src/world/block.rs` | modify | `TORCH` block, `blocks_light()`, `light_emission()` |
-| `dabcraft/src/world/light.rs` | create | `LightData` (uniform/dense nibble storage), `LightChannel`, `light_new_column` (pure, runs in gen job) |
-| `dabcraft/src/world/light_engine.rs` | create | incremental BFS: `add_light`, `remove_light`, `on_block_changed`, `seed_column_borders`, `relight_all` |
-| `dabcraft/src/world/chunks.rs` | modify | `Column.light`, `ChunkMap::light`/`set_light`, `insert_generated` takes light + returns applied write positions |
-| `dabcraft/src/world/jobs.rs` | modify | gen job computes column light; mesh job computes visibility mask |
-| `dabcraft/src/mesh/padded.rs` | modify | padded light channel alongside blocks |
-| `dabcraft/src/mesh/neighborhood.rs` | modify | 3×3×3 `Arc<LightData>` capture |
-| `dabcraft/src/mesh/greedy.rs` | modify | sample out-cell light, include in merge key, emit real light |
-| `dabcraft/src/render/terrain.rs` | modify | `FrameUniform` (view_proj + sky + sun), visibility filter in `prepare` |
-| `dabcraft/src/render/visibility.rs` | create | `face_connectivity` mask + per-frame `visible_set` BFS |
-| `dabcraft/src/game/daycycle.rs` | create | `DayCycle`: time, sun direction, day factor, sky color |
-| `dabcraft/src/app.rs` | modify | wiring: light on gen/edit, visibility BFS, day cycle, HUD lines, V toggle |
-| `dabcraft/assets/shaders/terrain.wgsl` | modify | blocklight + day factor + basic sun lighting |
+| `git-craft/src/world/block.rs` | modify | `TORCH` block, `blocks_light()`, `light_emission()` |
+| `git-craft/src/world/light.rs` | create | `LightData` (uniform/dense nibble storage), `LightChannel`, `light_new_column` (pure, runs in gen job) |
+| `git-craft/src/world/light_engine.rs` | create | incremental BFS: `add_light`, `remove_light`, `on_block_changed`, `seed_column_borders`, `relight_all` |
+| `git-craft/src/world/chunks.rs` | modify | `Column.light`, `ChunkMap::light`/`set_light`, `insert_generated` takes light + returns applied write positions |
+| `git-craft/src/world/jobs.rs` | modify | gen job computes column light; mesh job computes visibility mask |
+| `git-craft/src/mesh/padded.rs` | modify | padded light channel alongside blocks |
+| `git-craft/src/mesh/neighborhood.rs` | modify | 3×3×3 `Arc<LightData>` capture |
+| `git-craft/src/mesh/greedy.rs` | modify | sample out-cell light, include in merge key, emit real light |
+| `git-craft/src/render/terrain.rs` | modify | `FrameUniform` (view_proj + sky + sun), visibility filter in `prepare` |
+| `git-craft/src/render/visibility.rs` | create | `face_connectivity` mask + per-frame `visible_set` BFS |
+| `git-craft/src/game/daycycle.rs` | create | `DayCycle`: time, sun direction, day factor, sky color |
+| `git-craft/src/app.rs` | modify | wiring: light on gen/edit, visibility BFS, day cycle, HUD lines, V toggle |
+| `git-craft/assets/shaders/terrain.wgsl` | modify | blocklight + day factor + basic sun lighting |
 
 ## Setup
 
@@ -111,15 +111,15 @@ Expected: branch `feat/m4-light` created from `main` (main already contains the 
 ### Task 1: Torch block + light predicates
 
 **Files:**
-- Modify: `dabcraft/src/world/block.rs`
-- Modify: `dabcraft/assets/shaders/terrain.wgsl` (PALETTE table + clamp index only)
+- Modify: `git-craft/src/world/block.rs`
+- Modify: `git-craft/assets/shaders/terrain.wgsl` (PALETTE table + clamp index only)
 - Test: in-file `#[cfg(test)]` in `block.rs`
 
 The torch is the only light emitter in M4. It renders as a full cube (a proper cross-model is out of scope until textures land) and is collidable like every solid block. What distinguishes it: it does NOT block light propagation, and it emits blocklight 14.
 
 - [x] **Step 1.1: Write the failing tests**
 
-Append to the `tests` module in `dabcraft/src/world/block.rs`:
+Append to the `tests` module in `git-craft/src/world/block.rs`:
 
 ```rust
     #[test]
@@ -152,12 +152,12 @@ Also update the existing `ids_are_stable` test's array to include `(TORCH, 12)` 
 
 - [x] **Step 1.2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml block::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml block::`
 Expected: FAIL — `TORCH` not found.
 
 - [x] **Step 1.3: Implement the block registry changes**
 
-In `dabcraft/src/world/block.rs`, after `pub const CACTUS`:
+In `git-craft/src/world/block.rs`, after `pub const CACTUS`:
 
 ```rust
 pub const TORCH: BlockId = BlockId(12);
@@ -195,7 +195,7 @@ Extend `display_name` with `12 => "Torch",` and `color` with `12 => [0.95, 0.71,
 
 - [x] **Step 1.4: Mirror the palette in the shader**
 
-In `dabcraft/assets/shaders/terrain.wgsl`, grow the table:
+In `git-craft/assets/shaders/terrain.wgsl`, grow the table:
 
 ```wgsl
 const PALETTE = array<vec3<f32>, 13>(
@@ -219,13 +219,13 @@ And change the clamp in `vs_main` from `PALETTE[min(tex, 11u)]` to `PALETTE[min(
 
 - [x] **Step 1.5: Run the full test suite**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS — including `colors_match_the_shader_palette` (now 13 entries) and `placeable_covers_every_block_except_air` (max id 12).
 
 - [x] **Step 1.6: Commit**
 
 ```bash
-git add dabcraft/src/world/block.rs dabcraft/assets/shaders/terrain.wgsl
+git add git-craft/src/world/block.rs git-craft/assets/shaders/terrain.wgsl
 git commit -m "feat: add torch block and light propagation predicates"
 ```
 
@@ -234,15 +234,15 @@ git commit -m "feat: add torch block and light propagation predicates"
 ### Task 2: LightData — uniform/dense nibble storage
 
 **Files:**
-- Create: `dabcraft/src/world/light.rs`
-- Modify: `dabcraft/src/world/mod.rs` (add `pub mod light;`)
+- Create: `git-craft/src/world/light.rs`
+- Modify: `git-craft/src/world/mod.rs` (add `pub mod light;`)
 - Test: in-file `#[cfg(test)]` in `light.rs`
 
 Two 4-bit channels per voxel: skylight in the low nibble, blocklight in the high nibble, one byte per voxel, index order `(y*32+z)*32+x` (identical to `Section`). The killer optimization mirrors palette storage: most sections are uniformly lit (all sky-15 above ground, all dark deep underground), so `Uniform(u8)` stores one byte and promotes to a 32 KiB `Dense` box only on the first divergent write. A 13-column load radius is ~4400 sections; without the uniform variant light alone would cost ~140 MiB.
 
 - [x] **Step 2.1: Write the failing tests**
 
-Create `dabcraft/src/world/light.rs` with only the test module first (the impl comes in 2.3):
+Create `git-craft/src/world/light.rs` with only the test module first (the impl comes in 2.3):
 
 ```rust
 #[cfg(test)]
@@ -314,14 +314,14 @@ mod tests {
 
 - [x] **Step 2.2: Register the module and verify the tests fail**
 
-Add `pub mod light;` to `dabcraft/src/world/mod.rs`.
+Add `pub mod light;` to `git-craft/src/world/mod.rs`.
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light::`
 Expected: FAIL to compile — `LightData` not defined.
 
 - [x] **Step 2.3: Implement LightData**
 
-Prepend the implementation above the test module in `dabcraft/src/world/light.rs`:
+Prepend the implementation above the test module in `git-craft/src/world/light.rs`:
 
 ```rust
 // Per-section voxel light storage (spec §4): two 4-bit channels per voxel,
@@ -459,13 +459,13 @@ impl LightData {
 
 - [x] **Step 2.4: Run the tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light::`
 Expected: PASS (6 tests). Note: `LightChannel`, `get`, `set`, `MAX_LIGHT` are not exercised yet — they are consumed in Tasks 3–5; if clippy complains about dead code at this commit, add `#[allow(dead_code)] // consumed by light_engine (Task 5)` on the unused items and remove it in Task 5.
 
 - [x] **Step 2.5: Commit**
 
 ```bash
-git add dabcraft/src/world/light.rs dabcraft/src/world/mod.rs
+git add git-craft/src/world/light.rs git-craft/src/world/mod.rs
 git commit -m "feat: add uniform/dense nibble light storage per section"
 ```
 
@@ -474,15 +474,15 @@ git commit -m "feat: add uniform/dense nibble light storage per section"
 ### Task 3: Column light + ChunkMap accessors
 
 **Files:**
-- Modify: `dabcraft/src/world/chunks.rs`
-- Modify: `dabcraft/src/app.rs` (call-site fix only — placeholder light)
+- Modify: `git-craft/src/world/chunks.rs`
+- Modify: `git-craft/src/app.rs` (call-site fix only — placeholder light)
 - Test: existing + new tests in `chunks.rs`
 
 `Column` gains a light array parallel to `sections`. `insert_generated` accepts the light computed by the gen job, and now **returns the world positions of structure writes it applied to ready columns** (its own pending queue + routed outside-writes) so `App` can run incremental light updates for them (Task 6) — the gen job lit the column before those writes landed. `ChunkMap` gains world-space light accessors with the same out-of-world conventions as `block_at`: above the world is full skylight, below is dark, unloaded is `None`.
 
 - [x] **Step 3.1: Write the failing tests**
 
-In `dabcraft/src/world/chunks.rs` tests, add a helper next to `empty_column_data`:
+In `git-craft/src/world/chunks.rs` tests, add a helper next to `empty_column_data`:
 
 ```rust
     fn dark_light() -> [crate::world::light::LightData; COLUMN_SECTIONS] {
@@ -564,12 +564,12 @@ Naming note: the method stays `insert_generated` — the tests above use `insert
 
 - [x] **Step 3.2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml chunks::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml chunks::`
 Expected: FAIL to compile.
 
 - [x] **Step 3.3: Implement**
 
-In `dabcraft/src/world/chunks.rs`:
+In `git-craft/src/world/chunks.rs`:
 
 Imports:
 
@@ -720,7 +720,7 @@ Light accessors (place next to `block_at` / `set_block`):
 
 - [x] **Step 3.4: Fix the App call site with placeholder light**
 
-In `dabcraft/src/app.rs` `update_world`, the `JobResult::Generated` arm — the gen job does not carry light until Task 4, so insert dark placeholder light to keep the build green:
+In `git-craft/src/app.rs` `update_world`, the `JobResult::Generated` arm — the gen job does not carry light until Task 4, so insert dark placeholder light to keep the build green:
 
 ```rust
                 JobResult::Generated { pos, data, writes } => {
@@ -739,13 +739,13 @@ In `dabcraft/src/app.rs` `update_world`, the `JobResult::Generated` arm — the 
 
 Rename `insert_generated_with_light` → `insert_generated` in the Step 3.1 tests; add `dark_light()` as the third argument to every pre-existing `insert_generated` call in the test module (8 call sites).
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 - [x] **Step 3.6: Commit**
 
 ```bash
-git add dabcraft/src/world/chunks.rs dabcraft/src/app.rs
+git add git-craft/src/world/chunks.rs git-craft/src/app.rs
 git commit -m "feat: store per-section light in chunk columns"
 ```
 
@@ -754,16 +754,16 @@ git commit -m "feat: store per-section light in chunk columns"
 ### Task 4: Column skylight computed in the generation job
 
 **Files:**
-- Modify: `dabcraft/src/world/light.rs` (add `light_new_column`)
-- Modify: `dabcraft/src/world/jobs.rs` (`Generated` carries light)
-- Modify: `dabcraft/src/app.rs` (use the job's light)
+- Modify: `git-craft/src/world/light.rs` (add `light_new_column`)
+- Modify: `git-craft/src/world/jobs.rs` (`Generated` carries light)
+- Modify: `git-craft/src/app.rs` (use the job's light)
 - Test: in-file tests in `light.rs`
 
 Initial skylight is a pure function over a freshly generated column, so it runs inside the existing rayon gen job for free parallelism: seed 15 from the top of each (x,z) shaft down to the first light-blocking block, then BFS-spread within the column (sideways/up lose 1 per step; level-15 falls downward undimmed — the vanilla rule, which makes open sky cheap and overhangs correct). Cross-column seams are healed later by `seed_column_borders` (Task 5) — this matches Minecraft semantics: flood-fill skylight is per-column sky access, not neighbor-mountain shadowing (shadows are the CSM's job in M5). Blocklight starts at 0 — worldgen places no emitters.
 
 - [x] **Step 4.1: Write the failing tests**
 
-Append to the `tests` module in `dabcraft/src/world/light.rs`:
+Append to the `tests` module in `git-craft/src/world/light.rs`:
 
 ```rust
     use crate::world::block::{STONE, TORCH, WATER};
@@ -857,12 +857,12 @@ Append to the `tests` module in `dabcraft/src/world/light.rs`:
 
 - [x] **Step 4.2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light::`
 Expected: FAIL to compile — `light_new_column` not defined.
 
 - [x] **Step 4.3: Implement light_new_column**
 
-Add to `dabcraft/src/world/light.rs` (above the tests), with imports `use std::collections::VecDeque;`, `use crate::world::block::{BlockId, AIR};`, `use crate::world::r#gen::COLUMN_SECTIONS;`, `use crate::world::section::Section;`:
+Add to `git-craft/src/world/light.rs` (above the tests), with imports `use std::collections::VecDeque;`, `use crate::world::block::{BlockId, AIR};`, `use crate::world::r#gen::COLUMN_SECTIONS;`, `use crate::world::section::Section;`:
 
 ```rust
 const WORLD_H: usize = 256;
@@ -926,12 +926,12 @@ Performance note: the seed loop enqueues every sky-15 voxel (~200k for an open c
 
 - [x] **Step 4.4: Run the light tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light::`
 Expected: PASS.
 
 - [x] **Step 4.5: Carry light through the job channel**
 
-In `dabcraft/src/world/jobs.rs`:
+In `git-craft/src/world/jobs.rs`:
 
 ```rust
 use crate::world::light::{light_new_column, LightData};
@@ -970,7 +970,7 @@ pub enum JobResult {
 
 Update the existing `gen_job_roundtrips_through_the_channel` test's match arm to `JobResult::Generated { pos, data, .. }` (unchanged pattern still compiles — `..` absorbs the new field; verify).
 
-In `dabcraft/src/app.rs`, replace the Task 3 placeholder:
+In `git-craft/src/app.rs`, replace the Task 3 placeholder:
 
 ```rust
                 JobResult::Generated { pos, data, light, writes } => {
@@ -987,11 +987,11 @@ In `dabcraft/src/app.rs`, replace the Task 3 placeholder:
 
 - [x] **Step 4.6: Full suite + commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 ```bash
-git add dabcraft/src/world/light.rs dabcraft/src/world/jobs.rs dabcraft/src/app.rs
+git add git-craft/src/world/light.rs git-craft/src/world/jobs.rs git-craft/src/app.rs
 git commit -m "feat: compute column skylight inside generation jobs"
 ```
 
@@ -1000,8 +1000,8 @@ git commit -m "feat: compute column skylight inside generation jobs"
 ### Task 5: Incremental flood-fill light engine
 
 **Files:**
-- Create: `dabcraft/src/world/light_engine.rs`
-- Modify: `dabcraft/src/world/mod.rs` (add `pub mod light_engine;`)
+- Create: `git-craft/src/world/light_engine.rs`
+- Modify: `git-craft/src/world/mod.rs` (add `pub mod light_engine;`)
 - Test: in-file tests in `light_engine.rs`
 
 The standard Minecraft addition/removal BFS, generalized over `ChunkMap` and `LightChannel`:
@@ -1016,7 +1016,7 @@ Out-of-world conventions do real work here: `map.light` returns sky-15 above the
 
 - [x] **Step 5.1: Write the failing tests**
 
-Create `dabcraft/src/world/light_engine.rs` with the test module:
+Create `git-craft/src/world/light_engine.rs` with the test module:
 
 ```rust
 #[cfg(test)]
@@ -1198,14 +1198,14 @@ mod tests {
 
 - [x] **Step 5.2: Register the module and verify tests fail**
 
-Add `pub mod light_engine;` to `dabcraft/src/world/mod.rs`.
+Add `pub mod light_engine;` to `git-craft/src/world/mod.rs`.
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light_engine::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light_engine::`
 Expected: FAIL to compile.
 
 - [x] **Step 5.3: Implement the engine**
 
-`dabcraft/src/world/light_engine.rs` above the tests:
+`git-craft/src/world/light_engine.rs` above the tests:
 
 ```rust
 // Incremental flood-fill light engine (spec §4): addition/removal BFS over
@@ -1423,16 +1423,16 @@ pub fn relight_all(map: &mut ChunkMap, cols: &[ColumnPos]) {
 
 - [x] **Step 5.4: Run the engine tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml light_engine::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml light_engine::`
 Expected: PASS (5 tests). The `incremental_equals_from_scratch` test is the load-bearing one — if it fails, debug the engine, not the oracle (the oracle is the simple definition). Remove any `#[allow(dead_code)]` left on `light.rs` items from Task 2.
 
 - [x] **Step 5.5: Full suite + commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 ```bash
-git add dabcraft/src/world/light_engine.rs dabcraft/src/world/mod.rs dabcraft/src/world/light.rs
+git add git-craft/src/world/light_engine.rs git-craft/src/world/mod.rs git-craft/src/world/light.rs
 git commit -m "feat: add incremental flood-fill light engine"
 ```
 
@@ -1441,7 +1441,7 @@ git commit -m "feat: add incremental flood-fill light engine"
 ### Task 6: Wire light updates into edits and streaming
 
 **Files:**
-- Modify: `dabcraft/src/app.rs`
+- Modify: `git-craft/src/app.rs`
 - Test: behavior is covered by the Task 5 engine tests; this task is wiring + a smoke run
 
 Three hook points, all in `app.rs`:
@@ -1528,27 +1528,27 @@ In `render()`, next to the other captured HUD values:
 
 - [x] **Step 6.4: Build, test, smoke-run**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS, no warnings.
 
 Smoke run (macOS has no `timeout`):
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo build --release --manifest-path dabcraft/Cargo.toml
-./dabcraft/target/release/dabcraft > /tmp/dabcraft-m4-t6.log 2>&1 &
+cargo build --release --manifest-path git-craft/Cargo.toml
+./git-craft/target/release/git-craft > /tmp/dabcraft-m4-t6.log 2>&1 &
 APP_PID=$!
 sleep 30
 kill $APP_PID
 grep -iE "panic|error" /tmp/dabcraft-m4-t6.log || echo "CLEAN"
 ```
 
-Expected: `CLEAN` (the egui/wgpu startup may log benign info lines; investigate anything matching panic/error). Note: the binary may live at `dabcraft/target/release/dabcraft` or `target/release/dabcraft` depending on workspace layout — check both.
+Expected: `CLEAN` (the egui/wgpu startup may log benign info lines; investigate anything matching panic/error). Note: the binary may live at `git-craft/target/release/git-craft` or `target/release/git-craft` depending on workspace layout — check both.
 
 - [x] **Step 6.5: Commit**
 
 ```bash
-git add dabcraft/src/app.rs
+git add git-craft/src/app.rs
 git commit -m "feat: wire light updates into edits and column streaming"
 ```
 
@@ -1557,10 +1557,10 @@ git commit -m "feat: wire light updates into edits and column streaming"
 ### Task 7: Mesher bakes flood-fill light into quads
 
 **Files:**
-- Modify: `dabcraft/src/mesh/padded.rs` (light channel)
-- Modify: `dabcraft/src/mesh/neighborhood.rs` (light Arc capture)
-- Modify: `dabcraft/src/mesh/greedy.rs` (sample + merge key + emit)
-- Modify: `dabcraft/src/app.rs` (`build_neighborhood` fills light)
+- Modify: `git-craft/src/mesh/padded.rs` (light channel)
+- Modify: `git-craft/src/mesh/neighborhood.rs` (light Arc capture)
+- Modify: `git-craft/src/mesh/greedy.rs` (sample + merge key + emit)
+- Modify: `git-craft/src/app.rs` (`build_neighborhood` fills light)
 - Test: in-file tests in all three mesh files
 
 A quad's light is the light of the **out-layer cell in front of the face** — the same cell row AO samples (a face is lit by the air it faces, not by its own opaque voxel). Light joins the greedy merge key: faces whose out-cells differ in light must not merge, or a cave mouth would smear sky-15 deep into the dark. `PackedQuad` already has the bits; `greedy.rs::emit` stops hardcoding `15/0`.
@@ -1569,7 +1569,7 @@ Defaults are chosen so every existing mesh test stays green: `PaddedSection::air
 
 - [x] **Step 7.1: Write the failing tests**
 
-`dabcraft/src/mesh/padded.rs` tests:
+`git-craft/src/mesh/padded.rs` tests:
 
 ```rust
     #[test]
@@ -1594,7 +1594,7 @@ Defaults are chosen so every existing mesh test stays green: `PaddedSection::air
     }
 ```
 
-`dabcraft/src/mesh/neighborhood.rs` tests:
+`git-craft/src/mesh/neighborhood.rs` tests:
 
 ```rust
     #[test]
@@ -1614,7 +1614,7 @@ Defaults are chosen so every existing mesh test stays green: `PaddedSection::air
     }
 ```
 
-`dabcraft/src/mesh/greedy.rs` tests:
+`git-craft/src/mesh/greedy.rs` tests:
 
 ```rust
     #[test]
@@ -1674,12 +1674,12 @@ Defaults are chosen so every existing mesh test stays green: `PaddedSection::air
 
 - [x] **Step 7.2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh`
+Run: `cargo test --manifest-path git-craft/Cargo.toml mesh`
 Expected: FAIL to compile (`light_packed`, `set_light`, `build` arity, `hood.light`).
 
 - [x] **Step 7.3: Implement the padded light channel**
 
-`dabcraft/src/mesh/padded.rs`:
+`git-craft/src/mesh/padded.rs`:
 
 ```rust
 use crate::world::block::{BlockId, AIR};
@@ -1776,7 +1776,7 @@ Update the two existing `build` tests to the new closure signature: `|_, _, _| (
 
 - [x] **Step 7.4: Implement the neighborhood light capture**
 
-`dabcraft/src/mesh/neighborhood.rs`:
+`git-craft/src/mesh/neighborhood.rs`:
 
 ```rust
 use crate::world::light::{pack_light, LightData, MAX_LIGHT};
@@ -1839,7 +1839,7 @@ Add next to `get`:
 
 - [x] **Step 7.5: Implement mesher light sampling and merge key**
 
-`dabcraft/src/mesh/greedy.rs`:
+`git-craft/src/mesh/greedy.rs`:
 
 `plane_key` gains the packed light byte (bits 34..42 of the u64 key — face already ends at bit 34):
 
@@ -1898,7 +1898,7 @@ Thread `light: u8` through `sweep_plane` and `emit` (one more parameter each), a
 
 - [x] **Step 7.6: Fill the neighborhood light in App**
 
-`dabcraft/src/app.rs`, `build_neighborhood` — capture the light Arc next to the section Arc:
+`git-craft/src/app.rs`, `build_neighborhood` — capture the light Arc next to the section Arc:
 
 ```rust
                     if let Some(c) = self.world.ready(col) {
@@ -1911,15 +1911,15 @@ Thread `light: u8` through `sweep_plane` and `emit` (one more parameter each), a
 
 - [x] **Step 7.7: Run everything**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS — all pre-existing greedy/padded/neighborhood tests stay green (defaults preserve the old `skylight 15 / blocklight 0` behavior), plus the new light tests.
 
-Visual check (optional but recommended): `cargo run --release --manifest-path dabcraft/Cargo.toml` — caves and overhangs are now dark, the surface unchanged. Torches don't glow yet (shader reads blocklight in Task 8); placing blocks under an overhang should show light gradients.
+Visual check (optional but recommended): `cargo run --release --manifest-path git-craft/Cargo.toml` — caves and overhangs are now dark, the surface unchanged. Torches don't glow yet (shader reads blocklight in Task 8); placing blocks under an overhang should show light gradients.
 
 - [x] **Step 7.8: Commit**
 
 ```bash
-git add dabcraft/src/mesh/padded.rs dabcraft/src/mesh/neighborhood.rs dabcraft/src/mesh/greedy.rs dabcraft/src/app.rs
+git add git-craft/src/mesh/padded.rs git-craft/src/mesh/neighborhood.rs git-craft/src/mesh/greedy.rs git-craft/src/app.rs
 git commit -m "feat: bake flood-fill light into greedy mesh quads"
 ```
 
@@ -1928,16 +1928,16 @@ git commit -m "feat: bake flood-fill light into greedy mesh quads"
 ### Task 8: Shader — blocklight, sun, and day factor
 
 **Files:**
-- Modify: `dabcraft/src/render/terrain.rs` (`CameraUniform` → `FrameUniform`)
-- Modify: `dabcraft/assets/shaders/terrain.wgsl`
-- Modify: `dabcraft/src/app.rs` (call site, hardcoded noon until Task 9)
+- Modify: `git-craft/src/render/terrain.rs` (`CameraUniform` → `FrameUniform`)
+- Modify: `git-craft/assets/shaders/terrain.wgsl`
+- Modify: `git-craft/src/app.rs` (call site, hardcoded noon until Task 9)
 - Test: uniform layout test in `terrain.rs`; the existing `shipped_terrain_shader_is_valid` covers WGSL compilation; the palette-drift test in `block.rs` keeps the tables honest
 
 The frame uniform grows two vec4s: `sky` (rgb sky color, w = day factor 0..1) and `sun` (xyz world-space sun direction). The lighting model is the M4 "basic sun" — a per-face NdotL on the face normal blended with the Minecraft-style face shade, gated by flood-fill skylight so caves stay dark at noon, plus a warm time-independent torch term. The full spec model (CSM, real ambient split) replaces this in M5; constants here are tuned live via shader hot-reload.
 
 - [x] **Step 8.1: Write the failing uniform-layout test**
 
-In `dabcraft/src/render/terrain.rs` tests:
+In `git-craft/src/render/terrain.rs` tests:
 
 ```rust
     #[test]
@@ -1950,12 +1950,12 @@ In `dabcraft/src/render/terrain.rs` tests:
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml terrain::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml terrain::`
 Expected: FAIL to compile — `FrameUniform` not defined.
 
 - [x] **Step 8.2: Implement FrameUniform**
 
-In `dabcraft/src/render/terrain.rs`, replace `CameraUniform`:
+In `git-craft/src/render/terrain.rs`, replace `CameraUniform`:
 
 ```rust
 #[repr(C)]
@@ -1993,7 +1993,7 @@ The uniform visibility must now include the fragment stage? No — all lighting 
 
 - [x] **Step 8.3: Update the call site with hardcoded noon**
 
-In `dabcraft/src/app.rs` `render()`:
+In `git-craft/src/app.rs` `render()`:
 
 ```rust
         if let Some(terrain) = self.terrain.as_mut() {
@@ -2011,7 +2011,7 @@ In `dabcraft/src/app.rs` `render()`:
 
 - [x] **Step 8.4: Rewrite the shader lighting**
 
-`dabcraft/assets/shaders/terrain.wgsl` — full updated file:
+`git-craft/assets/shaders/terrain.wgsl` — full updated file:
 
 ```wgsl
 struct FrameUniform {
@@ -2139,15 +2139,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
 - [x] **Step 8.5: Run everything**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS — `shipped_terrain_shader_is_valid` recompiles the new WGSL, `colors_match_the_shader_palette` still parses the table, the new layout test passes.
 
-Visual check: `cargo run --release --manifest-path dabcraft/Cargo.toml` — place a torch in a cave: warm orange pool of light decaying over ~14 blocks. Surfaces facing the (fixed noon) sun are brighter than opposite faces.
+Visual check: `cargo run --release --manifest-path git-craft/Cargo.toml` — place a torch in a cave: warm orange pool of light decaying over ~14 blocks. Surfaces facing the (fixed noon) sun are brighter than opposite faces.
 
 - [x] **Step 8.6: Commit**
 
 ```bash
-git add dabcraft/src/render/terrain.rs dabcraft/assets/shaders/terrain.wgsl dabcraft/src/app.rs
+git add git-craft/src/render/terrain.rs git-craft/assets/shaders/terrain.wgsl git-craft/src/app.rs
 git commit -m "feat: light terrain from skylight, blocklight, and a basic sun"
 ```
 
@@ -2156,16 +2156,16 @@ git commit -m "feat: light terrain from skylight, blocklight, and a basic sun"
 ### Task 9: Day/night cycle
 
 **Files:**
-- Create: `dabcraft/src/game/daycycle.rs`
-- Modify: `dabcraft/src/game/mod.rs` (add `pub mod daycycle;`)
-- Modify: `dabcraft/src/app.rs` (advance + feed the uniform + clear color + HUD)
+- Create: `git-craft/src/game/daycycle.rs`
+- Modify: `git-craft/src/game/mod.rs` (add `pub mod daycycle;`)
+- Modify: `git-craft/src/app.rs` (advance + feed the uniform + clear color + HUD)
 - Test: in-file tests in `daycycle.rs`
 
 Pure time-of-day state: `time ∈ [0,1)`, full cycle 20 minutes (spec §7), `0.0 = sunrise`. The sun travels a tilted circle (so it is never exactly overhead — better face shading); `day_factor` smoothsteps around sunrise/sunset with a 0.03 night floor (a hint of moonlight; the real moon light is M5); `sky_color` lerps night→day and blends an orange band near the horizon. **Flood-fill light is never touched** — darkening is entirely this uniform (spec §4).
 
 - [x] **Step 9.1: Write the failing tests**
 
-Create `dabcraft/src/game/daycycle.rs`:
+Create `git-craft/src/game/daycycle.rs`:
 
 ```rust
 #[cfg(test)]
@@ -2223,7 +2223,7 @@ mod tests {
 }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml daycycle::` after adding `pub mod daycycle;` to `dabcraft/src/game/mod.rs`.
+Run: `cargo test --manifest-path git-craft/Cargo.toml daycycle::` after adding `pub mod daycycle;` to `git-craft/src/game/mod.rs`.
 Expected: FAIL to compile.
 
 - [x] **Step 9.2: Implement DayCycle**
@@ -2302,12 +2302,12 @@ Check the noon `sun_dir` assertion: at `time = 0.25`, `a = TAU/4`, `cos ≈ 0`, 
 
 - [x] **Step 9.3: Run the daycycle tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml daycycle::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml daycycle::`
 Expected: PASS (5 tests).
 
 - [x] **Step 9.4: Wire into App**
 
-In `dabcraft/src/app.rs`:
+In `git-craft/src/app.rs`:
 
 - Field: `day: crate::game::daycycle::DayCycle,` initialized with `crate::game::daycycle::DayCycle::new()` in `App::new`.
 - In `render()` right after `dt` is computed (BEFORE the `cursor_grabbed` branch — ambient time advances even while paused):
@@ -2353,13 +2353,13 @@ In `dabcraft/src/app.rs`:
 
 - [x] **Step 9.5: Run, smoke, commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS.
 
 Visual check: run release; for a fast visual sweep of a full day, temporarily set `cycle_secs` to 60.0 in `DayCycle::new`, watch a sunrise→noon→sunset→night sweep (sky color, terrain brightness, torch pools at night), then **revert to `DEFAULT_CYCLE_SECS` before committing**.
 
 ```bash
-git add dabcraft/src/game/daycycle.rs dabcraft/src/game/mod.rs dabcraft/src/app.rs
+git add git-craft/src/game/daycycle.rs git-craft/src/game/mod.rs git-craft/src/app.rs
 git commit -m "feat: add day/night cycle driving sun, sky color, and clear color"
 ```
 
@@ -2368,16 +2368,16 @@ git commit -m "feat: add day/night cycle driving sun, sky color, and clear color
 ### Task 10: Cave culling — face connectivity masks
 
 **Files:**
-- Create: `dabcraft/src/render/visibility.rs`
-- Modify: `dabcraft/src/render/mod.rs` (add `pub mod visibility;`)
-- Modify: `dabcraft/src/world/jobs.rs` (`Meshed` carries the mask)
+- Create: `git-craft/src/render/visibility.rs`
+- Modify: `git-craft/src/render/mod.rs` (add `pub mod visibility;`)
+- Modify: `git-craft/src/world/jobs.rs` (`Meshed` carries the mask)
 - Test: in-file tests in `visibility.rs`
 
 The Tommaso Checchi visibility graph (spec §6): at mesh time, flood-fill the section's non-solid voxels into connected components; for each component, record which of the 6 faces it touches; OR together the face-pair bits of every touched pair. 6 faces → 15 unordered pairs → a `u16` mask. "Can you see in through face A and out through face B?" becomes one AND. The mask is computed in the mesh job (the padded buffer's interior is exactly the section) and shipped alongside the quads.
 
 - [x] **Step 10.1: Write the failing tests**
 
-Create `dabcraft/src/render/visibility.rs` with the test module:
+Create `git-craft/src/render/visibility.rs` with the test module:
 
 ```rust
 #[cfg(test)]
@@ -2499,14 +2499,14 @@ Coordinate note for test authors: `PaddedSection` coords are padded (interior 1.
 
 - [x] **Step 10.2: Register the module and verify tests fail**
 
-Add `pub mod visibility;` to `dabcraft/src/render/mod.rs`.
+Add `pub mod visibility;` to `git-craft/src/render/mod.rs`.
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml visibility::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml visibility::`
 Expected: FAIL to compile.
 
 - [x] **Step 10.3: Implement**
 
-`dabcraft/src/render/visibility.rs` above the tests:
+`git-craft/src/render/visibility.rs` above the tests:
 
 ```rust
 // Cave culling (spec §6, Tommaso Checchi): per-section face-to-face
@@ -2599,7 +2599,7 @@ pub fn face_connectivity(padded: &PaddedSection) -> u16 {
 
 - [x] **Step 10.4: Ship the mask through the mesh job**
 
-`dabcraft/src/world/jobs.rs`:
+`git-craft/src/world/jobs.rs`:
 
 ```rust
     Meshed { pos: SectionPos, version: u64, quads: Vec<PackedQuad>, visibility: u16 },
@@ -2618,15 +2618,15 @@ pub fn face_connectivity(padded: &PaddedSection) -> u16 {
     }
 ```
 
-In `dabcraft/src/app.rs`, extend the `Meshed` match arm pattern with `visibility` and ignore it for now (`visibility: _visibility` or capture and drop) — storage and the BFS land in Task 11. Keeping this task compiling on its own keeps the commit bisectable.
+In `git-craft/src/app.rs`, extend the `Meshed` match arm pattern with `visibility` and ignore it for now (`visibility: _visibility` or capture and drop) — storage and the BFS land in Task 11. Keeping this task compiling on its own keeps the commit bisectable.
 
 - [x] **Step 10.5: Run + commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 ```bash
-git add dabcraft/src/render/visibility.rs dabcraft/src/render/mod.rs dabcraft/src/world/jobs.rs dabcraft/src/app.rs
+git add git-craft/src/render/visibility.rs git-craft/src/render/mod.rs git-craft/src/world/jobs.rs git-craft/src/app.rs
 git commit -m "feat: compute section face-connectivity masks in mesh jobs"
 ```
 
@@ -2635,16 +2635,16 @@ git commit -m "feat: compute section face-connectivity masks in mesh jobs"
 ### Task 11: Cave culling — camera BFS and draw filter
 
 **Files:**
-- Modify: `dabcraft/src/render/visibility.rs` (add `visible_set`)
-- Modify: `dabcraft/src/render/terrain.rs` (`prepare` filter + stats)
-- Modify: `dabcraft/src/app.rs` (mask store, per-frame BFS, V toggle, HUD)
+- Modify: `git-craft/src/render/visibility.rs` (add `visible_set`)
+- Modify: `git-craft/src/render/terrain.rs` (`prepare` filter + stats)
+- Modify: `git-craft/src/app.rs` (mask store, per-frame BFS, V toggle, HUD)
 - Test: in-file tests in `visibility.rs` and `terrain.rs`
 
 Per frame: BFS outward from the camera's section over the loaded-section graph. A step from section S through exit face f is allowed only if S's mask connects the face we entered through to f; steps that move opposite to any direction already traveled on this path are forbidden (the vanilla anti-wraparound rule); visited is keyed by position (first arrival wins — standard, slightly conservative). Sections with no mask yet (not meshed) are traversed freely — unknown must never hide geometry. The result set feeds `TerrainRenderer::prepare`, which already frustum-culls; cave culling composes with it.
 
 - [x] **Step 11.1: Write the failing tests**
 
-Append to `dabcraft/src/render/visibility.rs` tests:
+Append to `git-craft/src/render/visibility.rs` tests:
 
 ```rust
     use crate::world::chunks::SectionPos;
@@ -2717,7 +2717,7 @@ Append to `dabcraft/src/render/visibility.rs` tests:
     }
 ```
 
-And in `dabcraft/src/render/terrain.rs` tests:
+And in `git-craft/src/render/terrain.rs` tests:
 
 ```rust
     #[test]
@@ -2739,12 +2739,12 @@ And in `dabcraft/src/render/terrain.rs` tests:
 
 - [x] **Step 11.2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml visibility::`
+Run: `cargo test --manifest-path git-craft/Cargo.toml visibility::`
 Expected: FAIL to compile — `visible_set` missing.
 
 - [x] **Step 11.3: Implement visible_set**
 
-Append to `dabcraft/src/render/visibility.rs` (above tests), with imports `use std::collections::{HashSet, VecDeque};` and `use crate::world::chunks::SectionPos;`:
+Append to `git-craft/src/render/visibility.rs` (above tests), with imports `use std::collections::{HashSet, VecDeque};` and `use crate::world::chunks::SectionPos;`:
 
 ```rust
 /// Face index → step direction, mesher face order.
@@ -2808,7 +2808,7 @@ pub fn visible_set(
 
 - [x] **Step 11.4: Filter draws in TerrainRenderer**
 
-`dabcraft/src/render/terrain.rs`:
+`git-craft/src/render/terrain.rs`:
 
 ```rust
 use std::collections::{HashMap, HashSet};
@@ -2866,7 +2866,7 @@ pub struct DrawStats {
 
 - [x] **Step 11.5: Wire into App**
 
-`dabcraft/src/app.rs`:
+`git-craft/src/app.rs`:
 
 - Fields:
 
@@ -2941,7 +2941,7 @@ Initialize `visibility_masks: HashMap::new(), cave_culling: true, stats_cave_cul
 
 - [x] **Step 11.6: Run, validate with the HUD, commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings`
 Expected: PASS.
 
 HUD validation (spec §8 discipline — claims need numbers): run release.
@@ -2950,7 +2950,7 @@ HUD validation (spec §8 discipline — claims need numbers): run release.
 3. GPU ms should drop (or hold) with culling on; record before/after numbers in the task log.
 
 ```bash
-git add dabcraft/src/render/visibility.rs dabcraft/src/render/terrain.rs dabcraft/src/app.rs
+git add git-craft/src/render/visibility.rs git-craft/src/render/terrain.rs git-craft/src/app.rs
 git commit -m "feat: cull cave sections via per-frame visibility BFS"
 ```
 
@@ -2971,10 +2971,10 @@ git commit -m "feat: cull cave sections via per-frame visibility BFS"
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo fmt --manifest-path dabcraft/Cargo.toml --check
-cargo clippy --manifest-path dabcraft/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo build --release --manifest-path dabcraft/Cargo.toml
+cargo fmt --manifest-path git-craft/Cargo.toml --check
+cargo clippy --manifest-path git-craft/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path git-craft/Cargo.toml
+cargo build --release --manifest-path git-craft/Cargo.toml
 ```
 
 Expected: all clean. Fix anything that isn't (no `--no-verify`, no allow-attributes to silence real issues).
@@ -2982,7 +2982,7 @@ Expected: all clean. Fix anything that isn't (no `--no-verify`, no allow-attribu
 - [x] **Step 12.2: Smoke run**
 
 ```bash
-./dabcraft/target/release/dabcraft > /tmp/dabcraft-m4-final.log 2>&1 &
+./git-craft/target/release/git-craft > /tmp/dabcraft-m4-final.log 2>&1 &
 APP_PID=$!
 sleep 30
 kill $APP_PID

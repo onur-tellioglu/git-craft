@@ -1,5 +1,5 @@
 ---
-title: dabcraft M1 — Foundation (window, GPU, fly camera, packed-quad test section)
+title: git-craft M1 — Foundation (window, GPU, fly camera, packed-quad test section)
 date: 2026-06-11
 domain: infra
 type: enhancement
@@ -9,12 +9,12 @@ db-migration: false
 rls-affecting: false
 slice: 1
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
-touched-files: [dabcraft/Cargo.toml, dabcraft/src/**, dabcraft/assets/shaders/*.wgsl]
+touched-files: [git-craft/Cargo.toml, git-craft/src/**, git-craft/assets/shaders/*.wgsl]
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M1 — Foundation Implementation Plan
+# git-craft M1 — Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -39,10 +39,10 @@ shared-modules-touched: []
 
 ## File Structure
 
-All paths relative to repo root. The crate lives in `dabcraft/`.
+All paths relative to repo root. The crate lives in `git-craft/`.
 
 ```
-dabcraft/
+git-craft/
 ├── Cargo.toml
 ├── assets/
 │   └── shaders/
@@ -79,25 +79,25 @@ Responsibilities: `app.rs` is the only module that knows about all the others; `
 ### Task 1: Crate scaffold
 
 **Files:**
-- Create: `dabcraft/Cargo.toml`
-- Create: `dabcraft/src/main.rs` (placeholder)
-- Create: `dabcraft/assets/shaders/` (directory)
+- Create: `git-craft/Cargo.toml`
+- Create: `git-craft/src/main.rs` (placeholder)
+- Create: `git-craft/assets/shaders/` (directory)
 
 - [ ] **Step 1: Scaffold the crate**
 
 ```bash
 cd /Users/onurtellioglu/Github/Minecraft
-cargo new dabcraft
-mkdir -p dabcraft/assets/shaders
+cargo new git-craft
+mkdir -p git-craft/assets/shaders
 ```
 
 - [ ] **Step 2: Write Cargo.toml**
 
-Replace `dabcraft/Cargo.toml` with:
+Replace `git-craft/Cargo.toml` with:
 
 ```toml
 [package]
-name = "dabcraft"
+name = "git-craft"
 version = "0.1.0"
 edition = "2024"
 
@@ -123,21 +123,21 @@ opt-level = 3            # always optimize dependencies (wgpu especially)
 
 - [ ] **Step 3: Verify it builds**
 
-Run: `cargo build --manifest-path dabcraft/Cargo.toml`
+Run: `cargo build --manifest-path git-craft/Cargo.toml`
 Expected: compiles (downloads ~400 crates first time, several minutes). If `edition = "2024"` errors, your toolchain is too old — run `rustup update stable` (wgpu 29 needs Rust ≥ 1.87).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add dabcraft/Cargo.toml dabcraft/src/main.rs
-git commit -m "feat: scaffold dabcraft crate with wgpu 29 stack"
+git add git-craft/Cargo.toml git-craft/src/main.rs
+git commit -m "feat: scaffold git-craft crate with wgpu 29 stack"
 ```
 
 ### Task 2: Window with ApplicationHandler
 
 **Files:**
-- Modify: `dabcraft/src/main.rs`
-- Create: `dabcraft/src/app.rs`
+- Modify: `git-craft/src/main.rs`
+- Create: `git-craft/src/app.rs`
 
 No unit test possible (OS windowing); verification is build + manual run.
 
@@ -193,7 +193,7 @@ impl ApplicationHandler for App {
         }
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("dabcraft"))
+                .create_window(Window::default_attributes().with_title("git-craft"))
                 .unwrap(),
         );
         self.window = Some(window);
@@ -226,24 +226,24 @@ impl ApplicationHandler for App {
 
 - [ ] **Step 3: Run it**
 
-Run: `cargo run --manifest-path dabcraft/Cargo.toml`
-Expected: an empty window titled "dabcraft" opens; Escape or the close button exits cleanly.
+Run: `cargo run --manifest-path git-craft/Cargo.toml`
+Expected: an empty window titled "git-craft" opens; Escape or the close button exits cleanly.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: open window via winit ApplicationHandler"
 ```
 
 ### Task 3: GPU context and cleared frame
 
 **Files:**
-- Create: `dabcraft/src/render/mod.rs`
-- Create: `dabcraft/src/render/gpu.rs`
-- Create: `dabcraft/src/render/depth.rs`
-- Modify: `dabcraft/src/main.rs` (add `mod render;`)
-- Modify: `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/mod.rs`
+- Create: `git-craft/src/render/gpu.rs`
+- Create: `git-craft/src/render/depth.rs`
+- Modify: `git-craft/src/main.rs` (add `mod render;`)
+- Modify: `git-craft/src/app.rs`
 
 - [ ] **Step 1: Write render/mod.rs**
 
@@ -442,34 +442,34 @@ In `window_event`, handle resize and redraw:
 
 - [ ] **Step 5: Run it**
 
-Run: `cargo run --manifest-path dabcraft/Cargo.toml`
+Run: `cargo run --manifest-path git-craft/Cargo.toml`
 Expected: sky-blue window; resizing keeps it sky-blue without validation errors in the log.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: initialize wgpu surface, device and depth buffer; clear frame"
 ```
 
 ### Task 4: Camera math (TDD)
 
 **Files:**
-- Create: `dabcraft/src/game/mod.rs`
-- Create: `dabcraft/src/game/camera.rs`
-- Modify: `dabcraft/src/main.rs` (add `mod game;`)
+- Create: `git-craft/src/game/mod.rs`
+- Create: `git-craft/src/game/camera.rs`
+- Modify: `git-craft/src/main.rs` (add `mod game;`)
 
 Conventions (used by every later milestone — do not deviate): right-handed, +Y up. `yaw = 0, pitch = 0` looks toward **−Z**; positive yaw turns right (toward +X); pitch is clamped to ±89°. Projection is `Mat4::perspective_rh` (0..1 depth — wgpu's clip space; NOT the `_gl` variant).
 
 - [ ] **Step 1: Write the failing tests**
 
-`dabcraft/src/game/mod.rs`:
+`git-craft/src/game/mod.rs`:
 
 ```rust
 pub mod camera;
 ```
 
-`dabcraft/src/game/camera.rs` (tests first; types referenced don't exist yet):
+`git-craft/src/game/camera.rs` (tests first; types referenced don't exist yet):
 
 ```rust
 #[cfg(test)]
@@ -517,7 +517,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml camera`
+Run: `cargo test --manifest-path git-craft/Cargo.toml camera`
 Expected: FAIL — `Camera` not found.
 
 - [ ] **Step 3: Implement Camera**
@@ -567,27 +567,27 @@ impl Camera {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml camera`
+Run: `cargo test --manifest-path git-craft/Cargo.toml camera`
 Expected: 4 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: add fly camera math with clamped pitch and wgpu-space projection"
 ```
 
 ### Task 5: Input state and fly movement (TDD)
 
 **Files:**
-- Create: `dabcraft/src/game/input.rs`
-- Modify: `dabcraft/src/game/mod.rs`, `dabcraft/src/game/camera.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/game/input.rs`
+- Modify: `git-craft/src/game/mod.rs`, `git-craft/src/game/camera.rs`, `git-craft/src/app.rs`
 
 Flight model (spec §7, M1 subset): WASD moves on the horizontal plane relative to yaw (forward = look direction projected to XZ), Space up, LeftShift down. Speed 20 blocks/s.
 
 - [ ] **Step 1: Write the failing tests**
 
-Add `pub mod input;` to `game/mod.rs`. `dabcraft/src/game/input.rs`:
+Add `pub mod input;` to `game/mod.rs`. `git-craft/src/game/input.rs`:
 
 ```rust
 use std::collections::HashSet;
@@ -654,7 +654,7 @@ Add to `camera.rs` tests:
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml camera`
+Run: `cargo test --manifest-path git-craft/Cargo.toml camera`
 Expected: FAIL — no method `fly`, no const `FLY_SPEED`.
 
 - [ ] **Step 3: Implement fly()**
@@ -683,7 +683,7 @@ Add to `impl Camera`:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml camera`
+Run: `cargo test --manifest-path git-craft/Cargo.toml camera`
 Expected: 7 passed.
 
 - [ ] **Step 5: Wire into app.rs**
@@ -732,22 +732,22 @@ At the top of `render()` (before acquiring the frame):
 
 - [ ] **Step 6: Build and run**
 
-Run: `cargo run --manifest-path dabcraft/Cargo.toml`
+Run: `cargo run --manifest-path git-craft/Cargo.toml`
 Expected: window opens, cursor disappears (camera has nothing to show yet — that's Task 8). Escape exits.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: add input state and fly camera movement"
 ```
 
 ### Task 6: Packed quad format (TDD)
 
 **Files:**
-- Create: `dabcraft/src/mesh/mod.rs`
-- Create: `dabcraft/src/mesh/quad.rs`
-- Modify: `dabcraft/src/main.rs` (add `mod mesh;`)
+- Create: `git-craft/src/mesh/mod.rs`
+- Create: `git-craft/src/mesh/quad.rs`
+- Modify: `git-craft/src/main.rs` (add `mod mesh;`)
 
 The 8-byte quad is the contract between CPU meshing and the WGSL vertex shader (spec §5). Bit layout — the WGSL unpack in Task 7 must mirror this exactly:
 
@@ -760,13 +760,13 @@ data1: bits 0-4 (h-1) | 5-12 ao (4×2, corner order 00,10,11,01) | 13-16 skyligh
 
 - [ ] **Step 1: Write the failing tests**
 
-`dabcraft/src/mesh/mod.rs`:
+`git-craft/src/mesh/mod.rs`:
 
 ```rust
 pub mod quad;
 ```
 
-`dabcraft/src/mesh/quad.rs`:
+`git-craft/src/mesh/quad.rs`:
 
 ```rust
 #[cfg(test)]
@@ -800,7 +800,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml quad`
+Run: `cargo test --manifest-path git-craft/Cargo.toml quad`
 Expected: FAIL — `Quad`/`PackedQuad` not found.
 
 - [ ] **Step 3: Implement**
@@ -864,27 +864,27 @@ impl PackedQuad {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml quad`
+Run: `cargo test --manifest-path git-craft/Cargo.toml quad`
 Expected: 3 passed.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: add 8-byte packed quad format with roundtrip tests"
 ```
 
 ### Task 7: Terrain shader and vertex-pulling pipeline
 
 **Files:**
-- Create: `dabcraft/assets/shaders/terrain.wgsl`
-- Create: `dabcraft/src/render/terrain.rs`
-- Modify: `dabcraft/src/render/mod.rs` (add `pub mod terrain;`)
-- Modify: `dabcraft/src/mesh/mod.rs`
+- Create: `git-craft/assets/shaders/terrain.wgsl`
+- Create: `git-craft/src/render/terrain.rs`
+- Modify: `git-craft/src/render/mod.rs` (add `pub mod terrain;`)
+- Modify: `git-craft/src/mesh/mod.rs`
 
 - [ ] **Step 1: Write the index helper test (TDD for the pure part)**
 
-Add to `dabcraft/src/mesh/quad.rs` tests:
+Add to `git-craft/src/mesh/quad.rs` tests:
 
 ```rust
     #[test]
@@ -893,7 +893,7 @@ Add to `dabcraft/src/mesh/quad.rs` tests:
     }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml quad` → FAIL (`build_quad_indices` not found). Implement in `quad.rs`:
+Run: `cargo test --manifest-path git-craft/Cargo.toml quad` → FAIL (`build_quad_indices` not found). Implement in `quad.rs`:
 
 ```rust
 /// Two CCW triangles per quad: (0,1,2) and (0,2,3), vertices 4i..4i+3.
@@ -914,7 +914,7 @@ Run again → PASS.
 > **CORRECTION (post-implementation):** The FACE_U/FACE_V tables below have
 > inverted winding on faces 0 (+X), 2 (+Y) and 5 (−Z) — cross(U,V) points
 > inward, so these faces would vanish under backface culling. The shipped
-> `dabcraft/assets/shaders/terrain.wgsl` is the authoritative reference: its
+> `git-craft/assets/shaders/terrain.wgsl` is the authoritative reference: its
 > tables satisfy the invariant cross(U,V) = outward normal on all six faces.
 > Do NOT copy the tables from this plan.
 
@@ -1178,22 +1178,22 @@ impl TerrainRenderer {
 
 - [ ] **Step 4: Build**
 
-Run: `cargo build --manifest-path dabcraft/Cargo.toml && cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo build --manifest-path git-craft/Cargo.toml && cargo test --manifest-path git-craft/Cargo.toml`
 Expected: compiles; all tests pass. (Visual verification comes in Task 8 when quads exist.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/src dabcraft/assets
+git add git-craft/src git-craft/assets
 git commit -m "feat: add vertex-pulling terrain pipeline and WGSL quad unpack shader"
 ```
 
 ### Task 8: Test section and naive mesher (TDD) — first visible geometry
 
 **Files:**
-- Create: `dabcraft/src/world/mod.rs`, `dabcraft/src/world/block.rs`, `dabcraft/src/world/section.rs`
-- Create: `dabcraft/src/mesh/naive.rs`
-- Modify: `dabcraft/src/main.rs` (add `mod world;`), `dabcraft/src/mesh/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/world/mod.rs`, `git-craft/src/world/block.rs`, `git-craft/src/world/section.rs`
+- Create: `git-craft/src/mesh/naive.rs`
+- Modify: `git-craft/src/main.rs` (add `mod world;`), `git-craft/src/mesh/mod.rs`, `git-craft/src/app.rs`
 
 The naive mesher (one quad per exposed voxel face, no merging) is deliberately temporary — M2 replaces it with binary greedy meshing. Its tests define behavior the greedy mesher must also satisfy.
 
@@ -1288,11 +1288,11 @@ mod tests {
 }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml section` → 2 passed (implementation written together with tests here; the genuinely test-first part is the mesher below).
+Run: `cargo test --manifest-path git-craft/Cargo.toml section` → 2 passed (implementation written together with tests here; the genuinely test-first part is the mesher below).
 
 - [ ] **Step 2: Write failing mesher tests**
 
-Add `pub mod naive;` to `mesh/mod.rs`. `dabcraft/src/mesh/naive.rs`:
+Add `pub mod naive;` to `mesh/mod.rs`. `git-craft/src/mesh/naive.rs`:
 
 ```rust
 #[cfg(test)]
@@ -1346,7 +1346,7 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml naive`
+Run: `cargo test --manifest-path git-craft/Cargo.toml naive`
 Expected: FAIL — `mesh_naive` not found.
 
 - [ ] **Step 4: Implement mesh_naive**
@@ -1399,7 +1399,7 @@ pub fn mesh_naive(section: &Section) -> Vec<PackedQuad> {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml naive`
+Run: `cargo test --manifest-path git-craft/Cargo.toml naive`
 Expected: 5 passed.
 
 - [ ] **Step 6: Build the test scene and wire rendering in app.rs**
@@ -1460,27 +1460,27 @@ Inside the render pass block (replace `let _rpass` with `let mut rpass`):
 
 - [ ] **Step 7: Run and look**
 
-Run: `cargo run --manifest-path dabcraft/Cargo.toml`
+Run: `cargo run --manifest-path git-craft/Cargo.toml`
 Expected: a grass-topped 32×32 island with a stone pillar and a floating dirt cube, fully explorable with WASD/Space/Shift + mouse, correct depth (pillar occludes terrain behind it). Top faces brightest, bottoms darkest.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: render naive-meshed test section through vertex pulling"
 ```
 
 ### Task 9: WGSL hot-reload
 
 **Files:**
-- Create: `dabcraft/src/render/hot_reload.rs`
-- Modify: `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/hot_reload.rs`
+- Modify: `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 Strategy: poll the file's mtime every 0.5 s; on change, validate with naga first (parse + validate), and only swap the pipeline if valid — a broken shader must never crash the app or kill the old pipeline (spec §3).
 
 - [ ] **Step 1: Write the failing validation tests**
 
-`dabcraft/src/render/hot_reload.rs`:
+`git-craft/src/render/hot_reload.rs`:
 
 ```rust
 #[cfg(test)]
@@ -1512,7 +1512,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml hot_reload`
+Run: `cargo test --manifest-path git-craft/Cargo.toml hot_reload`
 Expected: FAIL — `validate_wgsl` not found.
 
 - [ ] **Step 3: Implement watcher + validation**
@@ -1574,7 +1574,7 @@ impl ShaderWatcher {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml hot_reload`
+Run: `cargo test --manifest-path git-craft/Cargo.toml hot_reload`
 Expected: 4 passed.
 
 - [ ] **Step 5: Wire into app.rs**
@@ -1593,7 +1593,7 @@ Add field `shader_watcher: Option<ShaderWatcher>`; create it in `resumed()` with
 
 - [ ] **Step 6: Manual verification**
 
-Run the app (`RUST_LOG=info cargo run --manifest-path dabcraft/Cargo.toml`). While it runs:
+Run the app (`RUST_LOG=info cargo run --manifest-path git-craft/Cargo.toml`). While it runs:
 1. Edit `terrain.wgsl`: change the grass palette entry to `vec3(0.9, 0.2, 0.2)`. Save. Expected: terrain top turns red within ~1 s, no restart.
 2. Introduce a syntax error (delete a `;`). Save. Expected: error logged, app keeps rendering with the previous shader.
 3. Fix the error. Expected: recovers.
@@ -1602,16 +1602,16 @@ Revert the palette change afterwards.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: add WGSL hot-reload with naga validation"
 ```
 
 ### Task 10: GPU timestamps and egui debug HUD
 
 **Files:**
-- Create: `dabcraft/src/render/timestamps.rs`
-- Create: `dabcraft/src/render/egui_layer.rs`
-- Modify: `dabcraft/src/render/mod.rs`, `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/timestamps.rs`
+- Create: `git-craft/src/render/egui_layer.rs`
+- Modify: `git-craft/src/render/mod.rs`, `git-craft/src/app.rs`
 
 Apple GPUs only support timestamps at **pass boundaries** (`RenderPassTimestampWrites`); `write_timestamp` inside passes is unavailable on M-series. The readback is asynchronous: a frame's measurement appears a few frames later — that is fine for a HUD.
 
@@ -1837,7 +1837,7 @@ In `render()`:
                 &gpu.device, &gpu.queue, &mut encoder,
                 self.window.as_ref().unwrap(), &view, &gpu.config,
                 |ctx| {
-                    egui::Window::new("dabcraft debug")
+                    egui::Window::new("git-craft debug")
                         .anchor(egui::Align2::LEFT_TOP, [8.0, 8.0])
                         .resizable(false)
                         .show(ctx, |ui| {
@@ -1857,13 +1857,13 @@ In `render()`:
 
 - [ ] **Step 4: Run and verify**
 
-Run: `cargo run --manifest-path dabcraft/Cargo.toml`
-Expected: overlay top-left shows fps ≈ 120 (ProMotion) or 60, a plausible sub-millisecond main-pass GPU time, and quads = 2176 + landmark quads. F3 toggles the overlay. All tests still pass: `cargo test --manifest-path dabcraft/Cargo.toml`.
+Run: `cargo run --manifest-path git-craft/Cargo.toml`
+Expected: overlay top-left shows fps ≈ 120 (ProMotion) or 60, a plausible sub-millisecond main-pass GPU time, and quads = 2176 + landmark quads. F3 toggles the overlay. All tests still pass: `cargo test --manifest-path git-craft/Cargo.toml`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add dabcraft/src
+git add git-craft/src
 git commit -m "feat: add GPU pass timing and egui debug HUD"
 ```
 
@@ -1871,8 +1871,8 @@ git commit -m "feat: add GPU pass timing and egui debug HUD"
 
 ## M1 Completion Checklist
 
-- [ ] `cargo test --manifest-path dabcraft/Cargo.toml` — all green (≥ 21 tests)
-- [ ] `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings` — clean (fix or explicitly allow with a reason)
+- [ ] `cargo test --manifest-path git-craft/Cargo.toml` — all green (≥ 21 tests)
+- [ ] `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings` — clean (fix or explicitly allow with a reason)
 - [ ] Manual: fly around the island at smooth fps, hot-reload works, HUD numbers sane
 - [ ] Working tree clean, all commits pushed once a remote exists
 
