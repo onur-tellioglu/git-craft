@@ -8,6 +8,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
+use crate::bench::{BenchConfig, BenchRun};
 use crate::game::camera::Camera;
 use crate::game::input::InputState;
 use crate::render::depth;
@@ -158,6 +159,15 @@ const EDIT_REPEAT: f32 = 0.25;
 /// Two Space presses within this window toggle walk/fly.
 const DOUBLE_TAP_WINDOW: f32 = 0.35;
 
+/// Bench-mode constants (see `src/bench.rs`). A fixed elevated vantage that
+/// rotates in place over the recorded window: the loaded set stays resident
+/// (no streaming churn) while frustum culling is exercised in every direction.
+const BENCH_PITCH: f32 = -0.45; // ~-26°, tilted down over the terrain
+const BENCH_TARGET_FPS: f32 = 120.0;
+const BENCH_WINDOW: (u32, u32) = (1280, 720);
+/// Frozen day-cycle phase during the bench (noon: full sun + shadows).
+const BENCH_NOON: f32 = 0.25;
+
 #[derive(Default)]
 struct FrameStats {
     columns_ready: usize,
@@ -239,10 +249,15 @@ pub struct App {
     /// scale×swapchain; the post pass upscales by sampling the resolved target.
     render_scale: f32,
     stats: FrameStats,
+    /// `Some` in `--bench` mode: drives the deterministic flythrough and
+    /// records frame-time / GPU-time percentiles. `None` for normal play.
+    bench: Option<BenchRun>,
+    /// Set by the bench when it finishes; `about_to_wait` exits the loop.
+    should_exit: bool,
 }
 
 impl App {
-    pub fn new(instance: wgpu::Instance) -> Self {
+    pub fn new(instance: wgpu::Instance, bench_cfg: Option<BenchConfig>) -> Self {
         Self {
             instance: Some(instance),
             window: None,
@@ -298,6 +313,8 @@ impl App {
             vol_debug: false,
             render_scale: 1.0,
             stats: FrameStats::default(),
+            bench: bench_cfg.map(BenchRun::new),
+            should_exit: false,
         }
     }
 
@@ -713,8 +730,18 @@ impl App {
         // Smooth FPS estimate.
         self.fps_smoothed = self.fps_smoothed * 0.95 + (1.0 / dt.max(1e-6)) * 0.05;
 
-        // Advance day/night cycle unconditionally — time flows even while paused.
-        self.day.advance(dt);
+        if let Some(run) = self.bench.as_ref() {
+            // Deterministic flythrough: a fixed vantage that orbits in place,
+            // with the day cycle frozen at noon. Overrides all gameplay input;
+            // the world streams around this point during warmup.
+            self.camera.position = glam::Vec3::new(16.0, 140.0, 16.0);
+            self.camera.yaw = crate::bench::bench_yaw(run.recorded(), run.frames());
+            self.camera.pitch = BENCH_PITCH;
+            self.day.time = BENCH_NOON;
+        } else {
+            // Advance day/night cycle unconditionally — time flows even while paused.
+            self.day.advance(dt);
+        }
 
         let (dx, dy) = self.input.take_mouse_delta();
 
@@ -801,6 +828,38 @@ impl App {
 
         // World streaming: gen/mesh/upload jobs.
         self.update_world();
+
+        // Bench state machine: warm up until streaming goes quiet, then record
+        // one (cpu_ms, gpu_ms) sample per frame. GPU ms is the previous frame's
+        // resolved timestamp readback (vsync-independent); cpu_ms is frame dt.
+        if self.bench.is_some() {
+            let idle = self.jobs.gen_in_flight == 0
+                && self.jobs.mesh_in_flight == 0
+                && self.upload_queue.is_empty()
+                && self.stats.columns_ready > 0;
+            let gpu_ms = self.timer.as_ref().map(|t| t.total_ms()).unwrap_or(0.0);
+            let has_timer = self.timer.is_some();
+            if let Some(run) = self.bench.as_mut() {
+                if run.is_warming() {
+                    run.warmup_step(idle);
+                } else {
+                    run.push(dt * 1000.0, gpu_ms);
+                    if run.is_done() {
+                        let cpu = run.cpu_summary().unwrap();
+                        let gpu = run.gpu_summary().unwrap();
+                        let report = crate::bench::format_report(
+                            &cpu,
+                            &gpu,
+                            BENCH_TARGET_FPS,
+                            has_timer && gpu.max > 0.0,
+                            RENDER_RADIUS,
+                        );
+                        println!("{report}");
+                        self.should_exit = true;
+                    }
+                }
+            }
+        }
 
         // Disjoint field borrows: terrain mutably for prepare, gpu mutably.
         let Some(depth_view_ref) = self.depth_view.as_ref() else {
@@ -1354,16 +1413,22 @@ impl ApplicationHandler for App {
         if self.gpu.is_some() {
             return; // macOS can resume more than once; init exactly once
         }
-        let window = Arc::new(
-            event_loop
-                .create_window(Window::default_attributes().with_title("git-craft"))
-                .unwrap(),
-        );
+        // Bench mode forces a fixed window size so the baseline is comparable
+        // run-to-run, and freezes the day cycle at noon for stable lighting.
+        let bench = self.bench.is_some();
+        let mut attrs = Window::default_attributes().with_title("git-craft");
+        if bench {
+            attrs = attrs.with_title("git-craft (bench)").with_inner_size(
+                winit::dpi::PhysicalSize::new(BENCH_WINDOW.0, BENCH_WINDOW.1),
+            );
+            self.day.time = BENCH_NOON;
+        }
+        let window = Arc::new(event_loop.create_window(attrs).unwrap());
         let instance = self
             .instance
             .take()
             .expect("resumed twice with GPU already built");
-        let gpu = Gpu::new(&instance, window.clone());
+        let gpu = Gpu::new(&instance, window.clone(), bench);
         let size = window.inner_size();
         let (rw, rh) = render_dims(size.width, size.height, self.render_scale);
         let (depth_tex, depth_view) = depth::create_depth_texture(&gpu.device, rw, rh);
@@ -1683,6 +1748,12 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, _el: &ActiveEventLoop) {
+        // The bench sets this once it has printed its report; `render` has no
+        // access to the event loop, so the exit happens here.
+        if self.should_exit {
+            _el.exit();
+            return;
+        }
         if self.occluded {
             return;
         }
