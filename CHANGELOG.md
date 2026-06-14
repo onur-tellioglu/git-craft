@@ -20,6 +20,18 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
   column recomputes it through the generation path. All disk I/O runs on a dedicated worker
   thread, so the frame loop never blocks; edited columns are saved when they unload or on quit.
 
+### Fixed
+
+- Corrupt region file (out-of-range packed palette indices) would panic the worker thread
+  and silently discard all subsequent saves; `Section::read_bytes` now validates every
+  packed index and returns `None` on violation so load fails cleanly to `Loaded::Failed`
+  and the column regenerates instead.
+- Save errors on column eviction were silently treated as success: the worker now sends
+  `SaveOk`/`SaveFailed` acknowledgements over the result channel, and `saved_columns` is
+  only updated once the worker confirms the write.
+- `Persistence` field is now `Option<Persistence>` so bench mode (M6a) can pass `None`
+  without region files polluting benchmark reproducibility.
+
 ## [0.5.0] - 2026-06-14
 
 First public release, at milestone M5 (the full shader ladder).
