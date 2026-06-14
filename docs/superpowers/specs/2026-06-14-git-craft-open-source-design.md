@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The project (currently named `dabcraft`) is a performance-focused, Minecraft-style
+The project (currently named `git-craft`) is a performance-focused, Minecraft-style
 voxel engine written in Rust on wgpu, targeting modern shader-pack visuals (CSM
 shadows, GTAO, TAA, volumetrics, bloom, ACES tone mapping, Hillaire atmosphere,
 screen-space water reflections) at a 384-block render distance / 120 fps on Apple M4.
@@ -34,7 +34,7 @@ afterthought — and the contribution path is explicitly built for agent-assiste
 This effort opens the project as a public, contribution-ready repository. It does
 four things:
 
-1. **Renames** the project `dabcraft` → `git-craft` consistently across code, build
+1. **Renames** the project `git-craft` → `git-craft` consistently across code, build
    metadata, directory layout, and documentation.
 2. **Licenses** the project under the Rust-ecosystem standard dual `MIT OR Apache-2.0`.
 3. **Adds standard contribution infrastructure** so external contributors can build,
@@ -69,24 +69,24 @@ design docs under `docs/superpowers/` are kept as-is and linked from the README.
 - No rewriting of historical milestone plans/specs beyond the project-name token.
 - No `crates.io` publication (binary crate; not a library release).
 
-## 3. Rename: dabcraft → git-craft
+## 3. Rename: git-craft → git-craft
 
-Full, consistent rename. The token `dabcraft` appears ~954 times across the repo; the
+Full, consistent rename. The token `git-craft` appears ~954 times across the repo; the
 bulk are in historical docs and `Cargo.lock`. Scope is split into "must rename" and
 "preserve" to avoid breaking path references.
 
 **Rename (identifiers, build, user-facing strings, directory):**
-- `dabcraft/Cargo.toml` → `name = "git-craft"` (binary target name follows the package
+- `git-craft/Cargo.toml` → `name = "git-craft"` (binary target name follows the package
   name automatically → produced binary is `git-craft`).
-- Directory `dabcraft/` → `git-craft/` via `git mv` (preserves history). Update the
+- Directory `git-craft/` → `git-craft/` via `git mv` (preserves history). Update the
   workspace-relative paths in `CLAUDE.md` and the run/build instructions accordingly.
-- `dabcraft/src/app.rs`: window title `"dabcraft"` → `"git-craft"`.
-- `dabcraft/src/render/gpu.rs`: the device-capability error string mentioning `dabcraft`.
-- `dabcraft/src/mesh/greedy.rs`: the header comment mentioning `dabcraft spec`.
-- `.gitignore`: the `# dabcraft runtime data` comment.
+- `git-craft/src/app.rs`: window title `"git-craft"` → `"git-craft"`.
+- `git-craft/src/render/gpu.rs`: the device-capability error string mentioning `git-craft`.
+- `git-craft/src/mesh/greedy.rs`: the header comment mentioning `git-craft spec`.
+- `.gitignore`: the `# git-craft runtime data` comment.
 - `Cargo.lock`: regenerated automatically by the first `cargo check`/build after the
   `Cargo.toml` change — do not hand-edit.
-- `CLAUDE.md`: heading `# dabcraft` and all prose mentions of the project name.
+- `CLAUDE.md`: heading `# git-craft` and all prose mentions of the project name.
 - `docs/superpowers/specs|plans/*`: replace the bare project-name token in the **bodies**
   for consistency.
 
@@ -94,9 +94,9 @@ bulk are in historical docs and `Cargo.lock`. Scope is split into "must rename" 
 - The **filenames** of historical dated docs (e.g. `2026-06-11-dabcraft-design.md`,
   `…-dabcraft-m1-foundation.md`) are NOT renamed — they are dated artifacts.
 - Any **path reference** that points at those files (notably the `Key documents` link
-  in `CLAUDE.md`) keeps its `dabcraft` filename segment so the link stays valid.
+  in `CLAUDE.md`) keeps its `git-craft` filename segment so the link stays valid.
 
-**Verification:** after the rename, `grep -rI "dabcraft" --exclude-dir=target
+**Verification:** after the rename, `grep -rI "git-craft" --exclude-dir=target
 --exclude-dir=.git --exclude-dir=.task-log .` returns only (a) historical doc filenames
 and (b) path references to them. `cargo build` succeeds and emits a `git-craft` binary.
 
@@ -219,7 +219,7 @@ steps require the maintainer's go-ahead at execution time):
    `main` is strictly behind). Public `main` then reflects the latest engine state.
 3. **Branch:** create `chore/open-source-setup` off `main`.
 4. **Apply changes in atomic commits** on the branch:
-   - `chore: rename dabcraft to git-craft` (dir, Cargo, code strings, docs token).
+   - `chore: rename git-craft to git-craft` (dir, Cargo, code strings, docs token).
    - `chore: add MIT/Apache dual license` (LICENSE-MIT, LICENSE-APACHE, Cargo metadata).
    - `docs: add README` .
    - `docs: add CONTRIBUTING and CODE_OF_CONDUCT`.
@@ -235,7 +235,7 @@ steps require the maintainer's go-ahead at execution time):
 
 ## 8. Success Criteria
 
-- `grep -rI dabcraft` (excluding `target/.git/.task-log`) returns only historical doc
+- `grep -rI git-craft` (excluding `target/.git/.task-log`) returns only historical doc
   filenames and path references to them.
 - `cargo build --release` produces a binary named `git-craft`; `cargo test`, `cargo
   clippy --all-targets -- -D warnings`, and `cargo fmt --check` all pass.

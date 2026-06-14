@@ -1,5 +1,5 @@
 ---
-title: dabcraft M2 — Infinite World
+title: git-craft M2 — Infinite World
 date: 2026-06-11
 domain: world-layer
 type: enhancement
@@ -10,18 +10,18 @@ rls-affecting: false
 slice: 2
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
 touched-files:
-  - dabcraft/Cargo.toml
-  - dabcraft/src/world/*.rs
-  - dabcraft/src/mesh/*.rs
-  - dabcraft/src/render/*.rs
-  - dabcraft/src/game/camera.rs
-  - dabcraft/src/app.rs
-  - dabcraft/assets/shaders/terrain.wgsl
+  - git-craft/Cargo.toml
+  - git-craft/src/world/*.rs
+  - git-craft/src/mesh/*.rs
+  - git-craft/src/render/*.rs
+  - git-craft/src/game/camera.rs
+  - git-craft/src/app.rs
+  - git-craft/assets/shaders/terrain.wgsl
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M2 — Infinite World Implementation Plan
+# git-craft M2 — Infinite World Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -35,7 +35,7 @@ shared-modules-touched: []
 
 **No git remote exists** — skip all push/PR/issue steps. Commit locally on branch `feat/m2-world`.
 
-**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run with `--manifest-path dabcraft/Cargo.toml` from the repo root (or `cd dabcraft` first).
+**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run with `--manifest-path git-craft/Cargo.toml` from the repo root (or `cd git-craft` first).
 
 ---
 
@@ -43,25 +43,25 @@ shared-modules-touched: []
 
 | File | Status | Responsibility |
 |---|---|---|
-| `dabcraft/Cargo.toml` | modify | add rayon, crossbeam-channel, fastnoise-lite |
-| `dabcraft/src/world/block.rs` | modify | block registry grows to 12 ids |
-| `dabcraft/src/world/section.rs` | rewrite | palette-compressed 32³ storage (same get/set API) |
-| `dabcraft/src/world/chunks.rs` | create | ColumnPos/SectionPos, Column, ChunkMap, pending structure writes, radius helpers |
-| `dabcraft/src/world/gen.rs` | create | WorldGen: heightmap, biomes, caves, column fill |
-| `dabcraft/src/world/decor.rs` | create | trees/cacti decoration, StructureWrite |
-| `dabcraft/src/world/jobs.rs` | create | rayon spawn + crossbeam result channel |
-| `dabcraft/src/mesh/quad.rs` | modify | add AO diagonal-flip bit (data1 bit 31) |
-| `dabcraft/src/mesh/padded.rs` | create | 34³ padded buffer with neighbor apron |
-| `dabcraft/src/mesh/neighborhood.rs` | create | 3×3×3 `Arc<Section>` capture for mesh jobs |
-| `dabcraft/src/mesh/greedy.rs` | create | binary greedy mesher with per-corner AO |
-| `dabcraft/src/mesh/naive.rs` | **delete** (Task 14) | superseded by greedy |
-| `dabcraft/src/render/frustum.rs` | create | plane extraction + AABB test |
-| `dabcraft/src/render/arena.rs` | create | offset/len slab allocator with free-list |
-| `dabcraft/src/render/terrain.rs` | rewrite | arena buffers, section slots, indirect draws |
-| `dabcraft/src/render/gpu.rs` | modify | require `INDIRECT_FIRST_INSTANCE` |
-| `dabcraft/src/game/camera.rs` | modify | far plane 1200, sprint multiplier |
-| `dabcraft/src/app.rs` | rewrite | world streaming orchestration, HUD counters |
-| `dabcraft/assets/shaders/terrain.wgsl` | rewrite | section origins via instance_index, flip bit, 12-color palette |
+| `git-craft/Cargo.toml` | modify | add rayon, crossbeam-channel, fastnoise-lite |
+| `git-craft/src/world/block.rs` | modify | block registry grows to 12 ids |
+| `git-craft/src/world/section.rs` | rewrite | palette-compressed 32³ storage (same get/set API) |
+| `git-craft/src/world/chunks.rs` | create | ColumnPos/SectionPos, Column, ChunkMap, pending structure writes, radius helpers |
+| `git-craft/src/world/gen.rs` | create | WorldGen: heightmap, biomes, caves, column fill |
+| `git-craft/src/world/decor.rs` | create | trees/cacti decoration, StructureWrite |
+| `git-craft/src/world/jobs.rs` | create | rayon spawn + crossbeam result channel |
+| `git-craft/src/mesh/quad.rs` | modify | add AO diagonal-flip bit (data1 bit 31) |
+| `git-craft/src/mesh/padded.rs` | create | 34³ padded buffer with neighbor apron |
+| `git-craft/src/mesh/neighborhood.rs` | create | 3×3×3 `Arc<Section>` capture for mesh jobs |
+| `git-craft/src/mesh/greedy.rs` | create | binary greedy mesher with per-corner AO |
+| `git-craft/src/mesh/naive.rs` | **delete** (Task 14) | superseded by greedy |
+| `git-craft/src/render/frustum.rs` | create | plane extraction + AABB test |
+| `git-craft/src/render/arena.rs` | create | offset/len slab allocator with free-list |
+| `git-craft/src/render/terrain.rs` | rewrite | arena buffers, section slots, indirect draws |
+| `git-craft/src/render/gpu.rs` | modify | require `INDIRECT_FIRST_INSTANCE` |
+| `git-craft/src/game/camera.rs` | modify | far plane 1200, sprint multiplier |
+| `git-craft/src/app.rs` | rewrite | world streaming orchestration, HUD counters |
+| `git-craft/assets/shaders/terrain.wgsl` | rewrite | section origins via instance_index, flip bit, 12-color palette |
 
 ## Shared Conventions (read before any task)
 
@@ -91,12 +91,12 @@ shared-modules-touched: []
 ### Task 1: Dependencies + block registry expansion
 
 **Files:**
-- Modify: `dabcraft/Cargo.toml`
-- Modify: `dabcraft/src/world/block.rs`
+- Modify: `git-craft/Cargo.toml`
+- Modify: `git-craft/src/world/block.rs`
 
 - [ ] **Step 1: Add dependencies**
 
-In `dabcraft/Cargo.toml` `[dependencies]`, add:
+In `git-craft/Cargo.toml` `[dependencies]`, add:
 
 ```toml
 rayon = "1.12"
@@ -106,12 +106,12 @@ fastnoise-lite = "1.1"
 
 - [ ] **Step 2: Verify it builds**
 
-Run: `cargo build --manifest-path dabcraft/Cargo.toml`
+Run: `cargo build --manifest-path git-craft/Cargo.toml`
 Expected: compiles (new deps fetched).
 
 - [ ] **Step 3: Write failing tests for the new registry**
 
-Append to the `tests` module of `dabcraft/src/world/block.rs` (create the module if absent):
+Append to the `tests` module of `git-craft/src/world/block.rs` (create the module if absent):
 
 ```rust
 #[cfg(test)]
@@ -144,12 +144,12 @@ mod tests {
 
 - [ ] **Step 4: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml world::block`
+Run: `cargo test --manifest-path git-craft/Cargo.toml world::block`
 Expected: FAIL — `SAND` etc. not found.
 
 - [ ] **Step 5: Implement the registry**
 
-`dabcraft/src/world/block.rs` — replace the constants section (keep struct + `is_solid`):
+`git-craft/src/world/block.rs` — replace the constants section (keep struct + `is_solid`):
 
 ```rust
 pub const AIR: BlockId = BlockId(0);
@@ -176,13 +176,13 @@ pub struct BlockId(pub u16);
 
 - [ ] **Step 6: Run tests, clippy**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 Expected: all tests PASS (M1 suite still green), clippy clean.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/Cargo.toml dabcraft/src/world/block.rs Cargo.lock dabcraft/Cargo.lock 2>/dev/null || git add dabcraft/Cargo.toml dabcraft/src/world/block.rs dabcraft/Cargo.lock
+git add git-craft/Cargo.toml git-craft/src/world/block.rs Cargo.lock git-craft/Cargo.lock 2>/dev/null || git add git-craft/Cargo.toml git-craft/src/world/block.rs git-craft/Cargo.lock
 git commit -m "feat: add M2 dependencies and expand block registry to 12 ids"
 ```
 
@@ -195,13 +195,13 @@ git commit -m "feat: add M2 dependencies and expand block registry to 12 ids"
 Rewrite `Section`'s internals as palette + packed indices while keeping the `empty() / get / set / get_or_air` API, so existing callers (naive mesher, app) keep compiling. Adds `Clone`, semantic `PartialEq`, `uniform_block()`, `unpack_into()`, `compact()`.
 
 **Files:**
-- Rewrite: `dabcraft/src/world/section.rs`
+- Rewrite: `git-craft/src/world/section.rs`
 
 **Design:** `palette: Vec<BlockId>` (`palette[0]` always exists and is the uniform fill), `bits: u32` (bits per voxel index; `0` = uniform, no voxel data), `data: Vec<u64>` (packed indices, entries may span word boundaries; `32768 * bits` is always a multiple of 64). `set` of a new block appends to the palette and repacks when `bits` no longer suffices. `compact()` rebuilds the palette from live content (shrink). An all-air section is `palette=[AIR], bits=0, data=[]` — zero voxel bytes, per spec §4.
 
 - [ ] **Step 1: Write the failing tests**
 
-Replace the `tests` module in `dabcraft/src/world/section.rs` with:
+Replace the `tests` module in `git-craft/src/world/section.rs` with:
 
 ```rust
 #[cfg(test)]
@@ -313,12 +313,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml world::section`
+Run: `cargo test --manifest-path git-craft/Cargo.toml world::section`
 Expected: FAIL — `uniform_block`, `voxel_data_bytes`, `palette_len`, `compact`, `unpack_into` not found.
 
 - [ ] **Step 3: Implement the paletted section**
 
-Replace everything above the tests module in `dabcraft/src/world/section.rs`:
+Replace everything above the tests module in `git-craft/src/world/section.rs`:
 
 ```rust
 use crate::world::block::{BlockId, AIR};
@@ -503,16 +503,16 @@ Note for the implementer: in `compact()` the voxel→(x,y,z) inversion must matc
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS, including the M1 suite (naive mesher etc. still uses get/set).
 
 - [ ] **Step 5: Clippy + commit**
 
-Run: `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 (If clippy demands `Vec::new()` → `vec![]` style changes, apply them.)
 
 ```bash
-git add dabcraft/src/world/section.rs
+git add git-craft/src/world/section.rs
 git commit -m "feat: palette-compressed section storage with uniform fast path"
 ```
 
@@ -523,13 +523,13 @@ git commit -m "feat: palette-compressed section storage with uniform fast path"
 The classic AO anisotropy fix: when `ao[0]+ao[2] > ao[1]+ao[3]`, the quad must triangulate along the other diagonal (spec §5). We pack a 1-bit flag into the free data1 bit 31; the vertex shader rotates the corner index by 1, which turns triangles (0,1,2)(0,2,3) into (1,2,3)(1,3,0) — same rectangle, flipped diagonal — with zero index-buffer changes.
 
 **Files:**
-- Modify: `dabcraft/src/mesh/quad.rs`
-- Modify: `dabcraft/src/mesh/naive.rs` (add `flip: 0` to the emitted Quad)
-- Modify: `dabcraft/assets/shaders/terrain.wgsl`
+- Modify: `git-craft/src/mesh/quad.rs`
+- Modify: `git-craft/src/mesh/naive.rs` (add `flip: 0` to the emitted Quad)
+- Modify: `git-craft/assets/shaders/terrain.wgsl`
 
 - [ ] **Step 1: Write the failing tests**
 
-In `dabcraft/src/mesh/quad.rs` tests module, extend `data1_field_bit_positions` with one line and add a roundtrip:
+In `git-craft/src/mesh/quad.rs` tests module, extend `data1_field_bit_positions` with one line and add a roundtrip:
 
 ```rust
 // inside data1_field_bit_positions, after the texture assert:
@@ -550,7 +550,7 @@ Every existing `Quad { ... }` literal in quad.rs tests gains `flip: 0` (the `bas
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh::quad`
+Run: `cargo test --manifest-path git-craft/Cargo.toml mesh::quad`
 Expected: FAIL — no field `flip`.
 
 - [ ] **Step 3: Implement**
@@ -571,11 +571,11 @@ let data1 = (q.h - 1) | (ao << 5) | (q.skylight << 13) | (q.blocklight << 17)
 
 In `unpack()`: add `flip: bits(self.data1, 31, 1),`.
 
-In `dabcraft/src/mesh/naive.rs`, the emitted `Quad` literal gains `flip: 0`.
+In `git-craft/src/mesh/naive.rs`, the emitted `Quad` literal gains `flip: 0`.
 
 - [ ] **Step 4: Update the WGSL corner derivation**
 
-In `dabcraft/assets/shaders/terrain.wgsl`, `vs_main` currently does `let corner = vi % 4u;`. Replace with:
+In `git-craft/assets/shaders/terrain.wgsl`, `vs_main` currently does `let corner = vi % 4u;`. Replace with:
 
 ```wgsl
     let flip = extractBits(quad.y, 31u, 1u);
@@ -590,13 +590,13 @@ In `dabcraft/assets/shaders/terrain.wgsl`, `vs_main` currently does `let corner 
 
 - [ ] **Step 5: Run tests + live smoke check**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 Expected: PASS / clean.
 
 Smoke (background, kill after ~5 s — macOS has no `timeout`):
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 8; kill $APP_PID
 ```
 Expected: no panics, no wgpu validation errors in the log; the M1 test island still renders (all flips are 0).
@@ -604,7 +604,7 @@ Expected: no panics, no wgpu validation errors in the log; the M1 test island st
 - [ ] **Step 6: Commit**
 
 ```bash
-git add dabcraft/src/mesh/quad.rs dabcraft/src/mesh/naive.rs dabcraft/assets/shaders/terrain.wgsl
+git add git-craft/src/mesh/quad.rs git-craft/src/mesh/naive.rs git-craft/assets/shaders/terrain.wgsl
 git commit -m "feat: add AO diagonal-flip bit to quad packing and shader"
 ```
 
@@ -615,12 +615,12 @@ git commit -m "feat: add AO diagonal-flip bit to quad packing and shader"
 The greedy mesher reads a single flat 34³ array: the 32³ section interior plus a 1-voxel apron from neighboring sections (spec §4). All apron cells are filled — faces, edges, AND corners — because AO samples diagonals. The interior is bulk-decoded (`unpack_into`); the apron uses a caller-provided closure with **section-local coordinates in −1..=32**.
 
 **Files:**
-- Create: `dabcraft/src/mesh/padded.rs`
-- Modify: `dabcraft/src/mesh/mod.rs` (add `pub mod padded;`)
+- Create: `git-craft/src/mesh/padded.rs`
+- Modify: `git-craft/src/mesh/mod.rs` (add `pub mod padded;`)
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/mesh/padded.rs`:
+Create `git-craft/src/mesh/padded.rs`:
 
 ```rust
 use crate::world::block::{BlockId, AIR};
@@ -687,8 +687,8 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh::padded`
-Expected: compile FAIL — `air`, `build`, `get`, `set` missing. (Remember to add `pub mod padded;` to `dabcraft/src/mesh/mod.rs` first or the module won't be discovered.)
+Run: `cargo test --manifest-path git-craft/Cargo.toml mesh::padded`
+Expected: compile FAIL — `air`, `build`, `get`, `set` missing. (Remember to add `pub mod padded;` to `git-craft/src/mesh/mod.rs` first or the module won't be discovered.)
 
 - [ ] **Step 3: Implement**
 
@@ -747,11 +747,11 @@ impl PaddedSection {
 
 - [ ] **Step 4: Run tests, clippy, commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 Expected: PASS / clean.
 
 ```bash
-git add dabcraft/src/mesh/padded.rs dabcraft/src/mesh/mod.rs
+git add git-craft/src/mesh/padded.rs git-craft/src/mesh/mod.rs
 git commit -m "feat: add 34-cubed padded section buffer with neighbor apron"
 ```
 
@@ -762,8 +762,8 @@ git commit -m "feat: add 34-cubed padded section buffer with neighbor apron"
 The core of M2 (spec §5): occupancy bitmasks per axis, face culling with one shift+AND per 34-voxel column, greedy rectangle merge with `trailing_zeros`/`trailing_ones` sweeps. AO is Task 6; here every quad gets `ao: [3;4], flip: 0`. Light is constant in M2: `skylight: 15, blocklight: 0`.
 
 **Files:**
-- Create: `dabcraft/src/mesh/greedy.rs`
-- Modify: `dabcraft/src/mesh/mod.rs` (add `pub mod greedy;`)
+- Create: `git-craft/src/mesh/greedy.rs`
+- Modify: `git-craft/src/mesh/mod.rs` (add `pub mod greedy;`)
 
 **Algorithm reference (binary greedy meshing, cgerikj/TanTanDev variant):**
 1. **Occupancy:** 3 arrays of 34×34 `u64` columns. Bit `c` of `axis_cols[axis][i][j]` = solid at padded coordinate `c` along that axis. Layout: axis 0 bits=Y, `i`=z, `j`=x; axis 1 bits=X, `i`=y, `j`=z; axis 2 bits=Z, `i`=y, `j`=x.
@@ -792,7 +792,7 @@ The core of M2 (spec §5): occupancy bitmasks per axis, face culling with one sh
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/mesh/greedy.rs` with the test module first:
+Create `git-craft/src/mesh/greedy.rs` with the test module first:
 
 ```rust
 #[cfg(test)]
@@ -920,12 +920,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify compile failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh::greedy`
+Run: `cargo test --manifest-path git-craft/Cargo.toml mesh::greedy`
 Expected: FAIL — `Mesher` undefined. (Add `pub mod greedy;` to `mesh/mod.rs`.)
 
 - [ ] **Step 3: Implement the mesher**
 
-Above the tests in `dabcraft/src/mesh/greedy.rs`:
+Above the tests in `git-craft/src/mesh/greedy.rs`:
 
 ```rust
 use std::collections::HashMap;
@@ -1115,15 +1115,15 @@ Wiring check for the implementer: `plane_key` packs face into bits 31..34 of a u
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS (greedy suite + everything older).
 
 - [ ] **Step 5: Clippy + commit**
 
-Run: `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 
 ```bash
-git add dabcraft/src/mesh/greedy.rs dabcraft/src/mesh/mod.rs
+git add git-craft/src/mesh/greedy.rs git-craft/src/mesh/mod.rs
 git commit -m "feat: binary greedy mesher with bitmask face culling and plane sweep"
 ```
 
@@ -1136,7 +1136,7 @@ git commit -m "feat: binary greedy mesher with bitmask face culling and plane sw
 Real AO (spec §5): the classic 0–3 corner rule computed from the padded buffer, with merge correctness guaranteed by folding the face's 9-bit out-layer neighborhood pattern into the plane key — cells merge only when their entire AO-relevant neighborhood matches, so any cell's corner AO is valid for the whole merged quad. The diagonal flip from Task 3 activates here.
 
 **Files:**
-- Modify: `dabcraft/src/mesh/greedy.rs`
+- Modify: `git-craft/src/mesh/greedy.rs`
 
 **AO geometry:** for a visible face of cell `p` (interior coords) with outward normal `n`, the "out layer" is `p + n`. Sample the 8 neighbors (plus the center, always air) of that out-layer cell at offsets `du·U + dv·V` for `(du, dv) ∈ {-1,0,1}²`, in **the face's own U/V axes** (same tables as the shader). Bit index in the key: `(du+1)*3 + (dv+1)`; bit set = solid. Corner AO (corner order `(0,0) (w,0) (w,h) (0,h)` in U/V space):
 
@@ -1153,7 +1153,7 @@ Note: for a merged quad the far corners use the far cells' neighborhoods — ide
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to the tests module of `dabcraft/src/mesh/greedy.rs`:
+Add to the tests module of `git-craft/src/mesh/greedy.rs`:
 
 ```rust
     #[test]
@@ -1249,12 +1249,12 @@ Sanity note for the test author: in `wall_darkens_adjacent_top_corners`, the wal
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml mesh::greedy`
+Run: `cargo test --manifest-path git-craft/Cargo.toml mesh::greedy`
 Expected: the new tests FAIL (every quad still has ao `[3,3,3,3]`, merges don't split).
 
 - [ ] **Step 3: Implement AO**
 
-In `dabcraft/src/mesh/greedy.rs`, add the integer face-axis tables (mirrors of the WGSL tables — keep in sync, the shipped terrain.wgsl is authoritative):
+In `git-craft/src/mesh/greedy.rs`, add the integer face-axis tables (mirrors of the WGSL tables — keep in sync, the shipped terrain.wgsl is authoritative):
 
 ```rust
 /// Integer mirrors of the shader's FACE tables (cross(U,V) = outward normal).
@@ -1323,15 +1323,15 @@ let ao_key = ao_neighborhood(padded, x, y, z, face as usize);
 
 - [ ] **Step 4: Run the full suite**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS — including Task 5 tests (isolated geometry has all-air neighborhoods → ao stays `[3,3,3,3]`, merges unchanged).
 
 - [ ] **Step 5: Clippy + commit**
 
-Run: `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 
 ```bash
-git add dabcraft/src/mesh/greedy.rs
+git add git-craft/src/mesh/greedy.rs
 git commit -m "feat: per-corner AO with merge-safe neighborhood keys and diagonal flip"
 ```
 
@@ -1342,12 +1342,12 @@ git commit -m "feat: per-corner AO with merge-safe neighborhood keys and diagona
 Deterministic terrain from a 64-bit-seedable noise stack (spec §4): continentalness/erosion/peaks heightmap, temperature+humidity biome selection (6 biomes), sea level 64, per-biome surface blocks. Caves are Task 8, decoration Task 9 — this task generates solid terrain + water.
 
 **Files:**
-- Create: `dabcraft/src/world/gen.rs`
-- Modify: `dabcraft/src/world/mod.rs` (add `pub mod gen;`)
+- Create: `git-craft/src/world/gen.rs`
+- Modify: `git-craft/src/world/mod.rs` (add `pub mod gen;`)
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/world/gen.rs` starting with tests:
+Create `git-craft/src/world/gen.rs` starting with tests:
 
 ```rust
 #[cfg(test)]
@@ -1438,12 +1438,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml world::gen`
+Run: `cargo test --manifest-path git-craft/Cargo.toml world::gen`
 Expected: compile FAIL — `WorldGen` undefined. (Add `pub mod gen;` to `world/mod.rs`.)
 
 - [ ] **Step 3: Implement**
 
-Above the tests in `dabcraft/src/world/gen.rs`:
+Above the tests in `git-craft/src/world/gen.rs`:
 
 ```rust
 use fastnoise_lite::{FastNoiseLite, FractalType, NoiseType};
@@ -1620,17 +1620,17 @@ Note: `cave_a/b/cheese` fields are constructed now (so `new()` is final) but onl
 
 - [ ] **Step 4: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS. The ocean-search test may take a couple of seconds (release-mode noise is fast; test profile uses opt-level 1 from the workspace profile — fine).
 
 If `below_sea_level_terrain_is_flooded` fails to find an ocean, the heightmap constants are mistuned — fix the constants (e.g. raise `c * 36.0` toward `c * 40.0`), do NOT weaken the test.
 
 - [ ] **Step 5: Clippy + commit**
 
-Run: `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 
 ```bash
-git add dabcraft/src/world/gen.rs dabcraft/src/world/mod.rs
+git add git-craft/src/world/gen.rs git-craft/src/world/mod.rs
 git commit -m "feat: deterministic worldgen with heightmap, six biomes, and sea level"
 ```
 
@@ -1641,7 +1641,7 @@ git commit -m "feat: deterministic worldgen with heightmap, six biomes, and sea 
 3D noise caves (spec §4): ridged "spaghetti" tunnels (two independent noises, carve where both are near zero — the classic intersection trick) plus low-frequency "cheese" rooms, attenuated near the surface (no carving above `surface - 8`, none below y 6).
 
 **Files:**
-- Modify: `dabcraft/src/world/gen.rs`
+- Modify: `git-craft/src/world/gen.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1708,7 +1708,7 @@ Add to the tests module:
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml world::gen`
+Run: `cargo test --manifest-path git-craft/Cargo.toml world::gen`
 Expected: `caves_exist_underground` FAILS (0% carved); the near-surface test passes vacuously.
 
 - [ ] **Step 3: Implement carving**
@@ -1739,13 +1739,13 @@ Replace the `is_cave` stub (and remove any `#[allow(dead_code)]` from Task 7):
 
 - [ ] **Step 4: Run tests; tune thresholds only via constants**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS. If carved percentage is out of band, adjust `0.009` (tunnel radius) / `0.72` (room rarity) — keep the test bounds.
 
 - [ ] **Step 5: Clippy + commit**
 
 ```bash
-git add dabcraft/src/world/gen.rs
+git add git-craft/src/world/gen.rs
 git commit -m "feat: spaghetti and cheese cave carving with surface attenuation"
 ```
 
@@ -1756,13 +1756,13 @@ git commit -m "feat: spaghetti and cheese cave carving with surface attenuation"
 Decoration (spec §4): oak trees (plains/forest), spruce (snowy mountains), cacti (desert), placed by deterministic per-position hashing. A structure is emitted as a list of `StructureWrite`s in **world coordinates**; writes inside the generating column are applied immediately, writes that cross the border are returned to the caller (the chunk manager queues them for the neighbor — Task 10).
 
 **Files:**
-- Create: `dabcraft/src/world/decor.rs`
-- Modify: `dabcraft/src/world/gen.rs` (call decoration in `generate_column`)
-- Modify: `dabcraft/src/world/mod.rs` (add `pub mod decor;`)
+- Create: `git-craft/src/world/decor.rs`
+- Modify: `git-craft/src/world/gen.rs` (call decoration in `generate_column`)
+- Modify: `git-craft/src/world/mod.rs` (add `pub mod decor;`)
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/world/decor.rs` with tests:
+Create `git-craft/src/world/decor.rs` with tests:
 
 ```rust
 #[cfg(test)]
@@ -1870,12 +1870,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml world::decor`
+Run: `cargo test --manifest-path git-craft/Cargo.toml world::decor`
 Expected: compile FAIL — module functions missing.
 
 - [ ] **Step 3: Implement decoration**
 
-`dabcraft/src/world/decor.rs` above the tests:
+`git-craft/src/world/decor.rs` above the tests:
 
 ```rust
 use glam::IVec3;
@@ -1978,7 +1978,7 @@ pub fn cactus_plant(base: IVec3, height: i32) -> Vec<StructureWrite> {
 
 - [ ] **Step 4: Wire decoration into `generate_column`**
 
-In `dabcraft/src/world/gen.rs`:
+In `git-craft/src/world/gen.rs`:
 
 Add imports: `use crate::world::decor::{cactus_plant, hash_pos, oak_tree, spruce_tree};` and `use glam::IVec3;`.
 
@@ -2054,13 +2054,13 @@ pub fn apply_write(sections: &mut [Section], write: StructureWrite) {
 
 - [ ] **Step 5: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS (decor suite, gen determinism still bit-identical — decoration is hash-driven, no shared state).
 
 - [ ] **Step 6: Clippy + commit**
 
 ```bash
-git add dabcraft/src/world/decor.rs dabcraft/src/world/gen.rs dabcraft/src/world/mod.rs
+git add git-craft/src/world/decor.rs git-craft/src/world/gen.rs git-craft/src/world/mod.rs
 git commit -m "feat: tree and cactus decoration with cross-column pending writes"
 ```
 
@@ -2071,14 +2071,14 @@ git commit -m "feat: tree and cactus decoration with cross-column pending writes
 The streaming backbone (spec §3, §4): `ChunkMap` stores columns as `[Arc<Section>; 8]` (cheap to hand to mesh jobs), routes pending structure writes, and tracks dirty sections. `Jobs` fires `rayon::spawn` tasks and drains a crossbeam channel. `MeshNeighborhood` captures the 3×3×3 sections around a target so meshing runs entirely off-thread.
 
 **Files:**
-- Create: `dabcraft/src/world/chunks.rs`
-- Create: `dabcraft/src/mesh/neighborhood.rs`
-- Create: `dabcraft/src/world/jobs.rs`
-- Modify: `dabcraft/src/world/mod.rs`, `dabcraft/src/mesh/mod.rs`
+- Create: `git-craft/src/world/chunks.rs`
+- Create: `git-craft/src/mesh/neighborhood.rs`
+- Create: `git-craft/src/world/jobs.rs`
+- Modify: `git-craft/src/world/mod.rs`, `git-craft/src/mesh/mod.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/world/chunks.rs` with tests:
+Create `git-craft/src/world/chunks.rs` with tests:
 
 ```rust
 #[cfg(test)]
@@ -2208,7 +2208,7 @@ mod tests {
 }
 ```
 
-Create `dabcraft/src/mesh/neighborhood.rs` with tests:
+Create `git-craft/src/mesh/neighborhood.rs` with tests:
 
 ```rust
 #[cfg(test)]
@@ -2247,7 +2247,7 @@ mod tests {
 }
 ```
 
-Create `dabcraft/src/world/jobs.rs` with a smoke test:
+Create `git-craft/src/world/jobs.rs` with a smoke test:
 
 ```rust
 #[cfg(test)]
@@ -2285,7 +2285,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml chunks`
+Run: `cargo test --manifest-path git-craft/Cargo.toml chunks`
 Expected: compile FAIL. (Add `pub mod chunks; pub mod jobs;` to `world/mod.rs` and `pub mod neighborhood;` to `mesh/mod.rs`.)
 
 - [ ] **Step 3: Implement `chunks.rs`**
@@ -2660,16 +2660,16 @@ impl Default for Jobs {
 
 - [ ] **Step 6: Run tests**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all PASS (the jobs test exercises a real rayon pool + channel roundtrip).
 
 - [ ] **Step 7: Clippy + commit**
 
-Run: `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 (Likely nits: `map(|a| Arc::make_mut(a))` closure simplification, `Default` impls — fix as clippy directs.)
 
 ```bash
-git add dabcraft/src/world/chunks.rs dabcraft/src/world/jobs.rs dabcraft/src/world/mod.rs dabcraft/src/mesh/neighborhood.rs dabcraft/src/mesh/mod.rs dabcraft/src/world/gen.rs
+git add git-craft/src/world/chunks.rs git-craft/src/world/jobs.rs git-craft/src/world/mod.rs git-craft/src/mesh/neighborhood.rs git-craft/src/mesh/mod.rs git-craft/src/world/gen.rs
 git commit -m "feat: chunk map with pending writes plus rayon mesh and gen jobs"
 ```
 
@@ -2680,12 +2680,12 @@ git commit -m "feat: chunk map with pending writes plus rayon mesh and gen jobs"
 CPU frustum culling (spec §6): extract 6 planes from the view-projection matrix (Gribb–Hartmann), AABB test via the positive vertex. wgpu clip space is 0..1 depth, so the near plane is row 2 itself (not row3+row2).
 
 **Files:**
-- Create: `dabcraft/src/render/frustum.rs`
-- Modify: `dabcraft/src/render/mod.rs` (add `pub mod frustum;`)
+- Create: `git-craft/src/render/frustum.rs`
+- Modify: `git-craft/src/render/mod.rs` (add `pub mod frustum;`)
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `dabcraft/src/render/frustum.rs` with tests:
+Create `git-craft/src/render/frustum.rs` with tests:
 
 ```rust
 #[cfg(test)]
@@ -2740,7 +2740,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml render::frustum`
+Run: `cargo test --manifest-path git-craft/Cargo.toml render::frustum`
 Expected: compile FAIL.
 
 - [ ] **Step 3: Implement**
@@ -2800,10 +2800,10 @@ impl Frustum {
 
 - [ ] **Step 4: Run tests, clippy, commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 
 ```bash
-git add dabcraft/src/render/frustum.rs dabcraft/src/render/mod.rs
+git add git-craft/src/render/frustum.rs git-craft/src/render/mod.rs
 git commit -m "feat: frustum plane extraction and AABB visibility test"
 ```
 
@@ -2814,8 +2814,8 @@ git commit -m "feat: frustum plane extraction and AABB visibility test"
 Pure offset/length allocator for the big quad storage buffer (spec §5 "arena-allocated storage buffers with free-list"). First-fit over an offset-sorted free list with coalescing on free. Units are quads, not bytes — the renderer multiplies by 8.
 
 **Files:**
-- Create: `dabcraft/src/render/arena.rs`
-- Modify: `dabcraft/src/render/mod.rs` (add `pub mod arena;`)
+- Create: `git-craft/src/render/arena.rs`
+- Modify: `git-craft/src/render/mod.rs` (add `pub mod arena;`)
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2882,7 +2882,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify failure**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml render::arena`
+Run: `cargo test --manifest-path git-craft/Cargo.toml render::arena`
 Expected: compile FAIL.
 
 - [ ] **Step 3: Implement**
@@ -2946,10 +2946,10 @@ impl Arena {
 
 - [ ] **Step 4: Run tests, clippy, commit**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 
 ```bash
-git add dabcraft/src/render/arena.rs dabcraft/src/render/mod.rs
+git add git-craft/src/render/arena.rs git-craft/src/render/mod.rs
 git commit -m "feat: first-fit arena allocator with coalescing free list"
 ```
 
@@ -2967,10 +2967,10 @@ The renderer becomes section-granular (spec §5, §6): one 32 MB quad arena (sto
 - `Queue::write_buffer` needs 4-aligned offset and length (PackedQuad = 8 B, SectionInfo = 16 B, args = 20 B — all fine).
 
 **Files:**
-- Modify: `dabcraft/src/render/gpu.rs`
-- Rewrite: `dabcraft/src/render/terrain.rs`
-- Rewrite: `dabcraft/assets/shaders/terrain.wgsl`
-- Modify: `dabcraft/src/app.rs` (minimal adaptation)
+- Modify: `git-craft/src/render/gpu.rs`
+- Rewrite: `git-craft/src/render/terrain.rs`
+- Rewrite: `git-craft/assets/shaders/terrain.wgsl`
+- Modify: `git-craft/src/app.rs` (minimal adaptation)
 
 - [ ] **Step 1: Require INDIRECT_FIRST_INSTANCE in gpu.rs**
 
@@ -2979,7 +2979,7 @@ In `Gpu::new`, where `required_features` is assembled (currently conditional `TI
 ```rust
 assert!(
     adapter.features().contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
-    "dabcraft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
+    "git-craft requires INDIRECT_FIRST_INSTANCE (any Apple Silicon Metal device has it)"
 );
 required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
 ```
@@ -2988,7 +2988,7 @@ required_features |= wgpu::Features::INDIRECT_FIRST_INSTANCE;
 
 - [ ] **Step 2: Write the failing test for draw-arg construction**
 
-The GPU plumbing isn't unit-testable, but the arg math is. In the new `dabcraft/src/render/terrain.rs`, tests module:
+The GPU plumbing isn't unit-testable, but the arg math is. In the new `git-craft/src/render/terrain.rs`, tests module:
 
 ```rust
 #[cfg(test)]
@@ -3012,7 +3012,7 @@ mod tests {
 }
 ```
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml render::terrain` → FAIL (`section_draw_args` missing).
+Run: `cargo test --manifest-path git-craft/Cargo.toml render::terrain` → FAIL (`section_draw_args` missing).
 
 - [ ] **Step 3: Rewrite terrain.rs**
 
@@ -3481,12 +3481,12 @@ In `render()`, after `write_camera` and before `gpu.acquire()`, prepare the indi
 
 - [ ] **Step 6: Run tests + live smoke**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 Expected: PASS / clean.
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 10; kill $APP_PID
 ```
 Expected: the M1 island renders **identically** through the indirect path; no validation errors; backface culling visibly correct (fly inside the dirt cube — its near faces vanish, you see through to the far interior faces… which are also culled; the cube is hollow-looking from inside. That is correct backface behavior).
@@ -3496,7 +3496,7 @@ If the island is INVISIBLE: either `INDIRECT_FIRST_INSTANCE` wasn't enabled (sil
 - [ ] **Step 7: Commit**
 
 ```bash
-git add dabcraft/src/render/terrain.rs dabcraft/src/render/gpu.rs dabcraft/src/app.rs dabcraft/assets/shaders/terrain.wgsl
+git add git-craft/src/render/terrain.rs git-craft/src/render/gpu.rs git-craft/src/app.rs git-craft/assets/shaders/terrain.wgsl
 git commit -m "feat: arena-backed terrain renderer with per-section indirect draws"
 ```
 
@@ -3507,9 +3507,9 @@ git commit -m "feat: arena-backed terrain renderer with per-section indirect dra
 Wire everything together: per-frame streaming (drain job results → unload → request gen → request mesh → budgeted uploads), camera tuned for 384-block render distance, extended F3 HUD (spec §8 counters), and removal of the M1 scaffolding (naive mesher, test section). After this task the game IS M2: free flight over an infinite, treed, caved world.
 
 **Files:**
-- Modify: `dabcraft/src/game/camera.rs`
-- Rewrite (orchestration parts): `dabcraft/src/app.rs`
-- Delete: `dabcraft/src/mesh/naive.rs` (and its `mod` declaration)
+- Modify: `git-craft/src/game/camera.rs`
+- Rewrite (orchestration parts): `git-craft/src/app.rs`
+- Delete: `git-craft/src/mesh/naive.rs` (and its `mod` declaration)
 
 **Streaming constants (top of app.rs):**
 
@@ -3533,7 +3533,7 @@ const SEED: i32 = 1337;
 
 - [ ] **Step 1: Camera — far plane + sprint (failing tests first)**
 
-In `dabcraft/src/game/camera.rs` tests:
+In `git-craft/src/game/camera.rs` tests:
 
 ```rust
     #[test]
@@ -3565,7 +3565,7 @@ Run camera tests: fail → implement → pass.
 
 - [ ] **Step 2: App fields and init**
 
-In `dabcraft/src/app.rs`, add fields to `App`:
+In `git-craft/src/app.rs`, add fields to `App`:
 
 ```rust
     world: crate::world::chunks::ChunkMap,
@@ -3591,7 +3591,7 @@ Initialize in `App::new()`: `world: ChunkMap::default(), gen: WorldGen::new(SEED
 
 Camera spawn for terrain (heights reach ~200): `Camera::new(glam::Vec3::new(16.0, 140.0, 16.0))`.
 
-In `resumed()`, delete the test-section upload (`mesh_naive(&build_test_section())` block and `self.quad_count = ...`); the world streams in instead. Delete `build_test_section()` entirely. Delete `dabcraft/src/mesh/naive.rs` and remove `pub mod naive;` from `mesh/mod.rs`. Remove the now-unused `quad_count` field (HUD reads `stats.drawn_quads`).
+In `resumed()`, delete the test-section upload (`mesh_naive(&build_test_section())` block and `self.quad_count = ...`); the world streams in instead. Delete `build_test_section()` entirely. Delete `git-craft/src/mesh/naive.rs` and remove `pub mod naive;` from `mesh/mod.rs`. Remove the now-unused `quad_count` field (HUD reads `stats.drawn_quads`).
 
 - [ ] **Step 3: The per-frame world update**
 
@@ -3782,14 +3782,14 @@ HUD window contents (replace the three M1 labels; spec §8 counters):
 
 - [ ] **Step 5: Full test + clippy run**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml && cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings`
+Run: `cargo test --manifest-path git-craft/Cargo.toml && cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings`
 Expected: PASS / clean. (naive.rs tests are gone with the file.)
 
 - [ ] **Step 6: Live validation (the M2 acceptance check)**
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 45; kill $APP_PID
 ```
 
@@ -3806,7 +3806,7 @@ Record the observed numbers (FPS, GPU ms, quads, columns) in the task log for th
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A dabcraft/src docs
+git add -A git-craft/src docs
 git commit -m "feat: infinite world streaming with budgeted jobs and M2 debug HUD"
 ```
 

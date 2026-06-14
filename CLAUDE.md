@@ -1,4 +1,4 @@
-# dabcraft
+# git-craft
 
 Performance-focused Minecraft-style voxel game in Rust on wgpu, targeting modern shader-pack visuals (CSM shadows, GTAO, volumetrics, bloom, ACES, Hillaire atmosphere) at 384-block render distance / 120 fps on Apple M4.
 
@@ -9,7 +9,7 @@ Performance-focused Minecraft-style voxel game in Rust on wgpu, targeting modern
 ## Repo decisions
 
 - `CLAUDE.md` and `docs/` are committed to this repo.
-- Single binary crate (`dabcraft/` once scaffolded), WGSL shaders under `assets/shaders/`.
+- Single binary crate (`git-craft/` once scaffolded), WGSL shaders under `assets/shaders/`.
 
 ## Conventions
 

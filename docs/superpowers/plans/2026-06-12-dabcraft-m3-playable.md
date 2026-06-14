@@ -1,5 +1,5 @@
 ---
-title: dabcraft M3 — Playable
+title: git-craft M3 — Playable
 date: 2026-06-12
 domain: world-layer
 type: enhancement
@@ -10,19 +10,19 @@ rls-affecting: false
 slice: 3
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
 touched-files:
-  - dabcraft/src/world/chunks.rs
-  - dabcraft/src/world/block.rs
-  - dabcraft/src/game/*.rs
-  - dabcraft/src/render/outline.rs
-  - dabcraft/src/render/game_ui.rs
-  - dabcraft/src/render/mod.rs
-  - dabcraft/src/app.rs
-  - dabcraft/assets/shaders/outline.wgsl
+  - git-craft/src/world/chunks.rs
+  - git-craft/src/world/block.rs
+  - git-craft/src/game/*.rs
+  - git-craft/src/render/outline.rs
+  - git-craft/src/render/game_ui.rs
+  - git-craft/src/render/mod.rs
+  - git-craft/src/app.rs
+  - git-craft/assets/shaders/outline.wgsl
 trigger-tasks-touched: []
 shared-modules-touched: []
 ---
 
-# dabcraft M3 — Playable Implementation Plan
+# git-craft M3 — Playable Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -36,7 +36,7 @@ shared-modules-touched: []
 
 **No git remote exists** — skip all push/PR/issue steps. Commit locally on branch `feat/m3-playable`.
 
-**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root with `--manifest-path dabcraft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill.
+**Environment:** every shell needs `export PATH="$HOME/.cargo/bin:$PATH"` before cargo commands. All commands run from the repo root with `--manifest-path git-craft/Cargo.toml`. macOS has no `timeout`; smoke tests use background-run + kill.
 
 ---
 
@@ -44,20 +44,20 @@ shared-modules-touched: []
 
 | File | Status | Responsibility |
 |---|---|---|
-| `dabcraft/src/world/chunks.rs` | modify | `block_at` / `set_block` world-position block access |
-| `dabcraft/src/world/block.rs` | modify | `PLACEABLE` list, `display_name()`, `color()` (mirrors WGSL palette) |
-| `dabcraft/src/game/input.rs` | modify | key/mouse press edges, mouse buttons, scroll-step accumulation |
-| `dabcraft/src/game/physics.rs` | create | `Aabb` + `move_aabb` axis-separated swept voxel collision (pure) |
-| `dabcraft/src/game/raycast.rs` | create | Amanatides & Woo DDA, `RayHit` (pure) |
-| `dabcraft/src/game/player.rs` | create | `Player`: walk (gravity/jump/water) + fly modes (pure over closures) |
-| `dabcraft/src/game/hotbar.rs` | create | 9 slots, 1–9 selection, scroll cycling, shift+scroll paging (pure) |
-| `dabcraft/src/game/camera.rs` | modify | movement removed (lives in Player); orientation + view_proj only |
-| `dabcraft/src/game/mod.rs` | modify | declare new modules |
-| `dabcraft/src/render/outline.rs` | create | wireframe cube pipeline for the targeted block |
-| `dabcraft/src/render/game_ui.rs` | create | egui crosshair + hotbar drawing |
-| `dabcraft/src/render/mod.rs` | modify | declare new modules |
-| `dabcraft/assets/shaders/outline.wgsl` | create | LineList cube edges from `vertex_index`, uniform block pos |
-| `dabcraft/src/app.rs` | modify | player/interaction/outline/UI wiring, cursor release on Escape |
+| `git-craft/src/world/chunks.rs` | modify | `block_at` / `set_block` world-position block access |
+| `git-craft/src/world/block.rs` | modify | `PLACEABLE` list, `display_name()`, `color()` (mirrors WGSL palette) |
+| `git-craft/src/game/input.rs` | modify | key/mouse press edges, mouse buttons, scroll-step accumulation |
+| `git-craft/src/game/physics.rs` | create | `Aabb` + `move_aabb` axis-separated swept voxel collision (pure) |
+| `git-craft/src/game/raycast.rs` | create | Amanatides & Woo DDA, `RayHit` (pure) |
+| `git-craft/src/game/player.rs` | create | `Player`: walk (gravity/jump/water) + fly modes (pure over closures) |
+| `git-craft/src/game/hotbar.rs` | create | 9 slots, 1–9 selection, scroll cycling, shift+scroll paging (pure) |
+| `git-craft/src/game/camera.rs` | modify | movement removed (lives in Player); orientation + view_proj only |
+| `git-craft/src/game/mod.rs` | modify | declare new modules |
+| `git-craft/src/render/outline.rs` | create | wireframe cube pipeline for the targeted block |
+| `git-craft/src/render/game_ui.rs` | create | egui crosshair + hotbar drawing |
+| `git-craft/src/render/mod.rs` | modify | declare new modules |
+| `git-craft/assets/shaders/outline.wgsl` | create | LineList cube edges from `vertex_index`, uniform block pos |
+| `git-craft/src/app.rs` | modify | player/interaction/outline/UI wiring, cursor release on Escape |
 
 ## Shared Conventions (read before any task)
 
@@ -69,14 +69,14 @@ shared-modules-touched: []
 - **Interaction:** 6-block reach from the eye along `camera.forward()`. Left = break (instant, creative), right = place against the hit face; both repeat every 0.25 s while held. Place is rejected when the target cell is occupied (anything but AIR/WATER) or intersects the player AABB.
 - **Raycast face normal** is the unit outward normal of the struck face; `IVec3::ZERO` when the ray origin starts inside a solid block (placement is skipped in that case).
 - **Escape** now releases the cursor (spec §7) instead of exiting; any mouse click re-grabs (and is swallowed). Quit via the window close button / Cmd+Q.
-- After every task: `cargo test --manifest-path dabcraft/Cargo.toml` green, then `cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings` clean, then commit. Never `--no-verify`, no Claude co-author trailers.
+- After every task: `cargo test --manifest-path git-craft/Cargo.toml` green, then `cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings` clean, then commit. Never `--no-verify`, no Claude co-author trailers.
 
 ---
 
 ### Task 1: World block access — `block_at` / `set_block`
 
 **Files:**
-- Modify: `dabcraft/src/world/chunks.rs`
+- Modify: `git-craft/src/world/chunks.rs`
 
 - [ ] **Step 1: Create the branch**
 
@@ -86,7 +86,7 @@ git checkout main && git checkout -b feat/m3-playable
 
 - [ ] **Step 2: Write the failing tests**
 
-Append inside the existing `tests` module of `dabcraft/src/world/chunks.rs` (it already has `empty_column_data()`):
+Append inside the existing `tests` module of `git-craft/src/world/chunks.rs` (it already has `empty_column_data()`):
 
 ```rust
 #[test]
@@ -129,12 +129,12 @@ fn set_block_on_unloaded_or_out_of_range_is_rejected() {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path dabcraft/Cargo.toml block_at`
+Run: `export PATH="$HOME/.cargo/bin:$PATH" && cargo test --manifest-path git-craft/Cargo.toml block_at`
 Expected: COMPILE ERROR — `block_at`/`set_block` not found.
 
 - [ ] **Step 4: Implement**
 
-In `dabcraft/src/world/chunks.rs`, change the top-level import to bring in block ids:
+In `git-craft/src/world/chunks.rs`, change the top-level import to bring in block ids:
 
 ```rust
 use crate::world::block::{BlockId, AIR};
@@ -187,14 +187,14 @@ Note: `Arc` is already imported at the top of the file; use the plain `Arc::make
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: all tests PASS (including all pre-existing ones).
 
 - [ ] **Step 6: Clippy + commit**
 
 ```bash
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/src/world/chunks.rs
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/src/world/chunks.rs
 git commit -m "feat: add block_at/set_block world access with re-mesh dirtying"
 ```
 
@@ -203,11 +203,11 @@ git commit -m "feat: add block_at/set_block world access with re-mesh dirtying"
 ### Task 2: Block metadata — placeable list, names, UI colors
 
 **Files:**
-- Modify: `dabcraft/src/world/block.rs`
+- Modify: `git-craft/src/world/block.rs`
 
 - [ ] **Step 1: Write the failing tests**
 
-Append inside the `tests` module of `dabcraft/src/world/block.rs`:
+Append inside the `tests` module of `git-craft/src/world/block.rs`:
 
 ```rust
 #[test]
@@ -240,12 +240,12 @@ fn colors_match_the_shader_palette_spot_checks() {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib world::block`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib world::block`
 Expected: COMPILE ERROR — `PLACEABLE`, `display_name`, `color` not found.
 
 - [ ] **Step 3: Implement**
 
-Add to `dabcraft/src/world/block.rs` after the block constants:
+Add to `git-craft/src/world/block.rs` after the block constants:
 
 ```rust
 /// Every block the player can place (creative: everything but air),
@@ -299,7 +299,7 @@ pub fn color(self) -> [f32; 3] {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 These items are not referenced outside tests until Tasks 7/9/10, and unused items in a binary crate warn under `-D warnings`. Use the same pattern the M2 codebase already uses (see `PackedQuad::unpack`): annotate `PLACEABLE`, `display_name`, and `color` with `#[cfg_attr(not(test), allow(dead_code))]`, and **remove the attribute in the task that first uses each item** (Task 7 uses `PLACEABLE`; Task 10 uses `display_name`/`color`).
@@ -307,8 +307,8 @@ These items are not referenced outside tests until Tasks 7/9/10, and unused item
 - [ ] **Step 5: Clippy + commit**
 
 ```bash
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/src/world/block.rs
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/src/world/block.rs
 git commit -m "feat: add placeable block list, display names, and UI palette colors"
 ```
 
@@ -317,13 +317,13 @@ git commit -m "feat: add placeable block list, display names, and UI palette col
 ### Task 3: Input upgrades — press edges, mouse buttons, scroll steps
 
 **Files:**
-- Modify: `dabcraft/src/game/input.rs`
+- Modify: `git-craft/src/game/input.rs`
 
 App-side event wiring happens in Task 9; this task only extends `InputState` (pure, fully testable).
 
 - [ ] **Step 1: Write the failing tests**
 
-`dabcraft/src/game/input.rs` has no tests module yet. Add one at the bottom:
+`git-craft/src/game/input.rs` has no tests module yet. Add one at the bottom:
 
 ```rust
 #[cfg(test)]
@@ -391,12 +391,12 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::input`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::input`
 Expected: COMPILE ERROR — `MouseButton`, `key_pressed`, etc. not found.
 
 - [ ] **Step 3: Implement**
 
-Replace the struct and impl in `dabcraft/src/game/input.rs` with (keep the existing doc comments on retained methods):
+Replace the struct and impl in `git-craft/src/game/input.rs` with (keep the existing doc comments on retained methods):
 
 ```rust
 use std::collections::HashSet;
@@ -503,14 +503,14 @@ New methods are unused until Task 9: annotate `MouseButton`, `key_pressed`, `set
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml`
+Run: `cargo test --manifest-path git-craft/Cargo.toml`
 Expected: PASS.
 
 - [ ] **Step 5: Clippy + commit**
 
 ```bash
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/src/game/input.rs
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/src/game/input.rs
 git commit -m "feat: add press edges, mouse buttons, and scroll steps to InputState"
 ```
 
@@ -519,14 +519,14 @@ git commit -m "feat: add press edges, mouse buttons, and scroll steps to InputSt
 ### Task 4: Swept AABB physics
 
 **Files:**
-- Create: `dabcraft/src/game/physics.rs`
-- Modify: `dabcraft/src/game/mod.rs`
+- Create: `git-craft/src/game/physics.rs`
+- Modify: `git-craft/src/game/mod.rs`
 
 Implements spec §7 (swept axis-separated AABB collision, no corner snagging) and §9's physics test cases (corners, exact-touch, high velocity).
 
 - [ ] **Step 1: Declare the module**
 
-In `dabcraft/src/game/mod.rs` add:
+In `git-craft/src/game/mod.rs` add:
 
 ```rust
 pub mod physics;
@@ -534,7 +534,7 @@ pub mod physics;
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `dabcraft/src/game/physics.rs` containing only the tests module for now (plus `use` lines so it compiles as a test target):
+Create `git-craft/src/game/physics.rs` containing only the tests module for now (plus `use` lines so it compiles as a test target):
 
 ```rust
 #[cfg(test)]
@@ -649,12 +649,12 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::physics`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::physics`
 Expected: COMPILE ERROR — `Aabb`, `move_aabb` not found.
 
 - [ ] **Step 4: Implement**
 
-Add above the tests module in `dabcraft/src/game/physics.rs`:
+Add above the tests module in `git-craft/src/game/physics.rs`:
 
 ```rust
 use glam::{IVec3, Vec3};
@@ -778,20 +778,20 @@ Note: the scan in the positive branch starts at the cell containing the leading 
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::physics`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::physics`
 Expected: 9 tests PASS.
 
 - [ ] **Step 6: Full suite, clippy, commit**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
 ```
 
 `Aabb`/`move_aabb` are unused outside tests until Task 6: annotate the pub items with `#[cfg_attr(not(test), allow(dead_code))]` (remove in Task 6).
 
 ```bash
-git add dabcraft/src/game/physics.rs dabcraft/src/game/mod.rs
+git add git-craft/src/game/physics.rs git-craft/src/game/mod.rs
 git commit -m "feat: add axis-separated swept AABB voxel collision"
 ```
 
@@ -800,12 +800,12 @@ git commit -m "feat: add axis-separated swept AABB voxel collision"
 ### Task 5: DDA voxel raycast
 
 **Files:**
-- Create: `dabcraft/src/game/raycast.rs`
-- Modify: `dabcraft/src/game/mod.rs`
+- Create: `git-craft/src/game/raycast.rs`
+- Modify: `git-craft/src/game/mod.rs`
 
 - [ ] **Step 1: Declare the module**
 
-In `dabcraft/src/game/mod.rs` add:
+In `git-craft/src/game/mod.rs` add:
 
 ```rust
 pub mod raycast;
@@ -813,7 +813,7 @@ pub mod raycast;
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `dabcraft/src/game/raycast.rs` with the tests module:
+Create `git-craft/src/game/raycast.rs` with the tests module:
 
 ```rust
 #[cfg(test)]
@@ -899,7 +899,7 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::raycast`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::raycast`
 Expected: COMPILE ERROR — `raycast`, `RayHit` not found.
 
 - [ ] **Step 4: Implement**
@@ -985,7 +985,7 @@ pub fn raycast(
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::raycast`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::raycast`
 Expected: 8 tests PASS.
 
 - [ ] **Step 6: Full suite, clippy, commit**
@@ -993,9 +993,9 @@ Expected: 8 tests PASS.
 `raycast`/`RayHit` are unused until Task 9: `#[cfg_attr(not(test), allow(dead_code))]` on both (remove in Task 9).
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/src/game/raycast.rs dabcraft/src/game/mod.rs
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/src/game/raycast.rs git-craft/src/game/mod.rs
 git commit -m "feat: add Amanatides-Woo DDA voxel raycast"
 ```
 
@@ -1004,15 +1004,15 @@ git commit -m "feat: add Amanatides-Woo DDA voxel raycast"
 ### Task 6: Player controller (walk + fly) and camera slim-down
 
 **Files:**
-- Create: `dabcraft/src/game/player.rs`
-- Modify: `dabcraft/src/game/mod.rs`
-- Modify: `dabcraft/src/game/camera.rs`
+- Create: `git-craft/src/game/player.rs`
+- Modify: `git-craft/src/game/mod.rs`
+- Modify: `git-craft/src/game/camera.rs`
 
 The camera stops moving itself: movement (including M2's fly) moves into `Player`; `Camera` keeps orientation and projection only. `App` still compiles after this task because `Camera::fly` removal is paired with the app change here (one-line swap is NOT possible yet — the full wiring lands in Task 9, so this task keeps `App` building with a minimal temporary hookup, see Step 7).
 
 - [ ] **Step 1: Declare the module**
 
-In `dabcraft/src/game/mod.rs` add:
+In `git-craft/src/game/mod.rs` add:
 
 ```rust
 pub mod player;
@@ -1020,7 +1020,7 @@ pub mod player;
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `dabcraft/src/game/player.rs` with the tests module:
+Create `git-craft/src/game/player.rs` with the tests module:
 
 ```rust
 #[cfg(test)]
@@ -1164,12 +1164,12 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::player`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::player`
 Expected: COMPILE ERROR.
 
 - [ ] **Step 4: Implement the player**
 
-Add above the tests module in `dabcraft/src/game/player.rs`:
+Add above the tests module in `git-craft/src/game/player.rs`:
 
 ```rust
 use glam::{IVec3, Vec3};
@@ -1341,18 +1341,18 @@ Remove the `#[cfg_attr(not(test), allow(dead_code))]` attributes from `Aabb`/`mo
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::player`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::player`
 Expected: 12 tests PASS.
 
 - [ ] **Step 6: Slim down the camera**
 
-In `dabcraft/src/game/camera.rs`:
+In `git-craft/src/game/camera.rs`:
 1. Delete `Camera::fly` and the consts `FLY_SPEED`, `SPRINT_MULTIPLIER` (keep `FAR_PLANE`).
 2. Delete the tests `fly_moves_horizontally_along_yaw_even_when_pitched`, `space_and_shift_move_vertically`, `opposing_keys_cancel`, and `sprint_multiplies_speed` (their behavior now lives in player tests).
 
 - [ ] **Step 7: Temporary app hookup (keeps the build green)**
 
-In `dabcraft/src/app.rs`, `App::render` currently calls `self.camera.fly(&self.input, dt);`. Replace that one line with:
+In `git-craft/src/app.rs`, `App::render` currently calls `self.camera.fly(&self.input, dt);`. Replace that one line with:
 
 ```rust
 // Temporary M3 hookup (full wiring in app integration task): fly the
@@ -1374,19 +1374,19 @@ Add the field `player: crate::game::player::Player` to `App` and initialize it i
 - [ ] **Step 8: Full suite, clippy, run, commit**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
 ```
 
 Quick smoke (flight must feel identical to M2):
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 20; kill $APP_PID
 ```
 
 ```bash
-git add dabcraft/src/game/player.rs dabcraft/src/game/camera.rs dabcraft/src/game/mod.rs dabcraft/src/app.rs
+git add git-craft/src/game/player.rs git-craft/src/game/camera.rs git-craft/src/game/mod.rs git-craft/src/app.rs
 git commit -m "feat: add player controller with walk physics and fly mode"
 ```
 
@@ -1395,12 +1395,12 @@ git commit -m "feat: add player controller with walk physics and fly mode"
 ### Task 7: Hotbar
 
 **Files:**
-- Create: `dabcraft/src/game/hotbar.rs`
-- Modify: `dabcraft/src/game/mod.rs`
+- Create: `git-craft/src/game/hotbar.rs`
+- Modify: `git-craft/src/game/mod.rs`
 
 - [ ] **Step 1: Declare the module**
 
-In `dabcraft/src/game/mod.rs` add:
+In `git-craft/src/game/mod.rs` add:
 
 ```rust
 pub mod hotbar;
@@ -1408,7 +1408,7 @@ pub mod hotbar;
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `dabcraft/src/game/hotbar.rs` with the tests module:
+Create `git-craft/src/game/hotbar.rs` with the tests module:
 
 ```rust
 #[cfg(test)]
@@ -1472,7 +1472,7 @@ mod tests {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::hotbar`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::hotbar`
 Expected: COMPILE ERROR.
 
 - [ ] **Step 4: Implement**
@@ -1547,15 +1547,15 @@ Remove the dead_code attribute from `PLACEABLE` in `block.rs` (now used). `Hotba
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib game::hotbar`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib game::hotbar`
 Expected: 5 tests PASS.
 
 - [ ] **Step 6: Full suite, clippy, commit**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/src/game/hotbar.rs dabcraft/src/game/mod.rs dabcraft/src/world/block.rs
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/src/game/hotbar.rs git-craft/src/game/mod.rs git-craft/src/world/block.rs
 git commit -m "feat: add 9-slot creative hotbar with selection and paging"
 ```
 
@@ -1564,15 +1564,15 @@ git commit -m "feat: add 9-slot creative hotbar with selection and paging"
 ### Task 8: Block outline renderer
 
 **Files:**
-- Create: `dabcraft/assets/shaders/outline.wgsl`
-- Create: `dabcraft/src/render/outline.rs`
-- Modify: `dabcraft/src/render/mod.rs`
+- Create: `git-craft/assets/shaders/outline.wgsl`
+- Create: `git-craft/src/render/outline.rs`
+- Modify: `git-craft/src/render/mod.rs`
 
 A dedicated tiny pipeline (spec §7): LineList topology, 12 cube edges = 24 vertices pulled from a const table in the shader (no vertex buffer — same vertex-pulling philosophy as terrain). Drawn inside the main render pass after terrain, depth-tested `LessEqual` with depth writes off, slightly inflated to avoid z-fighting. The shader is loaded at startup and is not hot-reload-watched (only `terrain.wgsl` is; outline is 30 lines and stable).
 
 - [ ] **Step 1: Write the failing shader-validation test**
 
-Create `dabcraft/src/render/outline.rs` with only:
+Create `git-craft/src/render/outline.rs` with only:
 
 ```rust
 #[cfg(test)]
@@ -1589,7 +1589,7 @@ mod tests {
 }
 ```
 
-In `dabcraft/src/render/mod.rs` add:
+In `git-craft/src/render/mod.rs` add:
 
 ```rust
 pub mod outline;
@@ -1597,12 +1597,12 @@ pub mod outline;
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib render::outline`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib render::outline`
 Expected: FAIL — `outline.wgsl` does not exist (unwrap panics).
 
 - [ ] **Step 3: Write the shader**
 
-Create `dabcraft/assets/shaders/outline.wgsl`:
+Create `git-craft/assets/shaders/outline.wgsl`:
 
 ```wgsl
 struct OutlineUniform {
@@ -1639,12 +1639,12 @@ fn fs_main() -> @location(0) vec4<f32> {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test --manifest-path dabcraft/Cargo.toml --lib render::outline`
+Run: `cargo test --manifest-path git-craft/Cargo.toml --lib render::outline`
 Expected: PASS.
 
 - [ ] **Step 5: Implement the renderer**
 
-Add above the tests module in `dabcraft/src/render/outline.rs`:
+Add above the tests module in `git-craft/src/render/outline.rs`:
 
 ```rust
 use glam::IVec3;
@@ -1775,9 +1775,9 @@ impl OutlineRenderer {
 - [ ] **Step 6: Full suite, clippy, commit**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-git add dabcraft/assets/shaders/outline.wgsl dabcraft/src/render/outline.rs dabcraft/src/render/mod.rs
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+git add git-craft/assets/shaders/outline.wgsl git-craft/src/render/outline.rs git-craft/src/render/mod.rs
 git commit -m "feat: add wireframe block outline pipeline"
 ```
 
@@ -1786,13 +1786,13 @@ git commit -m "feat: add wireframe block outline pipeline"
 ### Task 9: App wiring — events, interaction, outline, cursor release
 
 **Files:**
-- Modify: `dabcraft/src/app.rs`
+- Modify: `git-craft/src/app.rs`
 
 This task is integration (no new pure logic): wire mouse events into `InputState`, drive break/place from the raycast, draw the outline, handle mode toggles and hotbar keys, and switch Escape from "quit" to "release cursor" (spec §7). Remove every remaining `#[cfg_attr(not(test), allow(dead_code))]` added in Tasks 3, 5, 6, 7, 8 for items this task now uses.
 
 - [ ] **Step 1: Add fields and constants**
 
-In `dabcraft/src/app.rs`, near the other consts:
+In `git-craft/src/app.rs`, near the other consts:
 
 ```rust
 /// Block interaction reach from the eye (spec §7).
@@ -2073,9 +2073,9 @@ ui.label(format!("Target:   {target_label}"));
 - [ ] **Step 8: Full suite, clippy, smoke run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 25; kill $APP_PID
 ```
 
@@ -2090,7 +2090,7 @@ Manual checks during the smoke run (controller/user plays for ~25 s):
 - [ ] **Step 9: Commit**
 
 ```bash
-git add dabcraft/src/app.rs dabcraft/src/game/input.rs dabcraft/src/game/player.rs dabcraft/src/game/hotbar.rs dabcraft/src/game/raycast.rs dabcraft/src/render/outline.rs
+git add git-craft/src/app.rs git-craft/src/game/input.rs git-craft/src/game/player.rs git-craft/src/game/hotbar.rs git-craft/src/game/raycast.rs git-craft/src/render/outline.rs
 git commit -m "feat: wire player interaction, block edits, outline, and cursor release"
 ```
 
@@ -2101,15 +2101,15 @@ git commit -m "feat: wire player interaction, block edits, outline, and cursor r
 ### Task 10: Game UI — crosshair and hotbar (egui)
 
 **Files:**
-- Create: `dabcraft/src/render/game_ui.rs`
-- Modify: `dabcraft/src/render/mod.rs`
-- Modify: `dabcraft/src/app.rs`
+- Create: `git-craft/src/render/game_ui.rs`
+- Modify: `git-craft/src/render/mod.rs`
+- Modify: `git-craft/src/app.rs`
 
 Per spec §7 all UI goes through egui. Game UI (crosshair, hotbar) draws **every frame**; F3 now toggles only the debug window. UI drawing has no pure logic to unit-test (colors/names were tested in Task 2); validation is visual.
 
 - [ ] **Step 1: Implement the UI module**
 
-Create `dabcraft/src/render/game_ui.rs`:
+Create `git-craft/src/render/game_ui.rs`:
 
 ```rust
 use crate::world::block::BlockId;
@@ -2162,7 +2162,7 @@ pub fn draw_hotbar(ctx: &egui::Context, slots: &[BlockId; 9], selected: usize) {
 }
 ```
 
-In `dabcraft/src/render/mod.rs` add:
+In `git-craft/src/render/mod.rs` add:
 
 ```rust
 pub mod game_ui;
@@ -2212,14 +2212,14 @@ let egui_cmds = if let Some(egui) = &mut self.egui {
 };
 ```
 
-Keep every existing HUD label exactly as it is — only the surrounding structure changes. `EguiLayer::drain_input` loses its last caller: delete the method in `dabcraft/src/render/egui_layer.rs` (egui now draws — and therefore drains — every frame).
+Keep every existing HUD label exactly as it is — only the surrounding structure changes. `EguiLayer::drain_input` loses its last caller: delete the method in `git-craft/src/render/egui_layer.rs` (egui now draws — and therefore drains — every frame).
 
 - [ ] **Step 3: Full suite, clippy, smoke run**
 
 ```bash
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 20; kill $APP_PID
 ```
 
@@ -2232,7 +2232,7 @@ Manual checks:
 - [ ] **Step 4: Commit**
 
 ```bash
-git add dabcraft/src/render/game_ui.rs dabcraft/src/render/mod.rs dabcraft/src/render/egui_layer.rs dabcraft/src/app.rs dabcraft/src/world/block.rs
+git add git-craft/src/render/game_ui.rs git-craft/src/render/mod.rs git-craft/src/render/egui_layer.rs git-craft/src/app.rs git-craft/src/world/block.rs
 git commit -m "feat: add crosshair and hotbar UI, decouple game UI from F3"
 ```
 
@@ -2246,9 +2246,9 @@ git commit -m "feat: add crosshair and hotbar UI, decouple game UI from F3"
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --manifest-path dabcraft/Cargo.toml
-cargo clippy --manifest-path dabcraft/Cargo.toml -- -D warnings
-cargo build --release --manifest-path dabcraft/Cargo.toml
+cargo test --manifest-path git-craft/Cargo.toml
+cargo clippy --manifest-path git-craft/Cargo.toml -- -D warnings
+cargo build --release --manifest-path git-craft/Cargo.toml
 ```
 
 Expected: all green, no warnings.
@@ -2256,7 +2256,7 @@ Expected: all green, no warnings.
 - [ ] **Step 2: Playable acceptance run**
 
 ```bash
-cargo run --release --manifest-path dabcraft/Cargo.toml &
+cargo run --release --manifest-path git-craft/Cargo.toml &
 APP_PID=$!; sleep 60; kill $APP_PID 2>/dev/null
 ```
 

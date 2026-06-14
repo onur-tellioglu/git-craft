@@ -10,6 +10,6 @@ build/
 # Rust
 target/
 
-# dabcraft runtime data
+# git-craft runtime data
 saves/
 .task-log/

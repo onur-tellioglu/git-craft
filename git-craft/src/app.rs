@@ -1196,7 +1196,7 @@ impl ApplicationHandler for App {
         }
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("dabcraft"))
+                .create_window(Window::default_attributes().with_title("git-craft"))
                 .unwrap(),
         );
         let instance = self.instance.take().expect("resumed twice with GPU already built");
