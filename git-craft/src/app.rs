@@ -252,6 +252,9 @@ pub struct App {
     /// `Some` in `--bench` mode: drives the deterministic flythrough and
     /// records frame-time / GPU-time percentiles. `None` for normal play.
     bench: Option<BenchRun>,
+    /// True when --native-bench was passed: window sized to primary display
+    /// native pixels instead of BENCH_WINDOW.
+    native_bench: bool,
     /// Set by the bench when it finishes; `about_to_wait` exits the loop.
     should_exit: bool,
     /// Player edits are persisted to region files on disk via a background
@@ -271,6 +274,7 @@ impl App {
         // Open the on-disk world and learn which columns are already saved.
         // Persistence is disabled in bench mode so benchmark flights do not write to
         // saves/region/ and skew reproducibility (review finding #4, M6 integration).
+        let native_bench = bench_cfg.as_ref().map(|c| c.native_res).unwrap_or(false);
         let (persistence, saved_columns) = if bench_cfg.is_some() {
             (None, HashSet::new())
         } else {
@@ -334,6 +338,7 @@ impl App {
             render_scale: 1.0,
             stats: FrameStats::default(),
             bench: bench_cfg.map(BenchRun::new),
+            native_bench,
             should_exit: false,
             persistence,
             saved_columns,
@@ -962,13 +967,24 @@ impl App {
                             );
                         }
                         let timestamps = ts_enabled && gpu.max > 0.0;
+                        let res_label = format!(
+                            "{}×{}",
+                            self.gpu
+                                .as_ref()
+                                .map(|g| g.config.width)
+                                .unwrap_or(BENCH_WINDOW.0),
+                            self.gpu
+                                .as_ref()
+                                .map(|g| g.config.height)
+                                .unwrap_or(BENCH_WINDOW.1),
+                        );
                         let report = crate::bench::format_report(
                             &cpu,
                             &gpu,
                             BENCH_TARGET_FPS,
                             timestamps,
                             RENDER_RADIUS,
-                            "1280×720",
+                            &res_label,
                         );
                         println!("{report}");
                         self.should_exit = true;
@@ -1534,9 +1550,36 @@ impl ApplicationHandler for App {
         let bench = self.bench.is_some();
         let mut attrs = Window::default_attributes().with_title("git-craft");
         if bench {
-            attrs = attrs.with_title("git-craft (bench)").with_inner_size(
-                winit::dpi::PhysicalSize::new(BENCH_WINDOW.0, BENCH_WINDOW.1),
-            );
+            let (pw, ph) = if self.native_bench {
+                // Size the window to the primary display's native physical pixels.
+                // Falls back to BENCH_WINDOW if the monitor cannot be queried
+                // (headless CI, virtual display, etc.).
+                event_loop
+                    .primary_monitor()
+                    .map(|m| {
+                        let s = m.size();
+                        (s.width, s.height)
+                    })
+                    .unwrap_or_else(|| {
+                        log::warn!(
+                            "--native-bench: primary monitor unavailable, \
+                             falling back to {}×{}",
+                            BENCH_WINDOW.0,
+                            BENCH_WINDOW.1
+                        );
+                        BENCH_WINDOW
+                    })
+            } else {
+                BENCH_WINDOW
+            };
+            let title = if self.native_bench {
+                "git-craft (native-bench)"
+            } else {
+                "git-craft (bench)"
+            };
+            attrs = attrs
+                .with_title(title)
+                .with_inner_size(winit::dpi::PhysicalSize::new(pw, ph));
             self.day.time = BENCH_NOON;
         }
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
