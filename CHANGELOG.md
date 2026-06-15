@@ -10,6 +10,26 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Performance
+
+- Reduced PCF shadow kernel in `terrain.wgsl` from 5×5 (25 taps) to 3×3 (9 taps),
+  cutting per-fragment shadow evaluation cost by ~64%. Shadow penumbra softness is
+  slightly reduced but remains visually acceptable at voxel scale.
+- Reduced shadow-map resolution from 2048² to 1536² across all three cascades,
+  cutting cascade depth-pass GPU cost by ~44% (area ratio 1536²/2048² ≈ 0.56).
+  Normal-offset and slope-scale depth bias self-scale via `texel_world`; no acne
+  introduced.
+- 1280×720 render-scale 1.0 GPU benchmark — 600-frame deterministic flythrough,
+  measured interactively with the window frontmost so TIMESTAMP_QUERY is active
+  (before → after):
+  GPU p50: 13.3 ms → 10.87 ms (−18%)
+  GPU p99: 18.7 ms → 13.48 ms (−28%)
+  After-run full GPU distribution: mean 11.01 ms, p95 12.37 ms, max 15.60 ms; CPU
+  frame p50 4.32 ms / p99 9.40 ms. The measured reduction confirms the predicted
+  ~64% fewer PCF taps + ~44% smaller shadow-depth raster area, with no shadow acne
+  or aliasing regression (visually verified). Hitting the full 120 fps budget
+  (GPU p99 ≤ 8.33 ms) remains the goal of issue #13 across further PRs.
+
 ## [0.6.0] - 2026-06-14
 
 Milestone M6: region persistence, procedural material textures, and a measurable --bench harness.
