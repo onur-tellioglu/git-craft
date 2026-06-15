@@ -938,8 +938,12 @@ impl App {
         self.update_world();
 
         // Bench state machine: warm up until streaming goes quiet, then record
-        // one (cpu_ms, gpu_ms) sample per frame. GPU ms is the previous frame's
-        // resolved timestamp readback (vsync-independent); cpu_ms is frame dt.
+        // one (cpu_ms, gpu_ms) sample per frame. cpu_ms is frame dt (frame-
+        // coherent under Immediate present). GPU ms is the wall-clock from the
+        // async timestamp readback, which lags 2+ frames behind the current
+        // frame under max_frame_latency=2 + Immediate present; samples may
+        // therefore be frame-incoherent. GPU values are kept as a diagnostic
+        // only — the PASS/FAIL verdict uses CPU p99. See also issue #18.
         if self.bench.is_some() {
             let idle = self.jobs.gen_in_flight == 0
                 && self.jobs.mesh_in_flight == 0
