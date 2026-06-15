@@ -97,7 +97,10 @@ pub fn parse_region(bytes: &[u8]) -> Option<BTreeMap<u16, Vec<u8>>> {
     if take::<4>(bytes, &mut c)? != MAGIC {
         return None;
     }
-    let _version = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
+    let version = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
+    if version != VERSION {
+        return None;
+    }
     let count = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
     let mut map = BTreeMap::new();
     for _ in 0..count {
@@ -258,6 +261,20 @@ mod tests {
         assert_eq!(parse_region(&blob).unwrap(), map);
         assert!(parse_region(b"XXXX").is_none()); // bad magic
         assert!(parse_region(&blob[..blob.len() - 1]).is_none()); // truncated
+    }
+
+    #[test]
+    fn parse_region_rejects_wrong_version() {
+        // Build a valid blob then patch the version field (bytes 4..6) to 2.
+        let map: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
+        let mut blob = serialize_region(&map);
+        // VERSION is at bytes 4-5 (after the 4-byte magic).
+        blob[4] = 2;
+        blob[5] = 0;
+        assert!(
+            parse_region(&blob).is_none(),
+            "parse_region must reject a blob with version != VERSION"
+        );
     }
 
     #[test]
