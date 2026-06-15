@@ -66,8 +66,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         vec2( 1,  0),
         vec2( 0,  1),
     );
+    let dim = vec2<i32>(textureDimensions(current_tex));
     for (var i = 0; i < 4; i++) {
-        let c = textureLoad(current_tex, px + neighbors[i], 0).rgb;
+        let coord = clamp(px + neighbors[i], vec2(0), dim - vec2(1));
+        let c = textureLoad(current_tex, coord, 0).rgb;
         lo = min(lo, c);
         hi = max(hi, c);
     }
