@@ -12,6 +12,7 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ### Changed
 - Bloom mip chain reduced from 6 to 5 mips at 1280×720 bench resolution (smallest mip ≥32 px threshold); saves 2 render passes with near-zero visual impact.
+- TAA neighborhood AABB reduced from 9-tap 3×3 box to 5-tap plus cross; ~44% fewer `textureLoad` calls at full native res (~52M → ~29M loads/frame).
 
 ## [0.6.2] - 2026-06-15
 

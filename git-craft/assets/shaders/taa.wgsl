@@ -54,15 +54,22 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var history = textureSampleLevel(history_tex, samp, prev_uv, 0.0).rgb;
 
     // Neighborhood AABB clamp (kills ghosting): bound history to the colour
-    // box of the current 3x3 neighborhood.
+    // box of a 5-tap plus-shaped cross (center + 4 cardinal neighbors).
+    // Drops the 4 diagonal corners vs. the old 3×3 box (~44% fewer loads).
+    // The AABB is slightly looser on diagonals; the ghost-blend below
+    // compensates by leaning on current when history diverges.
     var lo = current;
     var hi = current;
-    for (var dy = -1; dy <= 1; dy++) {
-        for (var dx = -1; dx <= 1; dx++) {
-            let c = textureLoad(current_tex, px + vec2(dx, dy), 0).rgb;
-            lo = min(lo, c);
-            hi = max(hi, c);
-        }
+    let neighbors = array<vec2<i32>, 4>(
+        vec2( 0, -1),
+        vec2(-1,  0),
+        vec2( 1,  0),
+        vec2( 0,  1),
+    );
+    for (var i = 0; i < 4; i++) {
+        let c = textureLoad(current_tex, px + neighbors[i], 0).rgb;
+        lo = min(lo, c);
+        hi = max(hi, c);
     }
     let clamped = clamp(history, lo, hi);
     // When the clamp had to pull history a long way, this pixel was likely
