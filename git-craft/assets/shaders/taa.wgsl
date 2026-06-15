@@ -1,6 +1,6 @@
 // Temporal AA resolve — reprojects depth to world space, finds the history
 // texel via the previous frame's unjittered VP, clamps history into the
-// current 3×3 neighborhood box (kills ghosting), and blends with a
+// current 5-tap plus-cross neighborhood (kills ghosting), and blends with a
 // disocclusion guard that leans on the current sample where history is stale.
 
 struct TaaUniform {
