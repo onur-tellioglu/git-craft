@@ -22,14 +22,7 @@ fn bits_for(palette_len: usize) -> u32 {
     }
 }
 
-/// Take a fixed-size chunk from `bytes` at cursor `c`, advancing it. None on
-/// truncation. The building block for the little-endian readers below.
-fn take<const N: usize>(bytes: &[u8], c: &mut usize) -> Option<[u8; N]> {
-    let end = c.checked_add(N)?;
-    let slice = bytes.get(*c..end)?;
-    *c = end;
-    Some(slice.try_into().expect("slice length checked above"))
-}
+use super::take;
 
 /// Read a packed index from a raw data buffer without borrowing the whole Section.
 fn read_index_raw(data: &[u64], bits: u32, voxel: usize) -> usize {

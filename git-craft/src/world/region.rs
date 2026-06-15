@@ -22,13 +22,7 @@ const VERSION: u16 = 1;
 const REGION_SHIFT: i32 = 5;
 const REGION_COLS: i32 = 1 << REGION_SHIFT;
 
-/// Take a fixed-size chunk from `bytes` at cursor `c`, advancing it; None on truncation.
-fn take<const N: usize>(bytes: &[u8], c: &mut usize) -> Option<[u8; N]> {
-    let end = c.checked_add(N)?;
-    let slice = bytes.get(*c..end)?;
-    *c = end;
-    Some(slice.try_into().expect("slice length checked above"))
-}
+use super::take;
 
 /// Region grid coordinate containing `col` (floor division; handles negatives).
 pub fn region_of(col: ColumnPos) -> (i32, i32) {
