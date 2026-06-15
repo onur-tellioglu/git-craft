@@ -282,7 +282,7 @@ mod tests {
     fn bloom_mip_count_five_mips_at_new_threshold() {
         // After raising the stop threshold to 32 px, 720p half-res (640×360)
         // yields 5 mips instead of 6 — saving 2 render passes.
-        // Trace: 640→320→160→80→40 (stops: 22 < 32), n=5.
+        // Trace: 640×360→320×180→160×90→80×45→40×22 (stops: h 22 < 32), n=5.
         assert_eq!(
             bloom_mip_count(640, 360),
             5,
