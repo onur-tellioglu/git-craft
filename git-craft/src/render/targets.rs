@@ -16,10 +16,10 @@ pub fn half_size(width: u32, height: u32) -> (u32, u32) {
     ((width / 2).max(1), (height / 2).max(1))
 }
 
-/// Mip count for the half-res bloom chain: down to ~8 px, capped at 6.
+/// Mip count for the half-res bloom chain: down to ~32 px, capped at 6.
 pub fn bloom_mip_count(w: u32, h: u32) -> u32 {
     let (mut w, mut h, mut n) = (w, h, 1);
-    while n < 6 && w >= 16 && h >= 16 {
+    while n < 6 && w >= 32 && h >= 32 {
         w /= 2;
         h /= 2;
         n += 1;
@@ -264,12 +264,46 @@ mod tests {
 
     #[test]
     fn bloom_mip_count_scales_with_resolution() {
+        // Large inputs still cap at 6 (the while n<6 guard).
         assert_eq!(
             bloom_mip_count(1512, 982),
             6,
-            "native half-res gets the full chain"
+            "very large half-res still hits the cap of 6 mips"
         );
-        assert_eq!(bloom_mip_count(20, 20), 2);
+        assert_eq!(
+            bloom_mip_count(20, 20),
+            1,
+            "20×20: below 32px threshold, stays at 1"
+        );
         assert_eq!(bloom_mip_count(8, 8), 1, "never zero mips");
+    }
+
+    #[test]
+    fn bloom_mip_count_five_mips_at_new_threshold() {
+        // After raising the stop threshold to 32 px, 720p half-res (640×360)
+        // yields 5 mips instead of 6 — saving 2 render passes.
+        // Trace: 640→320→160→80→40 (stops: 22 < 32), n=5.
+        assert_eq!(
+            bloom_mip_count(640, 360),
+            5,
+            "720p half-res: expect 5 mips with 32px threshold"
+        );
+        // 480p half-res: 320×180→160×90→80×45→40×22 (22<32), stops at n=4.
+        assert_eq!(
+            bloom_mip_count(320, 180),
+            4,
+            "480p half-res: expect 4 mips with 32px threshold"
+        );
+        // Very small windows: threshold ensures we still get at least 1 mip.
+        assert_eq!(
+            bloom_mip_count(16, 16),
+            1,
+            "16×16 half-res: threshold 32 means no iterations, stays at 1"
+        );
+        assert_eq!(
+            bloom_mip_count(32, 32),
+            2,
+            "32×32 half-res: exactly at threshold, one iteration fires"
+        );
     }
 }
