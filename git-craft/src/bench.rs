@@ -129,7 +129,17 @@ pub fn format_report(
         "FAIL"
     };
     let mut s = String::new();
-    s.push_str("=== git-craft --bench ===\n");
+    // Distinguish native-resolution runs in the header so two bench outputs
+    // saved to disk are unambiguous at a glance without opening the body.
+    // The resolution line already carries the exact pixel size; this label is
+    // a human-readable shorthand. 1280×720 is the fixed baseline resolution;
+    // anything else means --native-bench was used.
+    let header = if resolution == "1280×720" {
+        "=== git-craft --bench ==="
+    } else {
+        "=== git-craft bench (native-res) ==="
+    };
+    s.push_str(&format!("{header}\n"));
     s.push_str(&format!("resolution:       {resolution}\n"));
     s.push_str(&format!(
         "render distance:  {render_radius} columns ({}-chunk diameter, {} blocks)\n",
