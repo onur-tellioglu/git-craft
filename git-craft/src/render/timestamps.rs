@@ -38,9 +38,16 @@ pub fn frame_wall_ms(ticks: &[u64], period_ns: f32) -> Option<f32> {
             max_end = end;
         }
     }
-    if max_end == 0 || min_begin == u64::MAX || max_end <= min_begin {
+    // max_end == 0  ⟺  no valid pair found (also implies min_begin == u64::MAX).
+    // When at least one valid pair exists, max_end > min_begin is guaranteed
+    // by the end > begin filter above.
+    if max_end == 0 {
         return None;
     }
+    debug_assert!(
+        min_begin < max_end,
+        "invariant: valid pair guarantees max_end > min_begin"
+    );
     Some((max_end - min_begin) as f32 * period_ns / 1_000_000.0)
 }
 
@@ -307,6 +314,13 @@ mod tests {
         let wall = frame_wall_ms(&ticks, 1.0).unwrap();
         let per_pass = pass_millis(&ticks, 1.0)[0].unwrap();
         assert!((wall - per_pass).abs() < 1e-6);
+    }
+
+    #[test]
+    fn frame_wall_ms_returns_none_when_all_pairs_invalid() {
+        // Non-zero ticks but all end < begin (Metal bad samples, no zeros).
+        let ticks = [5u64, 3, 9, 2];
+        assert!(frame_wall_ms(&ticks, 1.0).is_none());
     }
 
     #[test]
