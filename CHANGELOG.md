@@ -10,6 +10,31 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-06-15
+
+M6 review-minor cleanups: validate the region save-format version, deduplicate an internal byte-reader helper, and clarify bench/module documentation. No shader or visual behavior change.
+
+### Changed
+
+- **The region save format now validates its on-disk version field.** `parse_region`
+  rejects (returns `None`) any region blob whose stored version does not match the
+  current `VERSION`, instead of reading the field and silently discarding it. This
+  guards against misreading a future, incompatible region layout as if it were the
+  current one. Covered by a unit test that feeds a bumped-version blob and asserts
+  rejection. (#11)
+
+### Internal
+
+- Deduplicated the `take<N>` fixed-size byte-reader helper into a single shared
+  implementation in the `world` module; `region` and `section` now import it. No
+  behavior change. (#11)
+- Bench module documentation and test clarity: documented `WARMUP_CAP` semantics and
+  `bench_yaw` edge cases, clarified the warmup yaw-freeze, and added an assertion for
+  the last used frame index. (#10)
+- Fixed stale doc comments in `block.rs`, `game_ui.rs`, and the M6c plan doc. The
+  `terrain.wgsl` specular grazing-angle guard was reviewed, found not strictly
+  redundant, and retained with an explanatory comment. (#12)
+
 ## [0.6.2] - 2026-06-15
 
 Honest `--bench` verdict: switch PASS/FAIL to frame-coherent CPU frame-time p99 (the prior GPU-pass-timestamp sum overcounts ~3× on Apple TBDR). Add `--native-bench` for native-resolution measurement.
