@@ -956,9 +956,19 @@ impl App {
                         let cpu = run.cpu_summary().unwrap();
                         let gpu = run.gpu_summary().unwrap();
                         // Primary signal: were timestamp queries created?
-                        // Secondary guard: reject an all-zero readback batch
-                        // (every sample stalled), which would give a bogus GPU
-                        // verdict of 0 ms. Warn so the user can diagnose it.
+                        // Secondary guard: reject an all-zero GPU summary with
+                        // two distinct root causes —
+                        //   1. "timestamps not yet readback": wall_ms starts at
+                        //      0.0 and is only updated after the first async
+                        //      readback completes (a few frames lag). If warmup
+                        //      is very short, the first pushed samples may all
+                        //      be 0.0. This is normal and self-correcting.
+                        //   2. "Metal driver stall": TIMESTAMP_QUERY is enabled
+                        //      but the driver never returns data for the frame
+                        //      window (rare; seen on some macOS/Metal combos).
+                        // Both cases produce gpu.max == 0.0 and must fall back
+                        // to CPU p99 to avoid a bogus 0-ms GPU verdict.
+                        // Warn so the user can distinguish the two causes.
                         if ts_enabled && gpu.max == 0.0 {
                             log::warn!(
                                 "TIMESTAMP_QUERY is enabled but all GPU readbacks \
@@ -1577,6 +1587,11 @@ impl ApplicationHandler for App {
             } else {
                 "git-craft (bench)"
             };
+            // PhysicalSize bypasses the DPI scale factor: the window's inner
+            // drawable area will be exactly pw×ph physical pixels regardless
+            // of the monitor's scale factor (e.g. Retina 2×). This is what we
+            // want for a benchmark — the swapchain resolution must match the
+            // physical pixel count, not the logical point count.
             attrs = attrs
                 .with_title(title)
                 .with_inner_size(winit::dpi::PhysicalSize::new(pw, ph));
