@@ -10,6 +10,10 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-15
+
+Reduce CSM shadow-cascade depth-raster and PCF shadow GPU cost at render-scale 1.0 (measured GPU p99 18.7 → 13.48 ms, −28%).
+
 ### Performance
 
 - Reduced PCF shadow kernel in `terrain.wgsl` from 5×5 (25 taps) to 3×3 (9 taps),
