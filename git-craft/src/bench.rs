@@ -20,6 +20,10 @@ const WARMUP_CAP: u32 = 6000;
 pub struct BenchConfig {
     /// Number of frames to record after warmup.
     pub frames: usize,
+    /// When true, the bench window is sized to the primary display's native
+    /// physical pixel resolution instead of the hardcoded 1280×720.
+    /// Activated by `--native-bench` (requires `--bench`).
+    pub native_res: bool,
 }
 
 /// Parse the process args. Returns `Some` iff `--bench` is present. Reads an
@@ -31,6 +35,7 @@ pub fn parse_bench_args(args: impl Iterator<Item = String>) -> Option<BenchConfi
         return None;
     }
     let mut frames = DEFAULT_FRAMES;
+    let mut native_res = false;
     for i in 0..args.len() {
         if args[i] == "--bench-frames"
             && let Some(n) = args.get(i + 1).and_then(|v| v.parse::<usize>().ok())
@@ -38,8 +43,11 @@ pub fn parse_bench_args(args: impl Iterator<Item = String>) -> Option<BenchConfi
         {
             frames = n;
         }
+        if args[i] == "--native-bench" {
+            native_res = true;
+        }
     }
-    Some(BenchConfig { frames })
+    Some(BenchConfig { frames, native_res })
 }
 
 /// Linearly-interpolated percentile (`p` in 0..=1) of an ascending-sorted slice.
@@ -107,6 +115,7 @@ pub fn format_report(
     target_fps: f32,
     timestamps: bool,
     render_radius: i32,
+    resolution: &str,
 ) -> String {
     let budget_ms = 1000.0 / target_fps;
     let (metric, metric_p99) = if timestamps {
@@ -121,6 +130,7 @@ pub fn format_report(
     };
     let mut s = String::new();
     s.push_str("=== git-craft --bench ===\n");
+    s.push_str(&format!("resolution:       {resolution}\n"));
     s.push_str(&format!(
         "render distance:  {render_radius} columns ({}-chunk diameter, {} blocks)\n",
         render_radius * 2,
@@ -295,7 +305,10 @@ mod tests {
 
     #[test]
     fn warmup_needs_a_consecutive_idle_streak() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         for _ in 0..(STEADY_FRAMES - 1) {
             assert!(!run.warmup_step(true));
         }
@@ -305,7 +318,10 @@ mod tests {
 
     #[test]
     fn a_busy_frame_resets_the_idle_streak() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         for _ in 0..(STEADY_FRAMES - 1) {
             run.warmup_step(true);
         }
@@ -318,7 +334,10 @@ mod tests {
 
     #[test]
     fn warmup_cap_forces_recording_when_never_idle() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         let mut ready = false;
         for _ in 0..WARMUP_CAP {
             ready = run.warmup_step(false);
@@ -336,7 +355,10 @@ mod tests {
     /// repeatedly but warmup_frames keeps climbing, so the cap eventually fires.
     #[test]
     fn warmup_cap_fires_despite_recurring_busy_frames() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         let mut ready = false;
         for frame in 0..WARMUP_CAP as usize {
             // Pattern: STEADY_FRAMES-1 idle frames, then 1 busy frame.
@@ -354,7 +376,10 @@ mod tests {
 
     #[test]
     fn push_records_until_done() {
-        let mut run = BenchRun::new(BenchConfig { frames: 3 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 3,
+            native_res: false,
+        });
         while !run.warmup_step(true) {}
         run.push(8.0, 4.0);
         run.push(9.0, 5.0);
@@ -381,15 +406,71 @@ mod tests {
         };
         let slow = Summary { p99: 20.0, ..fast };
         // Timestamps present → GPU p99 drives the verdict.
-        let pass = format_report(&slow, &fast, 120.0, true, 12);
+        let pass = format_report(&slow, &fast, 120.0, true, 12, "1280×720");
         assert!(pass.contains("PASS"), "{pass}");
-        let fail = format_report(&fast, &slow, 120.0, true, 12);
+        let fail = format_report(&fast, &slow, 120.0, true, 12, "1280×720");
         assert!(fail.contains("FAIL"), "{fail}");
         // No timestamps → fall back to CPU p99 and label it.
-        let no_ts = format_report(&slow, &fast, 120.0, false, 12);
+        let no_ts = format_report(&slow, &fast, 120.0, false, 12, "1280×720");
         assert!(no_ts.contains("FAIL"), "{no_ts}");
         assert!(no_ts.contains("TIMESTAMP_QUERY unavailable"), "{no_ts}");
         assert!(no_ts.contains("CPU p99"), "{no_ts}");
+    }
+
+    #[test]
+    fn parse_bench_args_detects_native_bench_flag() {
+        // --native-bench implies --bench and sets native_res.
+        let cfg = parse_bench_args(
+            ["prog", "--bench", "--native-bench"]
+                .map(String::from)
+                .into_iter(),
+        )
+        .unwrap();
+        assert!(cfg.native_res, "native_res should be true");
+        assert_eq!(cfg.frames, DEFAULT_FRAMES);
+    }
+
+    #[test]
+    fn native_bench_without_bench_is_none() {
+        // --native-bench alone does NOT activate bench mode (--bench required).
+        let result = parse_bench_args(["prog", "--native-bench"].map(String::from).into_iter());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn native_bench_combines_with_bench_frames() {
+        let cfg = parse_bench_args(
+            ["prog", "--bench", "--native-bench", "--bench-frames", "100"]
+                .map(String::from)
+                .into_iter(),
+        )
+        .unwrap();
+        assert!(cfg.native_res);
+        assert_eq!(cfg.frames, 100);
+    }
+
+    #[test]
+    fn non_native_bench_has_native_res_false() {
+        let cfg = parse_bench_args(["prog", "--bench"].map(String::from).into_iter()).unwrap();
+        assert!(!cfg.native_res);
+    }
+
+    #[test]
+    fn format_report_includes_resolution_label() {
+        let s = Summary {
+            frames: 10,
+            min: 1.0,
+            mean: 2.0,
+            p50: 2.0,
+            p95: 3.0,
+            p99: 4.0,
+            max: 5.0,
+        };
+        let r = format_report(&s, &s, 120.0, false, 12, "1280×720");
+        assert!(
+            r.contains("1280×720"),
+            "report should contain resolution: {r}"
+        );
     }
 
     #[test]

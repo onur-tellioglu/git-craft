@@ -968,6 +968,7 @@ impl App {
                             BENCH_TARGET_FPS,
                             timestamps,
                             RENDER_RADIUS,
+                            "1280×720",
                         );
                         println!("{report}");
                         self.should_exit = true;
