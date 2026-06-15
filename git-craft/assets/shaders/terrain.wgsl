@@ -195,7 +195,7 @@ fn fs_main(in: VsOut) -> FragOut {
     let half_v = normalize(frame.sun.xyz + view_dir);
     let shininess = mix(4.0, 64.0, 1.0 - roughness);
     let spec = pow(max(dot(normal, half_v), 0.0), shininess) * (1.0 - roughness) * 0.5;
-    let specular = frame.sun_color.rgb * spec * sun_vis * step(0.0001, ndotl);
+    let specular = frame.sun_color.rgb * spec * sun_vis;
 
     let lit = albedo * (direct + ambient + torch) + specular;
     // Aerial perspective: froxel slice indexed by exaggerated view distance.

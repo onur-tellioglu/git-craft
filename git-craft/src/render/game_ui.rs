@@ -40,9 +40,9 @@ pub fn draw_pause_overlay(ctx: &egui::Context) {
     );
 }
 
-/// Bottom-center hotbar: 9 color swatches (block colors mirror the terrain
-/// palette until M6 textures), white border on the selected slot, selected
-/// block name above.
+/// Bottom-center hotbar: 9 color swatches derived from `BlockId::color()` (the
+/// same base color that seeds the procedural material atlas), white border on
+/// the selected slot, selected block name above.
 pub fn draw_hotbar(ctx: &egui::Context, slots: &[BlockId; 9], selected: usize) {
     egui::Area::new(egui::Id::new("hotbar"))
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))

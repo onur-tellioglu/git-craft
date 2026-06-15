@@ -73,8 +73,10 @@ impl BlockId {
         }
     }
 
-    /// Linear-space RGB mirroring the PALETTE table in terrain.wgsl, used for
-    /// UI swatches until M6 ships real textures.
+    /// Linear-space RGB that seeds the procedural material atlas (per-block base
+    /// albedo) and drives the hotbar color swatches. The PALETTE constant in
+    /// terrain.wgsl was removed in M6c; this is now the single source of truth
+    /// for each block's base color.
     pub fn color(self) -> [f32; 3] {
         match self.0 {
             0 => [1.0, 0.0, 1.0], // air: magenta = bug color, mirrors PALETTE[0]
