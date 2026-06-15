@@ -10,6 +10,28 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Fixed
+
+- **GPU time metric now reports true wall-clock, not sum of per-pass deltas.**
+  On Apple TBDR (all Apple Silicon GPUs), consecutive render passes pipeline:
+  pass N's fragment phase overlaps pass N+1's tiler phase. Summing per-pass
+  timestamp deltas therefore overcounts real GPU frame time by ~2–3×
+  (v0.6.1 measured: 27.50 ms HUD sum vs ~9.9 ms actual frame time at 101 fps).
+  `GpuTimer::total_ms()` now returns `max(end_ticks) − min(begin_ticks)` from
+  the resolved timestamp buffer, matching the true elapsed GPU wall-clock.
+  Per-pass `pass_ms` breakdown in the F3 HUD is unchanged — per-pass values
+  are still correct for identifying hotspot passes — but **they are NOT additive
+  on TBDR; the GPU total is always less than their sum**.
+
+### Added
+
+- `--native-bench` flag: run the existing deterministic flythrough bench at the
+  primary display's native physical pixel resolution (e.g. 3024×1964 on M4)
+  instead of the hardcoded 1280×720. Requires `--bench`. The printed report now
+  includes the resolution so multiple bench runs are distinguishable.
+  This enables measuring the actual native-resolution GPU cost to track
+  progress on the 120 fps / 8.33 ms budget goal (issue #13).
+
 ## [0.6.1] - 2026-06-15
 
 Reduce CSM shadow-cascade depth-raster and PCF shadow GPU cost at render-scale 1.0 (measured GPU p99 18.7 → 13.48 ms, −28%).
