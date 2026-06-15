@@ -288,6 +288,32 @@ mod tests {
     }
 
     #[test]
+    fn frame_wall_ms_begin_zero_end_nonzero_is_skipped() {
+        // Explicit documentation of the begin==0 design choice: a pair whose
+        // begin tick is zero but end tick is nonzero is treated as "pass did not
+        // run this frame" and is excluded from the wall-clock reduction.
+        //
+        // Rationale: Metal leaves query slots at 0 when the GPU pass is not
+        // issued. A begin==0 / end>0 pair would anchor the wall-clock min to
+        // tick 0, making the total nonsensically large. The filter is therefore
+        // intentional — a real GPU begin tick of exactly 0 is vanishingly
+        // unlikely (it would require the GPU timestamp counter to sit at zero
+        // at the precise moment the pass starts), and the consequence (one
+        // dropped sample) is preferable to a corrupted wall-clock reading.
+        //
+        // Ticks: [0, 5_000_000,  1_000, 6_000_000]
+        //   pass 0: begin=0 (unwritten) → skipped
+        //   pass 1: begin=1_000, end=6_000_000 → 5.0 ms at 1 ns/tick
+        let ticks = [0u64, 5_000_000, 1_000, 6_000_000];
+        let result = frame_wall_ms(&ticks, 1.0);
+        assert!(
+            (result.unwrap() - 5.0).abs() < 1e-3,
+            "expected Some(5.0), got {:?}",
+            result
+        );
+    }
+
+    #[test]
     fn frame_wall_ms_returns_none_when_all_ticks_are_zero() {
         // All passes skipped — no valid data.
         let ticks = [0u64, 0, 0, 0];
@@ -302,8 +328,8 @@ mod tests {
     #[test]
     fn frame_wall_ms_period_scales_result() {
         // One pass: begin=1, end=1001 ticks; period=41.7 ns → 41.7 µs = 0.0417 ms
-        let ticks2 = [1u64, 1001];
-        let result = frame_wall_ms(&ticks2, 41.7);
+        let ticks = [1u64, 1001];
+        let result = frame_wall_ms(&ticks, 41.7);
         assert!((result.unwrap() - 0.0417).abs() < 1e-6, "got {:?}", result);
     }
 
