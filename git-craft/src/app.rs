@@ -160,8 +160,11 @@ const EDIT_REPEAT: f32 = 0.25;
 const DOUBLE_TAP_WINDOW: f32 = 0.35;
 
 /// Bench-mode constants (see `src/bench.rs`). A fixed elevated vantage that
-/// rotates in place over the recorded window: the loaded set stays resident
+/// rotates in place over the **recorded** window: the loaded set stays resident
 /// (no streaming churn) while frustum culling is exercised in every direction.
+/// During **warmup** the camera yaw is frozen at 0 — `bench_yaw(run.recorded(), …)`
+/// returns 0.0 while `run.recorded() == 0`. This is intentional: warmup just
+/// idles in one direction to let streaming settle, not to exercise culling.
 const BENCH_PITCH: f32 = -0.45; // ~-26°, tilted down over the terrain
 const BENCH_TARGET_FPS: f32 = 120.0;
 const BENCH_WINDOW: (u32, u32) = (1280, 720);

@@ -14,6 +14,10 @@ pub const DEFAULT_FRAMES: usize = 600;
 /// Consecutive idle (streaming-quiet) frames required before recording starts.
 const STEADY_FRAMES: u32 = 30;
 /// Hard cap on warmup frames so a world that never goes idle can't hang the run.
+/// When this fires, recording starts even if streaming is still active — the
+/// baseline may be slightly pessimistic (a few streaming jobs still in flight),
+/// but it prevents an infinite hang. This is intentional: a fully loaded world
+/// would idle naturally; WARMUP_CAP is the escape hatch for pathological cases.
 const WARMUP_CAP: u32 = 6000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,7 +103,13 @@ pub fn summarize(samples: &[f32]) -> Option<Summary> {
 
 /// Yaw (radians) for the orbit route at recorded frame `frame` of `total`.
 /// Sweeps a full turn across the recorded window so frustum culling is
-/// exercised in every direction. Guards `total == 0` and out-of-range frames.
+/// exercised in every direction.
+///
+/// Edge cases:
+/// - `total == 0` → returns 0.0 (no division by zero).
+/// - `frame > total` → clamped to `total`, yielding TAU. In practice the
+///   recording loop only calls this with `frame` in `0..total-1`, so TAU is
+///   clamped-but-unreachable during a normal run.
 pub fn bench_yaw(frame: usize, total: usize) -> f32 {
     if total == 0 {
         return 0.0;
@@ -324,9 +334,14 @@ mod tests {
     fn bench_yaw_sweeps_a_full_turn() {
         approx(bench_yaw(0, 100), 0.0);
         approx(bench_yaw(50, 100), std::f32::consts::PI);
+        // The actually-exercised near-end boundary: last recorded frame is total-1.
+        approx(bench_yaw(99, 100), TAU * 99.0 / 100.0);
+        // bench_yaw(total, total) == TAU via the clamp, but the recording loop
+        // never reaches this frame — it's a guard, not a reachable case.
         approx(bench_yaw(100, 100), TAU);
-        // Out-of-range frame is clamped; total 0 never divides by zero.
+        // Out-of-range beyond total: also clamped to TAU.
         approx(bench_yaw(200, 100), TAU);
+        // Zero total: guard against division by zero.
         approx(bench_yaw(5, 0), 0.0);
     }
 
