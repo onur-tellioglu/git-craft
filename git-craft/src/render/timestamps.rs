@@ -303,12 +303,13 @@ mod tests {
         //
         // Ticks: [0, 5_000_000,  1_000, 6_000_000]
         //   pass 0: begin=0 (unwritten) → skipped
-        //   pass 1: begin=1_000, end=6_000_000 → 5.0 ms at 1 ns/tick
+        //   pass 1: begin=1_000, end=6_000_000 → 5.999 ms at 1 ns/tick
+        //     (6_000_000 − 1_000 = 5_999_000 ticks × 1 ns / 1_000_000 ms)
         let ticks = [0u64, 5_000_000, 1_000, 6_000_000];
         let result = frame_wall_ms(&ticks, 1.0);
         assert!(
-            (result.unwrap() - 5.0).abs() < 1e-3,
-            "expected Some(5.0), got {:?}",
+            (result.unwrap() - 5.999).abs() < 1e-3,
+            "expected Some(5.999), got {:?}",
             result
         );
     }
