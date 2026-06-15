@@ -20,6 +20,10 @@ const WARMUP_CAP: u32 = 6000;
 pub struct BenchConfig {
     /// Number of frames to record after warmup.
     pub frames: usize,
+    /// When true, the bench window is sized to the primary display's native
+    /// physical pixel resolution instead of the hardcoded 1280×720.
+    /// Activated by `--native-bench` (requires `--bench`).
+    pub native_res: bool,
 }
 
 /// Parse the process args. Returns `Some` iff `--bench` is present. Reads an
@@ -31,6 +35,7 @@ pub fn parse_bench_args(args: impl Iterator<Item = String>) -> Option<BenchConfi
         return None;
     }
     let mut frames = DEFAULT_FRAMES;
+    let mut native_res = false;
     for i in 0..args.len() {
         if args[i] == "--bench-frames"
             && let Some(n) = args.get(i + 1).and_then(|v| v.parse::<usize>().ok())
@@ -38,8 +43,11 @@ pub fn parse_bench_args(args: impl Iterator<Item = String>) -> Option<BenchConfi
         {
             frames = n;
         }
+        if args[i] == "--native-bench" {
+            native_res = true;
+        }
     }
-    Some(BenchConfig { frames })
+    Some(BenchConfig { frames, native_res })
 }
 
 /// Linearly-interpolated percentile (`p` in 0..=1) of an ascending-sorted slice.
@@ -99,28 +107,43 @@ pub fn bench_yaw(frame: usize, total: usize) -> f32 {
     (frame.min(total) as f32) / total as f32 * TAU
 }
 
-/// Build the printed report and PASS/FAIL verdict. The verdict metric is GPU
-/// p99 when timestamps are available (vsync-independent), otherwise CPU p99.
+/// Build the printed report and PASS/FAIL verdict.
+///
+/// The verdict always uses **CPU frame-time p99**. In `Immediate` present mode
+/// the CPU `dt` is frame-coherent and reflects uncapped render cost directly.
+///
+/// GPU percentiles are printed as a **diagnostic only**. On Apple TBDR the
+/// async readback lags 2-3 frames (`max_frame_latency = 2`), so per-frame GPU
+/// values are not frame-coherent with the CPU samples. Additionally, summing
+/// per-pass timestamps overcounts true frame time on TBDR because render-pass
+/// stages pipeline/overlap (measured example: 27.5 ms summed GPU vs 9.86 ms
+/// actual at 101 fps). Use the GPU column to identify hotspot passes, not to
+/// evaluate the overall frame budget. A frame-coherent GPU total is tracked in
+/// issue #18.
 pub fn format_report(
     cpu: &Summary,
     gpu: &Summary,
     target_fps: f32,
     timestamps: bool,
     render_radius: i32,
+    resolution: &str,
 ) -> String {
     let budget_ms = 1000.0 / target_fps;
-    let (metric, metric_p99) = if timestamps {
-        ("GPU", gpu.p99)
-    } else {
-        ("CPU", cpu.p99)
-    };
-    let verdict = if metric_p99 <= budget_ms {
-        "PASS"
-    } else {
-        "FAIL"
-    };
+    // Verdict is always CPU p99 — it is frame-coherent under Immediate present.
+    let verdict = if cpu.p99 <= budget_ms { "PASS" } else { "FAIL" };
     let mut s = String::new();
-    s.push_str("=== git-craft --bench ===\n");
+    // Distinguish native-resolution runs in the header so two bench outputs
+    // saved to disk are unambiguous at a glance without opening the body.
+    // The resolution line already carries the exact pixel size; this label is
+    // a human-readable shorthand. 1280×720 is the fixed baseline resolution;
+    // anything else means --native-bench was used.
+    let header = if resolution == "1280×720" {
+        "=== git-craft --bench ==="
+    } else {
+        "=== git-craft bench (native-res) ==="
+    };
+    s.push_str(&format!("{header}\n"));
+    s.push_str(&format!("resolution:       {resolution}\n"));
     s.push_str(&format!(
         "render distance:  {render_radius} columns ({}-chunk diameter, {} blocks)\n",
         render_radius * 2,
@@ -136,15 +159,20 @@ pub fn format_report(
         cpu.min, cpu.mean, cpu.p50, cpu.p95, cpu.p99, cpu.max,
     ));
     if timestamps {
+        // GPU column is a diagnostic reference — NOT the verdict driver.
+        // Async readback lags 2+ frames and per-pass values overlap on Apple
+        // TBDR; these numbers are useful for identifying hotspot passes but
+        // must not be compared directly to the frame budget. See issue #18.
         s.push_str(&format!(
-            "GPU frame ms     {:6.2} {:6.2} {:6.2} {:6.2} {:6.2} {:6.2}\n",
+            "GPU frame ms     {:6.2} {:6.2} {:6.2} {:6.2} {:6.2} {:6.2}  [diagnostic, not verdict — see #18]\n",
             gpu.min, gpu.mean, gpu.p50, gpu.p95, gpu.p99, gpu.max,
         ));
     } else {
         s.push_str("GPU frame ms     (TIMESTAMP_QUERY unavailable)\n");
     }
     s.push_str(&format!(
-        "verdict: {verdict} ({metric} p99 {metric_p99:.2} ms vs {budget_ms:.2} ms budget)\n"
+        "verdict: {verdict} (CPU p99 {:.2} ms vs {budget_ms:.2} ms budget)\n",
+        cpu.p99
     ));
     s
 }
@@ -217,12 +245,21 @@ impl BenchRun {
 
     /// Record one frame's CPU + GPU milliseconds. Transitions to Done at the
     /// configured frame count. No-op unless currently recording.
+    ///
+    /// GPU samples where `gpu_ms == 0.0` are skipped. A zero reading means
+    /// the async readback has not completed yet (the timestamp buffer is
+    /// initialized to 0 and only updated after a successful `after_submit`
+    /// readback, which lags 2+ frames). Stale zeros would pull down the GPU
+    /// diagnostic distribution without conveying any useful information.
+    /// CPU samples are always recorded — they are never stale.
     pub fn push(&mut self, cpu_ms: f32, gpu_ms: f32) {
         if self.phase != Phase::Recording {
             return;
         }
         self.cpu_ms.push(cpu_ms);
-        self.gpu_ms.push(gpu_ms);
+        if gpu_ms > 0.0 {
+            self.gpu_ms.push(gpu_ms);
+        }
         if self.cpu_ms.len() >= self.config.frames {
             self.phase = Phase::Done;
         }
@@ -295,7 +332,10 @@ mod tests {
 
     #[test]
     fn warmup_needs_a_consecutive_idle_streak() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         for _ in 0..(STEADY_FRAMES - 1) {
             assert!(!run.warmup_step(true));
         }
@@ -305,7 +345,10 @@ mod tests {
 
     #[test]
     fn a_busy_frame_resets_the_idle_streak() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         for _ in 0..(STEADY_FRAMES - 1) {
             run.warmup_step(true);
         }
@@ -318,7 +361,10 @@ mod tests {
 
     #[test]
     fn warmup_cap_forces_recording_when_never_idle() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         let mut ready = false;
         for _ in 0..WARMUP_CAP {
             ready = run.warmup_step(false);
@@ -336,7 +382,10 @@ mod tests {
     /// repeatedly but warmup_frames keeps climbing, so the cap eventually fires.
     #[test]
     fn warmup_cap_fires_despite_recurring_busy_frames() {
-        let mut run = BenchRun::new(BenchConfig { frames: 5 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 5,
+            native_res: false,
+        });
         let mut ready = false;
         for frame in 0..WARMUP_CAP as usize {
             // Pattern: STEADY_FRAMES-1 idle frames, then 1 busy frame.
@@ -354,7 +403,10 @@ mod tests {
 
     #[test]
     fn push_records_until_done() {
-        let mut run = BenchRun::new(BenchConfig { frames: 3 });
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 3,
+            native_res: false,
+        });
         while !run.warmup_step(true) {}
         run.push(8.0, 4.0);
         run.push(9.0, 5.0);
@@ -368,8 +420,31 @@ mod tests {
         approx(run.gpu_summary().unwrap().min, 3.0);
     }
 
+    /// Stale zero GPU samples (readback not yet completed) must not pollute the
+    /// GPU diagnostic distribution. The first two frames have gpu_ms == 0 (the
+    /// async readback hasn't landed yet); only the third has a real value.
+    /// cpu_ms is always recorded regardless of the GPU value.
     #[test]
-    fn report_verdict_tracks_the_chosen_metric() {
+    fn push_skips_stale_zero_gpu_samples() {
+        let mut run = BenchRun::new(BenchConfig {
+            frames: 3,
+            native_res: false,
+        });
+        while !run.warmup_step(true) {}
+        run.push(8.0, 0.0); // stale — gpu not yet readback
+        run.push(9.0, 0.0); // stale
+        run.push(7.0, 5.0); // real readback
+        assert!(run.is_done());
+        assert_eq!(run.recorded(), 3); // cpu always recorded
+        // GPU summary should contain only the one non-zero sample.
+        let gpu = run.gpu_summary().unwrap();
+        assert_eq!(gpu.frames, 1, "only 1 non-zero GPU sample expected");
+        approx(gpu.min, 5.0);
+        approx(gpu.max, 5.0);
+    }
+
+    #[test]
+    fn report_verdict_always_uses_cpu_p99() {
         let fast = Summary {
             frames: 600,
             min: 2.0,
@@ -380,16 +455,87 @@ mod tests {
             max: 6.0,
         };
         let slow = Summary { p99: 20.0, ..fast };
-        // Timestamps present → GPU p99 drives the verdict.
-        let pass = format_report(&slow, &fast, 120.0, true, 12);
-        assert!(pass.contains("PASS"), "{pass}");
-        let fail = format_report(&fast, &slow, 120.0, true, 12);
-        assert!(fail.contains("FAIL"), "{fail}");
-        // No timestamps → fall back to CPU p99 and label it.
-        let no_ts = format_report(&slow, &fast, 120.0, false, 12);
+        // Verdict is always CPU p99, regardless of whether GPU timestamps are
+        // available. GPU async readback lags 2+ frames on Apple TBDR and
+        // per-pass values overlap, making the GPU column an unreliable verdict
+        // driver (it produced false FAILs in v0.6.1 — see PR #17).
+
+        // CPU fast (5 ms < 8.33 ms), GPU slow (20 ms) + timestamps → PASS
+        // because the verdict ignores GPU.
+        let pass_ts = format_report(&fast, &slow, 120.0, true, 12, "1280×720");
+        assert!(pass_ts.contains("PASS"), "{pass_ts}");
+        assert!(pass_ts.contains("CPU p99"), "{pass_ts}");
+
+        // CPU slow (20 ms > 8.33 ms), GPU fast (5 ms) + timestamps → FAIL
+        // because the verdict ignores GPU.
+        let fail_ts = format_report(&slow, &fast, 120.0, true, 12, "1280×720");
+        assert!(fail_ts.contains("FAIL"), "{fail_ts}");
+        assert!(fail_ts.contains("CPU p99"), "{fail_ts}");
+
+        // GPU diagnostic line is present when timestamps are available.
+        assert!(pass_ts.contains("diagnostic"), "{pass_ts}");
+
+        // No timestamps → CPU p99 verdict, GPU line shows unavailable.
+        let no_ts = format_report(&slow, &fast, 120.0, false, 12, "1280×720");
         assert!(no_ts.contains("FAIL"), "{no_ts}");
         assert!(no_ts.contains("TIMESTAMP_QUERY unavailable"), "{no_ts}");
         assert!(no_ts.contains("CPU p99"), "{no_ts}");
+    }
+
+    #[test]
+    fn parse_bench_args_detects_native_bench_flag() {
+        // --native-bench implies --bench and sets native_res.
+        let cfg = parse_bench_args(
+            ["prog", "--bench", "--native-bench"]
+                .map(String::from)
+                .into_iter(),
+        )
+        .unwrap();
+        assert!(cfg.native_res, "native_res should be true");
+        assert_eq!(cfg.frames, DEFAULT_FRAMES);
+    }
+
+    #[test]
+    fn native_bench_without_bench_is_none() {
+        // --native-bench alone does NOT activate bench mode (--bench required).
+        let result = parse_bench_args(["prog", "--native-bench"].map(String::from).into_iter());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn native_bench_combines_with_bench_frames() {
+        let cfg = parse_bench_args(
+            ["prog", "--bench", "--native-bench", "--bench-frames", "100"]
+                .map(String::from)
+                .into_iter(),
+        )
+        .unwrap();
+        assert!(cfg.native_res);
+        assert_eq!(cfg.frames, 100);
+    }
+
+    #[test]
+    fn non_native_bench_has_native_res_false() {
+        let cfg = parse_bench_args(["prog", "--bench"].map(String::from).into_iter()).unwrap();
+        assert!(!cfg.native_res);
+    }
+
+    #[test]
+    fn format_report_includes_resolution_label() {
+        let s = Summary {
+            frames: 10,
+            min: 1.0,
+            mean: 2.0,
+            p50: 2.0,
+            p95: 3.0,
+            p99: 4.0,
+            max: 5.0,
+        };
+        let r = format_report(&s, &s, 120.0, false, 12, "1280×720");
+        assert!(
+            r.contains("1280×720"),
+            "report should contain resolution: {r}"
+        );
     }
 
     #[test]

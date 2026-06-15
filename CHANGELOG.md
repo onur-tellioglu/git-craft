@@ -10,6 +10,57 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+### Fixed
+
+- **The `--bench` PASS/FAIL verdict now uses CPU frame-time p99 (frame-coherent),
+  replacing the previous GPU-pass-timestamp-sum verdict.** On Apple TBDR (all
+  Apple Silicon GPUs), consecutive render passes pipeline: pass N's fragment
+  phase overlaps pass N+1's tiler phase. Summing per-pass timestamp deltas
+  therefore overcounts true frame time — sometimes by roughly 3× (measured
+  example: the F3 HUD showed 27.5 ms of summed GPU time while the game
+  presented at 101 fps, i.e. 9.86 ms/frame actual). The old GPU-sum verdict
+  consequently produced false FAILs: v0.6.1's "GPU p99 13.48 ms vs 8.33 ms"
+  was an overcount, not a real budget miss.
+
+  In `Immediate` present mode the CPU `dt` is frame-coherent and directly
+  reflects uncapped render cost, making CPU p99 the reliable verdict metric.
+  The GPU timestamp column is preserved in the bench report as a **diagnostic
+  reference** — useful for identifying hotspot passes in relative terms —
+  but it is clearly labelled as not driving the verdict and known to be
+  incoherent across frames due to async readback latency (2+ frames under
+  `max_frame_latency = 2`). A frame-coherent whole-frame GPU total is tracked
+  in issue #18.
+
+- `GpuTimer::total_ms()` now returns `max(end_ticks) − min(begin_ticks)` —
+  the true whole-frame GPU wall-clock — instead of the sum of per-pass deltas.
+  This value drives the F3 HUD GPU total and is available in the bench report
+  diagnostic column. Per-pass `pass_ms` values in the HUD are unchanged
+  (correct for identifying individual hotspot passes) but are **not additive
+  on TBDR**; the GPU wall-clock is always less than or equal to their sum.
+
+- Stale zero GPU samples in the bench (async readback not yet completed at the
+  start of recording) are now filtered out of the GPU diagnostic distribution.
+  These zeros were an artifact of the 2+ frame async readback lag, not real
+  frame times.
+
+### Added
+
+- `--native-bench` flag: run the existing deterministic flythrough bench at the
+  primary display's native physical pixel resolution (e.g. 3024×1964 on M4)
+  instead of the hardcoded 1280×720. Requires `--bench`. The printed report now
+  includes the resolution so multiple bench runs are distinguishable.
+  This enables measuring the actual native-resolution GPU cost to track
+  progress on the 120 fps / 8.33 ms budget goal (issue #13).
+
+- `frame_wall_ms` helper (in `render/timestamps.rs`): computes the true
+  whole-frame GPU wall-clock as `max(end_ticks) − min(begin_ticks)` across all
+  render passes in a frame. Powers both `GpuTimer::total_ms()` (F3 HUD total)
+  and the bench GPU diagnostic column. Zero-tick pairs (pass not issued) are
+  excluded from the min/max reduction to avoid anchoring the wall-clock to an
+  uninitialised slot. Note: this value is **not yet frame-coherent in the bench**
+  under multi-frame readback latency (tracked in issue #18), so it does not
+  drive the bench PASS/FAIL verdict.
+
 ## [0.6.1] - 2026-06-15
 
 Reduce CSM shadow-cascade depth-raster and PCF shadow GPU cost at render-scale 1.0 (measured GPU p99 18.7 → 13.48 ms, −28%).
