@@ -357,15 +357,17 @@ fn take<const N: usize>(bytes: &[u8], c: &mut usize) -> Option<[u8; N]> {
 - Modify: `git-craft/assets/shaders/terrain.wgsl:198`
 - Modify: `docs/superpowers/plans/2026-06-14-git-craft-m6c-textures.md:41`
 
-**Redundancy analysis for the shader edit (verified):**
+**Shader guard audit (post-review correction):**
 
 Line 198: `let specular = frame.sun_color.rgb * spec * sun_vis * step(0.0001, ndotl);`
 
-`sun_vis` (line 184) = `min(shadow_f, guard) * geo_lit`. `shadow_f` is initialized to `0.0` and is only set inside `if ndotl > 0.0 && guard > 0.0 && geo_lit > 0.0`. Therefore:
-- If `ndotl == 0.0` → `shadow_f` stays `0.0` → `sun_vis == 0.0` → specular already zero.
-- If `ndotl > 0.0` → `step(0.0001, ndotl)` returns `1.0` (no effect).
+A post-implementation code review (2026-06-15) found the original redundancy analysis was incomplete. The `step(0.0001, ndotl)` guard is **NOT strictly redundant** in the micro-range `0 < ndotl < 0.0001`:
 
-The `step(0.0001, ndotl)` factor is mathematically dead. Removing it has no visual effect.
+- In that range `ndotl > 0.0` is true, so `shadow_f` can be non-zero (the `if ndotl > 0.0 &&` branch fires), meaning `sun_vis` can be non-zero.
+- `spec` (the half-vector dot product) is independent of `ndotl` and can be large.
+- Without the guard, the specular term can be non-zero at near-grazing angles where the diffuse term (∝ ndotl ≈ 0) contributes nothing — producing potential specular slivers at the sun terminator on normal-mapped surfaces.
+
+**Decision:** The guard is **retained and annotated** in the shader rather than removed. This makes the PR a true zero-visual-change cleanup. The plan's original "dead code removal" framing was inaccurate; the correct characterization is "specular sliver suppression at near-zero grazing angles." The other #12 edits (block.rs docstring, game_ui.rs comment, M6c plan-doc text) are unchanged.
 
 **Visual validation note:** shader changes require a human-in-the-loop visual check at merge time (the GPU bench window must be frontmost for GPU timing; the terrain render must be eyeballed for no regression). Flag this in the PR description.
 
