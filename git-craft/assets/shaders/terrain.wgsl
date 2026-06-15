@@ -195,6 +195,12 @@ fn fs_main(in: VsOut) -> FragOut {
     let half_v = normalize(frame.sun.xyz + view_dir);
     let shininess = mix(4.0, 64.0, 1.0 - roughness);
     let spec = pow(max(dot(normal, half_v), 0.0), shininess) * (1.0 - roughness) * 0.5;
+    // step(0.0001, ndotl) suppresses specular at near-zero grazing angles where
+    // the perturbed normal barely faces the sun. Without it, the half-vector dot
+    // product can still be large (yielding a specular sliver) even when ndotl ≈ 0
+    // and the diffuse term (∝ ndotl) is negligible. This keeps specular tied to
+    // a visible diffuse contribution and avoids artifactual highlights at the
+    // sun terminator on normal-mapped surfaces.
     let specular = frame.sun_color.rgb * spec * sun_vis * step(0.0001, ndotl);
 
     let lit = albedo * (direct + ambient + torch) + specular;

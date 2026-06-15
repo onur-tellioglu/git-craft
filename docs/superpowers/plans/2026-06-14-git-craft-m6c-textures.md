@@ -6,7 +6,7 @@ type: enhancement
 priority: high
 breaking: false
 parent-spec: docs/superpowers/specs/2026-06-11-dabcraft-design.md
-touched-files: [git-craft/src/render/material.rs, git-craft/src/render/terrain.rs, git-craft/src/render/mod.rs, git-craft/assets/shaders/terrain.wgsl, git-craft/CHANGELOG.md, git-craft/AGENTS.md]
+touched-files: [git-craft/src/render/material.rs, git-craft/src/render/terrain.rs, git-craft/src/render/mod.rs, git-craft/assets/shaders/terrain.wgsl, git-craft/src/app.rs, git-craft/CHANGELOG.md, git-craft/AGENTS.md]
 ---
 
 # git-craft M6c — procedural material textures (normal/roughness)
@@ -38,7 +38,9 @@ material texture array indexed by block id, plus shader sampling + lighting.
    (albedo+roughness, normal; `Rgba8Unorm`, linear — the base colors are already linear) from the
    atlas, upload every mip/layer, add a repeat+trilinear sampler and a `material_layout` bind group.
    Thread the new layout through `build_pipeline` and `swap_shader`; bind it as group 4 in `draw`.
-   `TerrainRenderer::new` builds the atlas itself — no `app.rs` change.
+   `TerrainRenderer::new` builds the atlas itself. In practice `app.rs` needed a
+   one-line change to pass `&gpu.queue` to `TerrainRenderer::new`; the `touched-files`
+   list in the front-matter should include `app.rs`.
 3. **`terrain.wgsl` — sample + light.** Pass interpolated `tile_uv = corner_uv * vec2(w, h)` (per-block
    tiling) and the flat `layer`. In the fragment: sample albedo+roughness and the tangent-space normal,
    reconstruct the world normal from `FACE_U/FACE_V/FACE_NORMAL`, and use it for diffuse `NdotL`, the

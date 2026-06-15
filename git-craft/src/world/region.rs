@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::take;
 use crate::world::chunks::ColumnPos;
 use crate::world::r#gen::COLUMN_SECTIONS;
 use crate::world::section::Section;
@@ -21,14 +22,6 @@ const VERSION: u16 = 1;
 /// 2^5 = 32 columns per region axis → 1024 columns per region file.
 const REGION_SHIFT: i32 = 5;
 const REGION_COLS: i32 = 1 << REGION_SHIFT;
-
-/// Take a fixed-size chunk from `bytes` at cursor `c`, advancing it; None on truncation.
-fn take<const N: usize>(bytes: &[u8], c: &mut usize) -> Option<[u8; N]> {
-    let end = c.checked_add(N)?;
-    let slice = bytes.get(*c..end)?;
-    *c = end;
-    Some(slice.try_into().expect("slice length checked above"))
-}
 
 /// Region grid coordinate containing `col` (floor division; handles negatives).
 pub fn region_of(col: ColumnPos) -> (i32, i32) {
@@ -97,7 +90,10 @@ pub fn parse_region(bytes: &[u8]) -> Option<BTreeMap<u16, Vec<u8>>> {
     if take::<4>(bytes, &mut c)? != MAGIC {
         return None;
     }
-    let _version = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
+    let version = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
+    if version != VERSION {
+        return None;
+    }
     let count = u16::from_le_bytes(take::<2>(bytes, &mut c)?);
     let mut map = BTreeMap::new();
     for _ in 0..count {
@@ -258,6 +254,20 @@ mod tests {
         assert_eq!(parse_region(&blob).unwrap(), map);
         assert!(parse_region(b"XXXX").is_none()); // bad magic
         assert!(parse_region(&blob[..blob.len() - 1]).is_none()); // truncated
+    }
+
+    #[test]
+    fn parse_region_rejects_wrong_version() {
+        // Build a valid blob then patch the version field (bytes 4..6) to 2.
+        let map: BTreeMap<u16, Vec<u8>> = BTreeMap::new();
+        let mut blob = serialize_region(&map);
+        // VERSION is at bytes 4-5 (after the 4-byte magic).
+        blob[4] = 2;
+        blob[5] = 0;
+        assert!(
+            parse_region(&blob).is_none(),
+            "parse_region must reject a blob with version != VERSION"
+        );
     }
 
     #[test]
