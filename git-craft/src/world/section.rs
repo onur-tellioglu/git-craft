@@ -1,3 +1,4 @@
+use super::take;
 use crate::world::block::{AIR, BlockId};
 
 pub const SECTION_SIZE: usize = 32;
@@ -21,8 +22,6 @@ fn bits_for(palette_len: usize) -> u32 {
         usize::BITS - (palette_len - 1).leading_zeros()
     }
 }
-
-use super::take;
 
 /// Read a packed index from a raw data buffer without borrowing the whole Section.
 fn read_index_raw(data: &[u64], bits: u32, voxel: usize) -> usize {

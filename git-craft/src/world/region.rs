@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::take;
 use crate::world::chunks::ColumnPos;
 use crate::world::r#gen::COLUMN_SECTIONS;
 use crate::world::section::Section;
@@ -21,8 +22,6 @@ const VERSION: u16 = 1;
 /// 2^5 = 32 columns per region axis → 1024 columns per region file.
 const REGION_SHIFT: i32 = 5;
 const REGION_COLS: i32 = 1 << REGION_SHIFT;
-
-use super::take;
 
 /// Region grid coordinate containing `col` (floor division; handles negatives).
 pub fn region_of(col: ColumnPos) -> (i32, i32) {
