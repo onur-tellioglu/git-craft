@@ -10,6 +10,10 @@ minor version tracks roadmap milestone progress (e.g. `0.5` corresponds to miles
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-15
+
+Honest `--bench` verdict: switch PASS/FAIL to frame-coherent CPU frame-time p99 (the prior GPU-pass-timestamp sum overcounts ~3× on Apple TBDR). Add `--native-bench` for native-resolution measurement.
+
 ### Fixed
 
 - **The `--bench` PASS/FAIL verdict now uses CPU frame-time p99 (frame-coherent),
